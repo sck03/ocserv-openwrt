@@ -46,13 +46,18 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7.0.1
         with:
           persist-credentials: false
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7.0.0
         with:
-          python-version: "3.13"
-      - run: python -m pip install lupa==2.6
+          python-version: "3.14"
+      - uses: actions/setup-node@v7.0.0
+        with:
+          node-version: "24"
+          check-latest: true
+          package-manager-cache: false
+      - run: python -m pip install lupa==2.8
       - name: Validate source and service transactions
         env:
           OCSERV_VERSION: ${{ inputs.ocserv_version }}
@@ -64,7 +69,7 @@ jobs:
           python tests/server_integration.py
           node --check server/openwrt/luci-app-ocserv-easy/htdocs/luci-static/resources/ocserv-easy/app.js
           for script in server/tools/*.sh; do bash -n "$script"; done
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7.0.1
         with:
           name: server-regression-results
           path: test-results/server-regressions.json
@@ -81,7 +86,7 @@ jobs:
       matrix:
         series: ${{ fromJSON(inputs.series == 'all' && '["24","25"]' || format('["{0}"]', inputs.series)) }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7.0.1
         with:
           persist-credentials: false
       - name: Select official ocserv source
@@ -108,14 +113,14 @@ jobs:
           mkdir -p test-results
           bash server/tools/build-ocserv.sh "$RUNNER_TEMP/sdk-$SDK_SERIES" 2>&1 | tee "test-results/build-server-$SDK_SERIES.log"
           python3 scripts/package-server.py "$RUNNER_TEMP/sdk-$SDK_SERIES"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7.0.1
         with:
           name: openwrt-${{ matrix.series }}.x-aarch64_generic
           path: dist/ocserv-*-openwrt-*/
           if-no-files-found: error
           compression-level: 0
           retention-days: 7
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7.0.1
         if: failure()
         with:
           name: server-build-log-${{ matrix.series }}

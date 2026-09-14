@@ -29,8 +29,9 @@ PKG_CONFIG_DEPENDS:= \
 include $(INCLUDE_DIR)/package.mk
 include $(INCLUDE_DIR)/meson.mk
 
+# SOURCE can point at feeds/base in an SDK even for a local package.
 define Package/ocserv/config
-	source "$(SOURCE)/Config.in"
+	source "$(CURDIR)/Config.in"
 endef
 
 define Package/ocserv

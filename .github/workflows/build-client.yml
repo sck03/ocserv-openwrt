@@ -30,7 +30,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7.0.1
         with:
           persist-credentials: false
       - name: Validate selected upstream source
@@ -53,7 +53,7 @@ jobs:
       matrix:
         arch: [x64, x86]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7.0.1
         with:
           persist-credentials: false
       - name: Select official OpenConnect source
@@ -75,7 +75,7 @@ jobs:
         run: |
           mkdir -p test-results
           bash scripts/build-client-linux.sh "$TARGET_ARCH" 2>&1 | tee "test-results/build-client-$TARGET_ARCH.log"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7.0.1
         with:
           name: windows-${{ matrix.arch }}
           path: |
@@ -84,7 +84,7 @@ jobs:
             dist/validation-*/
           if-no-files-found: error
           retention-days: 7
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7.0.1
         if: failure()
         with:
           name: client-build-log-${{ matrix.arch }}
@@ -97,7 +97,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7.0.1
         with:
           persist-credentials: false
       - name: Bundle the selected official sources
@@ -108,7 +108,7 @@ jobs:
           python3 scripts/prepare-build.py client --version "$CORE_VERSION" --sha256 "$CORE_SHA256"
           python3 scripts/fetch-sources.py --download-only
           python3 scripts/package-source.py
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7.0.1
         with:
           name: corresponding-source
           path: |

@@ -33,17 +33,19 @@ def sha256(path):
 
 def download_verified(destination, url, checksum):
     if destination.is_file():
-        if sha256(destination) == checksum:
+        actual = sha256(destination)
+        if actual == checksum:
             return
-        raise RuntimeError(f"SHA-256 mismatch in cached download: {destination.name}")
+        raise RuntimeError(f"SHA-256 mismatch in cached download: {destination.name}; expected {checksum}, got {actual}")
     destination.parent.mkdir(parents=True, exist_ok=True)
     temporary = destination.with_suffix(destination.suffix + ".part")
     for attempt in range(3):
         try:
             with urllib.request.urlopen(url, timeout=90) as response, temporary.open("wb") as output:
                 shutil.copyfileobj(response, output)
-            if sha256(temporary) != checksum:
-                raise RuntimeError(f"SHA-256 mismatch: {destination.name}")
+            actual = sha256(temporary)
+            if actual != checksum:
+                raise RuntimeError(f"SHA-256 mismatch: {destination.name}; expected {checksum}, got {actual}")
             temporary.replace(destination)
             return
         except (OSError, TimeoutError):

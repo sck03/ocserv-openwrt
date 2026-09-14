@@ -4,6 +4,8 @@
 
 仓库 Actions 有两套独立工作流：**手动构建 Windows 客户端**与**手动构建 ocserv 服务端与中文管理页**。选择所需工作流 → Run workflow → main。不需要仓库 Secret；没有 push、pull_request 或定时触发器。标准 `ubuntu-24.04` 运行器可用于这个公开仓库的免费构建，artifact 保留 7 天。
 
+Actions 使用已核实的官方稳定版：`checkout@v7.0.1`、`upload-artifact@v7.0.1`、`setup-python@v7.0.0`、`setup-node@v7.0.0`，它们的执行运行时均为 Node.js 24。管理页 JavaScript 检查显式使用 Node.js 24 LTS 的最新补丁版，Lua 回归使用 Python 3.14 和 Lupa 2.8。Ubuntu 26.04 的托管镜像目前仍为预览版，构建主机继续使用稳定的 24.04（核实日期：2026-09-14）。
+
 - 客户端：`scripts/build-client-linux.sh x64|x86` 使用 Ubuntu 的 MinGW MSVCRT 交叉工具链，静态合并协议与运行库，审计导入表，再打包原样 Wintun DLL。
 - 服务端：`scripts/fetch-sdk.py 24|25 --version 具体版本或auto --output /tmp/sdk` 校验并解压 SDK；SDK 放在源码 Git 仓库之外。`server/tools/build-ocserv.sh` 同时构建所选 ocserv、原 LuCI 页、简体中文翻译与新增管理页。
 - 源码：客户端 artifact `corresponding-source` 包含第三方源压缩包；服务端 artifact 的 `source` 目录包含 ocserv 源码、配方及此次 LuCI feed 源码。
