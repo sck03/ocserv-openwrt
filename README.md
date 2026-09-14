@@ -17,15 +17,19 @@
 - [手动构建 Windows 客户端](https://github.com/sck03/ocserv-openwrt/actions/workflows/build-client.yml)：生成 x86/x64 客户端；可指定官方 OpenConnect 协议核心版本和源码 SHA-256，默认 9.21。
 - [手动构建 ocserv 服务端与中文管理页](https://github.com/sck03/ocserv-openwrt/actions/workflows/build-server.yml)：可指定官方 ocserv 版本和源码 SHA-256，默认 1.5.0；选择构建 OpenWrt 24.x.x、25.x.x 或两者。
 
-两套工作流独立，点击各自的 **Run workflow** 手动运行。SDK 参数可填具体已发布版本，或填 `auto` 选择该系列最新稳定版。默认源码版本的 SHA-256 可留空使用仓库锁定值，**更换源码版本时须填对应校验值**。详情见 [上游版本更新](docs/UPSTREAM-UPDATES.md)。
+两套工作流独立，点击各自的 **Run workflow** 手动运行；全部构建与校验成功后，会自动在 [Releases](https://github.com/sck03/ocserv-openwrt/releases) 发布本次产物。客户端包含 x86/x64 ZIP 和对应源码 ZIP；服务端包含所选 SDK 的 ZIP 套装（内含源码）。每个 Release 都附带统一的 `SHA256SUMS.txt`。
 
-所有任务使用标准 `ubuntu-24.04` 托管环境和运行于 Node.js 24 的官方稳定版 Actions；管理页脚本检查显式使用 Node.js 24 LTS。此公开仓库使用 GitHub 对公开项目提供的免费标准运行器。成功后在该次运行底部 **Artifacts** 下载，文件保留 7 天：
+自动发布沿用当前联调版本的 **Pre-release** 状态。标签分别为 `client-运行ID-尝试次数`、`server-运行ID-尝试次数`；每次运行或重跑生成独立条目，保留已有发行版。附件全部上传完成后才公开，下载链接也会写入本次运行的 Summary。
+
+SDK 参数可填具体已发布版本，或填 `auto` 选择该系列最新稳定版。默认源码版本的 SHA-256 可留空使用仓库锁定值，**更换源码版本时须填对应校验值**。详情见 [上游版本更新](docs/UPSTREAM-UPDATES.md)。
+
+所有任务使用标准 `ubuntu-24.04` 托管环境和运行于 Node.js 24 的官方稳定版 Actions；管理页脚本检查显式使用 Node.js 24 LTS。此公开仓库使用 GitHub 对公开项目提供的免费标准运行器。**Releases 附件长期保留**，运行底部的 **Artifacts** 另保留 7 天，供下载验证工具和检查结果：
 
 | Artifact | 内容 |
 |---|---|
 | `windows-x64` / `windows-x86` | 对应架构的便携 ZIP、SHA-256、验证工具和 PE 审计 |
-| `openwrt-24.x-aarch64_generic` | 所选 ocserv、原 LuCI 页、中文翻译和布利杰管理页的 IPK，及源码 |
-| `openwrt-25.x-aarch64_generic` | 对应 SDK 的 APK，及源码 |
+| `openwrt-24.x-aarch64_generic` | ZIP 套装和 SHA-256；内含所选 ocserv、原 LuCI 页、中文翻译和布利杰管理页的 IPK，及源码 |
+| `openwrt-25.x-aarch64_generic` | ZIP 套装和 SHA-256；内含对应 SDK 的 APK，及源码 |
 | `corresponding-source` | 客户端源码、构建脚本、锁定版本的第三方源码 |
 | `server-regression-results` | 服务端逻辑与事务回滚检查结果 |
 

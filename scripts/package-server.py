@@ -78,4 +78,8 @@ subprocess.run(["git", "-C", str(sdk / "feeds/luci"), "archive", "--format=tar.g
                 "--output=" + str(source / "luci-upstream-source.tar.gz"), "HEAD"], check=True)
 files = sorted(path for path in output.rglob("*") if path.is_file() and path.name != "SHA256SUMS")
 (output / "SHA256SUMS").write_text("".join(f"{sha256(path)}  {path.relative_to(output).as_posix()}\n" for path in files), encoding="utf-8")
+bundle = Path(shutil.make_archive(str(output), "zip", root_dir=output.parent, base_dir=output.name))
+(output.parent / f"SHA256SUMS-openwrt-{entry['version']}.txt").write_text(
+    f"{sha256(bundle)}  {bundle.name}\n", encoding="ascii")
 print(f"Collected {len(packages)} {fmt} packages in {output}; kernel modules are not included.")
+print(f"Created {bundle} ({bundle.stat().st_size} bytes)")
