@@ -35,7 +35,7 @@
 
 ## 当前 24.10 升级与安装管理页
 
-1. 在 GitHub Actions 手动构建 `all` 或 `server`，下载 `openwrt-24.10-aarch64_generic`，完整解压。
+1. 在 GitHub Actions 选择 **手动构建 ocserv 服务端与中文管理页**，`series` 选 `24` 或 `all`，SDK 选择实际固件对应的 24.x.x 版本；下载 `openwrt-24.x-aarch64_generic` 并完整解压。
 2. 在电脑校验 `SHA256SUMS`，把包和工具上传到 N1 的临时目录。
 3. 在路由器运行 `sh preflight-n1.sh`。它逐项读取固件、库版本、TUN 和磁盘信息，不输出密码或私钥。
 4. 从可信的、与当前固件匹配的软件源保留**当前已安装的 1.3.0-r2 原包**用于回滚，并准备其可信 SHA-256 记录。升级脚本要求新旧包各自目录均有包含对应文件名的 `SHA256SUMS`；若在同一目录，将旧包校验记录追加进去。
@@ -63,7 +63,7 @@ ocserv 是用户态程序，通过标准 TUN 接口与内核交互，通常不�
 - 升级后安装匹配的 ocserv/依赖，恢复配置，确认生成配置、监听端口、TUN、DNS 和代理转发，再放行用户。
 - 客户端不依赖服务端包管理器或 Linux 内核号。服务器地址/端口、CA 与认证方式保持一致时，客户端通常不需要改；更换 CA/固定公钥时重新分发连接文件。
 
-升级 N1 固件并恢复配置后，改用 `openwrt-25.12-aarch64_generic` 中的 APK。先运行 `preflight-n1.sh`，确认 `aarch64_generic`、APK 与 TUN；校验 `SHA256SUMS` 后安装本次下载的四个包：
+升级 N1 固件并恢复配置后，在服务端工作流选择相应的 25.x.x SDK，改用 `openwrt-25.x-aarch64_generic` 中的 APK。先运行 `preflight-n1.sh`，确认 `aarch64_generic`、APK 与 TUN；校验 `SHA256SUMS` 后安装本次下载的四个包：
 
 ```sh
 apk add --allow-untrusted ./ocserv-1.5.0-*.apk ./luci-app-ocserv-*.apk ./luci-i18n-ocserv-zh-cn-*.apk

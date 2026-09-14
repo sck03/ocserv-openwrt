@@ -8,7 +8,7 @@ import struct
 import subprocess
 import tempfile
 import zipfile
-from build_common import ROOT, sha256, version
+from build_common import ROOT, sha256, source_directory, version
 
 
 def main():
@@ -25,10 +25,10 @@ def main():
     validation.mkdir(exist_ok=True)
     licenses = {
         "LICENSE": "Application-GPL-3.0.txt",
-        ".deps/sources/openconnect-9.21/COPYING.LGPL": "OpenConnect-LGPL-2.1.txt",
-        ".deps/sources/openssl-3.5.8/LICENSE.txt": "OpenSSL-Apache-2.0.txt",
-        ".deps/sources/libxml2-2.15.3/Copyright": "libxml2-Copyright.txt",
-        ".deps/sources/zlib-1.3.2/LICENSE": "zlib-LICENSE.txt",
+        f".deps/sources/{source_directory('openconnect')}/COPYING.LGPL": "OpenConnect-LGPL-2.1.txt",
+        f".deps/sources/{source_directory('openssl')}/LICENSE.txt": "OpenSSL-Apache-2.0.txt",
+        f".deps/sources/{source_directory('libxml2')}/Copyright": "libxml2-Copyright.txt",
+        f".deps/sources/{source_directory('zlib')}/LICENSE": "zlib-LICENSE.txt",
         ".deps/sources/wintun/LICENSE.txt": "Wintun-Prebuilt-License.txt",
     }
     with tempfile.TemporaryDirectory(prefix=name + "-", dir=dist) as temporary:
@@ -47,7 +47,7 @@ def main():
             shutil.copyfile(runtime, license_dir / "MinGW-w64-runtime.txt")
         else:
             shutil.copyfile("/usr/share/doc/mingw-w64-common/copyright", license_dir / "MinGW-w64-runtime.txt")
-            notices = sorted(Path("/usr/share/doc").glob("gcc-*-mingw-w64-base/copyright"))
+            notices = sorted(Path("/usr/share/doc").glob("gcc*mingw-w64-base/copyright"))
             if not notices:
                 raise RuntimeError("Missing GCC runtime license notices")
             shutil.copyfile(notices[-1], license_dir / "GCC-runtime.txt")
@@ -79,6 +79,7 @@ def main():
             encoding="utf-8-sig",
         )
         info = {"version": version(), "architecture": args.arch, "commit": os.environ.get("GITHUB_SHA", "local"),
+                "components": {name: source_directory(name) for name in ("openconnect", "openssl", "libxml2", "zlib")},
                 "wintun_sha256": sha256(source_dll), "validation": "Compile and PE audit; real VPN/Win7 acceptance is separate."}
         (folder / "BUILDINFO.json").write_text(json.dumps(info, indent=2) + "\n", encoding="utf-8")
         archive = dist / (name + ".zip")

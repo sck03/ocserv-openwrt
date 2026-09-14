@@ -1,11 +1,11 @@
 {
-  "24.10": {
+  "24": {
     "version": "24.10.8",
     "format": "ipk",
     "url": "https://downloads.openwrt.org/releases/24.10.8/targets/armsr/armv8/openwrt-sdk-24.10.8-armsr-armv8_gcc-13.3.0_musl.Linux-x86_64.tar.zst",
     "sha256": "5f430f5b30c9ea6dc472710356c139abf916b7ebd5de14e108e9cc204f40a2a4"
   },
-  "25.12": {
+  "25": {
     "version": "25.12.5",
     "format": "apk",
     "url": "https://downloads.openwrt.org/releases/25.12.5/targets/armsr/armv8/openwrt-sdk-25.12.5-armsr-armv8_gcc-14.3.0_musl.Linux-x86_64.tar.zst",

@@ -1,5 +1,6 @@
 """Small shared helpers for reproducible release scripts."""
 import hashlib
+import json
 from pathlib import Path
 import re
 import shutil
@@ -15,6 +16,14 @@ def version():
     if not match:
         raise RuntimeError("Cannot determine application version")
     return match.group(1)
+
+
+def source_directory(component):
+    manifest = json.loads((ROOT / "scripts/sources.json").read_text(encoding="utf-8"))
+    matches = [name for name in manifest if re.fullmatch(re.escape(component) + r"-[0-9][A-Za-z0-9.+-]*\.tar\.(gz|xz)", name)]
+    if len(matches) != 1:
+        raise RuntimeError(f"Expected one pinned source for {component}")
+    return matches[0].removesuffix(".tar.gz").removesuffix(".tar.xz")
 
 
 def sha256(path):

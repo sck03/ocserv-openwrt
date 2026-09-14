@@ -1,0 +1,119 @@
+name: 手动构建 Windows 客户端
+
+on:
+  workflow_dispatch:
+    inputs:
+      openconnect_version:
+        description: OpenConnect 官方协议核心版本（不是布利杰界面版本）
+        type: string
+        default: "9.21"
+      openconnect_sha256:
+        description: 改用其他版本时必填：官方源码 tar.gz 的 SHA-256；默认版本可留空
+        type: string
+        default: ""
+
+permissions:
+  contents: read
+defaults:
+  run:
+    shell: bash
+concurrency:
+  group: client-${{ github.ref }}
+  cancel-in-progress: false
+env:
+  BUILD_JOBS: "2"
+  PYTHONUTF8: "1"
+
+jobs:
+  validate:
+    name: 检查客户端构建参数
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Validate selected upstream source
+        env:
+          CORE_VERSION: ${{ inputs.openconnect_version }}
+          CORE_SHA256: ${{ inputs.openconnect_sha256 }}
+        run: |
+          python3 -m compileall -q scripts tests
+          python3 tests/build_config_tests.py
+          python3 scripts/prepare-build.py client --version "$CORE_VERSION" --sha256 "$CORE_SHA256"
+          bash -n scripts/build-client-linux.sh
+
+  client:
+    name: Windows ${{ matrix.arch }}（Linux 交叉编译）
+    needs: validate
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [x64, x86]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Select official OpenConnect source
+        env:
+          CORE_VERSION: ${{ inputs.openconnect_version }}
+          CORE_SHA256: ${{ inputs.openconnect_sha256 }}
+        run: python3 scripts/prepare-build.py client --version "$CORE_VERSION" --sha256 "$CORE_SHA256"
+      - name: Install MSVCRT cross toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential cmake ninja-build perl pkg-config autoconf automake libtool gettext \
+            gcc-mingw-w64-x86-64-posix g++-mingw-w64-x86-64-posix \
+            gcc-mingw-w64-i686-posix g++-mingw-w64-i686-posix \
+            mingw-w64-common curl xz-utils unzip python3
+      - name: Build static client and audit Windows imports
+        env:
+          TARGET_ARCH: ${{ matrix.arch }}
+        run: |
+          mkdir -p test-results
+          bash scripts/build-client-linux.sh "$TARGET_ARCH" 2>&1 | tee "test-results/build-client-$TARGET_ARCH.log"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-${{ matrix.arch }}
+          path: |
+            dist/BulijieVPN-*-windows-*.zip
+            dist/SHA256SUMS-windows-*.txt
+            dist/validation-*/
+          if-no-files-found: error
+          retention-days: 7
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: client-build-log-${{ matrix.arch }}
+          path: test-results/*.log
+          retention-days: 7
+
+  source:
+    name: 客户端对应源码
+    needs: validate
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Bundle the selected official sources
+        env:
+          CORE_VERSION: ${{ inputs.openconnect_version }}
+          CORE_SHA256: ${{ inputs.openconnect_sha256 }}
+        run: |
+          python3 scripts/prepare-build.py client --version "$CORE_VERSION" --sha256 "$CORE_SHA256"
+          python3 scripts/fetch-sources.py --download-only
+          python3 scripts/package-source.py
+      - uses: actions/upload-artifact@v4
+        with:
+          name: corresponding-source
+          path: |
+            dist/BulijieVPN-*-source.zip
+            dist/SHA256SUMS-source.txt
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 7

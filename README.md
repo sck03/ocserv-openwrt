@@ -8,19 +8,24 @@
 
 ## 在 GitHub 手动构建
 
-打开仓库的 [Actions](https://github.com/sck03/ocserv-openwrt/actions/workflows/manual-build.yml)，选择 **手动构建客户端和 OpenWrt 服务端 → Run workflow → main**。`component` 选 `all` 构建全部，也可单独选 `client` 或 `server`。工作流只由手动操作触发。
+在仓库 Actions 中分别选择：
+
+- [手动构建 Windows 客户端](https://github.com/sck03/ocserv-openwrt/actions/workflows/build-client.yml)：生成 x86/x64 客户端；可指定官方 OpenConnect 协议核心版本和源码 SHA-256，默认 9.21。
+- [手动构建 ocserv 服务端与中文管理页](https://github.com/sck03/ocserv-openwrt/actions/workflows/build-server.yml)：可指定官方 ocserv 版本和源码 SHA-256，默认 1.5.0；选择构建 OpenWrt 24.x.x、25.x.x 或两者。
+
+两套工作流独立，点击各自的 **Run workflow** 手动运行。SDK 参数可填具体已发布版本，或填 `auto` 选择该系列最新稳定版。默认源码版本的 SHA-256 可留空使用仓库锁定值，**更换源码版本时须填对应校验值**。详情见 [上游版本更新](docs/UPSTREAM-UPDATES.md)。
 
 所有任务使用标准 `ubuntu-24.04` 托管环境；此公开仓库使用 GitHub 对公开项目提供的免费标准运行器。成功后在该次运行底部 **Artifacts** 下载，文件保留 7 天：
 
 | Artifact | 内容 |
 |---|---|
 | `windows-x64` / `windows-x86` | 对应架构的便携 ZIP、SHA-256、验证工具和 PE 审计 |
-| `openwrt-24.10-aarch64_generic` | ocserv 1.5.0、原 LuCI 页、中文翻译和布利杰管理页的 IPK，及源码 |
-| `openwrt-25.12-aarch64_generic` | 对应 25.12 的 APK，及源码 |
+| `openwrt-24.x-aarch64_generic` | 所选 ocserv、原 LuCI 页、中文翻译和布利杰管理页的 IPK，及源码 |
+| `openwrt-25.x-aarch64_generic` | 对应 SDK 的 APK，及源码 |
 | `corresponding-source` | 客户端源码、构建脚本、锁定版本的第三方源码 |
 | `server-regression-results` | 服务端逻辑与事务回滚检查结果 |
 
-客户端在 Linux 交叉编译；构建完成不代替 Windows 7 或 N1 实机验收。服务端 SDK 固定为 24.10.8 / 25.12.5、`armsr/armv8`，下载校验值记录在 [sdks.json](server/openwrt/sdks.json)。OPL/Flippy 固件先按 [N1 安装说明](docs/OPENWRT-N1.md)检查用户态兼容性，并保留固件自己的 TUN 模块。
+客户端在 Linux 交叉编译；构建完成不代替 Windows 7 或 N1 实机验收。服务端 SDK 默认 24.10.8 / 25.12.5，支持选择同系列其他已发布版本；目标为 `armsr/armv8、aarch64_generic`。默认校验值在 [sdks.json](server/openwrt/sdks.json)，其他 SDK 从官方下载索引取得并核验。OPL/Flippy 固件先按 [N1 安装说明](docs/OPENWRT-N1.md)检查用户态兼容性，并保留固件自己的 TUN 模块。
 
 ## 员工使用
 
