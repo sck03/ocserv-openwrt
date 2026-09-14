@@ -1,0 +1,13 @@
+* text=auto eol=lf
+*.sh text eol=lf
+*.py text eol=lf
+*.lua text eol=lf
+*.js text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+*.md text eol=lf
+*.init text eol=lf
+Makefile text eol=lf
+*.patch text eol=lf whitespace=-blank-at-eol
+*.ico binary
+*.png binary

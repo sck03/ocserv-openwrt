@@ -1,0 +1,15 @@
+<%+header%>
+<%
+    local dispatcher=require "luci.dispatcher"
+    local options={
+        base=dispatcher.build_url("admin","vpn","ocserv","easy"),
+        token=dispatcher.context.authtoken,
+        language=require("luci.i18n").context.lang or "en",
+        writable=writable
+    }
+%>
+<link rel="stylesheet" href="<%=resource%>/ocserv-easy/style.css?v=0.3.0" />
+<div id="ocserv-easy" aria-live="polite"></div>
+<script id="ocserv-easy-options" type="application/json"><%=require("luci.jsonc").stringify(options):gsub("<","\\u003c")%></script>
+<script src="<%=resource%>/ocserv-easy/app.js?v=0.3.0" defer></script>
+<%+footer%>

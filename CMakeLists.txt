@@ -1,0 +1,45 @@
+cmake_minimum_required(VERSION 3.18)
+project(BridgeVPN VERSION 0.3.0 LANGUAGES C CXX RC)
+if(NOT WIN32)
+    message(FATAL_ERROR "BridgeVPN is a native Windows desktop application.")
+endif()
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+if(CMAKE_SIZEOF_VOID_P EQUAL 8)
+    set(BRIDGE_ARCH x64)
+    set(WINTUN_ARCH amd64)
+else()
+    set(BRIDGE_ARCH x86)
+    set(WINTUN_ARCH x86)
+endif()
+set(BRIDGE_DEPS "${CMAKE_SOURCE_DIR}/.deps/${BRIDGE_ARCH}" CACHE PATH "Static MSVCRT dependency prefix")
+add_library(bridge_core STATIC src/common.cpp src/settings.cpp src/network.cpp src/session.cpp)
+target_include_directories(bridge_core PUBLIC src "${BRIDGE_DEPS}/include")
+target_compile_definitions(bridge_core PUBLIC UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX WINVER=0x0601 _WIN32_WINNT=0x0601 LIBXML_STATIC CERT_CHAIN_PARA_HAS_EXTRA_FIELDS)
+if(MSVC)
+    message(FATAL_ERROR "Use the supplied MSVCRT MinGW build to link the bundled static libraries.")
+else()
+    target_compile_options(bridge_core PRIVATE -Wall -Wextra -Wpedantic -Wconversion -ffunction-sections -fdata-sections)
+    target_link_options(bridge_core INTERFACE -static -static-libgcc -static-libstdc++ -Wl,--gc-sections -Wl,--dynamicbase -Wl,--nxcompat -Wl,--major-subsystem-version,6 -Wl,--minor-subsystem-version,1)
+endif()
+target_link_libraries(bridge_core PUBLIC
+    "${BRIDGE_DEPS}/lib/libopenconnect.a"
+    "${BRIDGE_DEPS}/lib/libssl.a"
+    "${BRIDGE_DEPS}/lib/libcrypto.a"
+    "${BRIDGE_DEPS}/lib/libxml2.a"
+    "${BRIDGE_DEPS}/lib/libz.a"
+    ws2_32 iphlpapi crypt32 bcrypt secur32 advapi32 user32 gdi32 shell32 ole32 fwpuclnt rpcrt4 comctl32 comdlg32)
+add_executable(BridgeVPN WIN32 src/main.cpp resources/app.rc)
+set_target_properties(BridgeVPN PROPERTIES OUTPUT_NAME "布利杰VPN")
+target_link_libraries(BridgeVPN PRIVATE bridge_core)
+target_link_options(BridgeVPN PRIVATE -municode)
+target_compile_options(BridgeVPN PRIVATE -Wall -Wextra -Wpedantic)
+add_custom_command(TARGET BridgeVPN POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different "${CMAKE_SOURCE_DIR}/.deps/sources/wintun/bin/${WINTUN_ARCH}/wintun.dll" "$<TARGET_FILE_DIR:BridgeVPN>/wintun.dll"
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different "${CMAKE_SOURCE_DIR}/config/BridgeVPN.ini" "$<TARGET_FILE_DIR:BridgeVPN>/BridgeVPN.ini")
+include(CTest)
+if(BUILD_TESTING)
+    add_executable(bridge_tests tests/core_tests.cpp)
+    target_link_libraries(bridge_tests PRIVATE bridge_core)
+    add_test(NAME native_core COMMAND bridge_tests)
+endif()

@@ -1,0 +1,7 @@
+{
+  "luci-app-ocserv-easy": {
+    "description": "Manage ocserv 1.5 or later through the authenticated VPN administration page",
+    "read": { "uci": ["ocserv"] },
+    "write": { "uci": ["ocserv"] }
+  }
+}

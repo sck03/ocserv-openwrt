@@ -1,0 +1,12 @@
+.tools/
+.deps/
+.reference/
+build/
+dist/
+*.user
+*.log
+test-results/
+__pycache__/
+*.py[cod]
+.venv/
+artifacts/

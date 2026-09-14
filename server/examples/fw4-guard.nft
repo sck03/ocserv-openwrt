@@ -1,0 +1,21 @@
+# Review this standalone ruleset before loading. Interface/subnet values are deployment examples.
+# It is not a replacement for the VPN zone, DNS input permission, or OpenClash routing configuration.
+# Load with `nft -c -f ...` first; do not paste inside an existing nft table.
+define LAN_DEVICE = "br-lan"
+define VPN_POOL = 10.77.0.0/24
+
+table inet bulijie_guard {
+    chain reject_unauthenticated_transit {
+        type filter hook prerouting priority -310; policy accept;
+        # Require traffic to actually originate from a VPN interface.
+        # A forged VPN source IP on the LAN still matches these rules.
+        iifname $LAN_DEVICE fib daddr type != { local, broadcast, multicast } counter drop
+        # Replace/extend these with every actual Mihomo/OpenClash listener port.
+        iifname $LAN_DEVICE tcp dport { 7890, 7891, 7892, 7893, 7895, 7897, 9090 } counter drop
+        iifname $LAN_DEVICE udp dport { 7890, 7891, 7892, 7893, 7895, 7897, 9090 } counter drop
+    }
+    chain nat_vpn_to_main_router {
+        type nat hook postrouting priority srcnat; policy accept;
+        oifname $LAN_DEVICE ip saddr $VPN_POOL masquerade
+    }
+}

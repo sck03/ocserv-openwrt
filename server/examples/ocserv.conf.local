@@ -1,0 +1,5 @@
+# Append to /etc/ocserv/ocserv.conf.local. Do not repeat UCI-generated directives.
+# Check /var/etc/ocserv.conf after procd generates it.
+listen-host = 192.168.19.254
+no-route = 192.168.19.0/255.255.255.0
+tunnel-all-dns = true
