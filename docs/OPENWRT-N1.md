@@ -47,7 +47,7 @@ sh upgrade-ocserv-24.10.sh --apply NEW.ipk OLD.ipk
 opkg install ./luci-app-ocserv_*.ipk ./luci-i18n-ocserv-zh-cn_*.ipk ./luci-app-ocserv-easy_*.ipk
 ```
 
-`--check` 核对包名、架构、版本与校验值，先用新二进制在当前设备执行版本与现有配置检查，并拒绝安装或替换内核模块的计划。`--apply` 会短暂断开 VPN，备份现有账号、证书、配置和旧包，安装后验证服务；失败自动尝试恢复。备份目录是 `/root/ocserv-upgrade-日期时间`。
+`--check` 核对包名、架构、版本与校验值，先用新二进制在当前设备执行版本与现有配置检查，并拒绝安装或替换内核模块的计划。新包可以是 1.5.0 或后续版本，必须高于当前已安装版本。`--apply` 会短暂断开 VPN，备份现有账号、证书、配置和旧包，安装后验证服务；失败自动尝试恢复。备份目录是 `/root/ocserv-upgrade-日期时间`。
 
 安装页面后重新登录 LuCI，打开 **VPN → OpenConnect VPN → 布利杰VPN**。具体功能见 [管理页说明](SERVER-UI.md)。页面要求 1.5.0，不保留旧版会话接口的兼容分支。
 
@@ -66,7 +66,7 @@ ocserv 是用户态程序，通过标准 TUN 接口与内核交互，通常不�
 升级 N1 固件并恢复配置后，在服务端工作流选择相应的 25.x.x SDK，改用 `openwrt-25.x-aarch64_generic` 中的 APK。先运行 `preflight-n1.sh`，确认 `aarch64_generic`、APK 与 TUN；校验 `SHA256SUMS` 后安装本次下载的四个包：
 
 ```sh
-apk add --allow-untrusted ./ocserv-1.5.0-*.apk ./luci-app-ocserv-*.apk ./luci-i18n-ocserv-zh-cn-*.apk
+apk add --allow-untrusted ./ocserv-*.apk ./luci-app-ocserv-*.apk ./luci-i18n-ocserv-zh-cn-*.apk
 ```
 
 `luci-app-ocserv-*.apk` 同时包含原页面和 `luci-app-ocserv-easy`。`--allow-untrusted` 用于这里自行构建并核验的本地包，因为它们没有固件官方软件源的签名。普通依赖继续从当前固件匹配的软件源安装。25.12 不使用 24.10 的自动回滚脚本；保留新固件及其匹配的旧包和配置备份，确认版本、服务状态与真实客户端通信后再开放用户。

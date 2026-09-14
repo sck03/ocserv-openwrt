@@ -80,7 +80,12 @@ read_control "$old" "$stage/old.control"
 new_version=$(sed -n 's/^Version: //p' "$stage/new.control")
 old_version=$(sed -n 's/^Version: //p' "$stage/old.control")
 [ "$old_version" = "$installed" ] || { printf 'Rollback version %s must match installed version %s.\n' "$old_version" "$installed" >&2; exit 1; }
-case "$new_version" in 1.5.0-*) ;; *) printf '%s\n' 'This release bundle must contain ocserv 1.5.0.' >&2; exit 1;; esac
+opkg compare-versions "$new_version" '>=' '1.5.0' || {
+    printf '%s\n' 'The management page requires ocserv 1.5.0 or newer.' >&2; exit 1
+}
+opkg compare-versions "$new_version" '>>' "$installed" || {
+    printf '%s\n' 'The new package must be newer than the installed version.' >&2; exit 1
+}
 opkg --noaction install "$new" > "$stage/plan.log" 2>&1 || { cat "$stage/plan.log" >&2; exit 1; }
 if grep -Eq '([Ii]nstalling|[Uu]pgrading|[Dd]owngrading).*kmod-' "$stage/plan.log"; then
     printf '%s\n' 'Refusing an operation that would install or replace a kernel module.' >&2

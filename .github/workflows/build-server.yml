@@ -34,7 +34,7 @@ defaults:
   run:
     shell: bash
 concurrency:
-  group: server-${{ github.ref }}
+  group: server-${{ github.ref }}-${{ github.sha }}
   cancel-in-progress: false
 env:
   BUILD_JOBS: "2"

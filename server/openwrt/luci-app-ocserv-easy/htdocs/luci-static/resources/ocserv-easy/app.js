@@ -120,7 +120,7 @@
         return element('div',{className:'easy-field'+(wide?' wide':'')},[element('label',{for:input.id,text:label}),input].concat(help?[element('small',{className:'easy-muted',text:help})]:[]));
     }
     function editUser(user) {
-        var name=element('input',{value:user?user.name:'',maxlength:64,required:true,autocomplete:'off',pattern:'[A-Za-z0-9][A-Za-z0-9_.@-]*'});
+        var name=element('input',{value:user?user.name:'',maxlength:64,required:true,autocomplete:'off',pattern:'[A-Za-z0-9][A-Za-z0-9_.@\\-]*'});
         var password=element('input',{type:'password',autocomplete:'new-password',minlength:8,maxlength:128,required:!user});
         var group=element('input',{value:user?user.group:'*',maxlength:128});
         var enabled=element('input',{type:'checkbox',checked:!user || user.enabled});

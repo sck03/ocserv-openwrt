@@ -16,9 +16,17 @@ Wintun ZIP SHA-256 与官网公布值一致，x86/amd64 DLL 的 Windows Authenti
 
 本地详细结果生成在 `test-results`。原生程序的运行库被静态合并；动态加载的官方 Wintun 是单独附带的驱动组件，不应被遗漏在“仅系统 DLL”的表述之外。
 
+## GitHub Linux 客户端构建
+
+2026-09-14，提交 `ac55432` 的[独立客户端工作流](https://github.com/sck03/ocserv-openwrt/actions/runs/34851535175)全部成功，生成 Windows x86/x64 的 0.3.0 程序包和对应源码。使用官方 Node.js 24 Actions，两个可执行文件均通过 PE 审计。
+
+从该次工作流下载两个架构的实际产物，核对 GitHub artifact 摘要、程序包 SHA-256、`BUILDINFO.json` 提交及运行库许可证。在上述 Windows 环境中，各自再次通过 52 项核心检查、10 项真实 TLS 回环检查和 9 项配置导入检查。云端交叉编译产物已执行验证，完整 VPN 数据转发和 Win7 仍按下列实机清单验收。
+
 ## 服务端管理页
 
 已通过 34 项 Lua 5.1 回归：账号增改删、停用和恢复、旧会话失效、密码哈希不回显、并发修改检测、失败回滚、配置校验、原设置保留与公开 CA 导出。UCI/nixio/occtl 边界使用模拟接口，尚不能替代路由器上真实的 LuCI 与 ocserv 联调。
+
+在 Chrome 152 中对实际前端与模拟 Lua 后端完成 11 项交互检查：账号格式校验、密码显示开关、新增/修改/停用/恢复/删除账号、设置保存确认、配置导出入口及中英文/手机宽度渲染。修正 HTML `pattern` 在新版浏览器 Unicode Sets 模式下的连字符转义；复测未出现 JavaScript 错误。
 
 手动 GitHub Actions 会重新执行这些回归，并分别构建客户端和两种服务端包。客户端 Linux 编译产物通过 PE 审计；测试工具随 artifact 提供，便于在 Windows 实际运行。
 
