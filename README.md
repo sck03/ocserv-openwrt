@@ -6,6 +6,10 @@
 
 当前为**联调版本**：x86/x64 编译、原生界面、凭据管理、证书与登录验证已测试。Win7 实机、N1 上完整 VPN 转发、路由/DNS 回滚、长时间连接和吞吐量尚未验证。
 
+## 下载已编译版本
+
+[Releases 发行页](https://github.com/sck03/ocserv-openwrt/releases)提供 Windows x86/x64 客户端、OpenWrt 24.10.8 IPK 与 25.12.5 APK 服务端套装、对应源码和统一的 `SHA256SUMS.txt`。按系统架构和固件版本选择 ZIP，完整解压后使用；服务端套装包含 ocserv、原 LuCI 页面、中文翻译和布利杰管理页。
+
 ## 在 GitHub 手动构建
 
 在仓库 Actions 中分别选择：
@@ -15,7 +19,7 @@
 
 两套工作流独立，点击各自的 **Run workflow** 手动运行。SDK 参数可填具体已发布版本，或填 `auto` 选择该系列最新稳定版。默认源码版本的 SHA-256 可留空使用仓库锁定值，**更换源码版本时须填对应校验值**。详情见 [上游版本更新](docs/UPSTREAM-UPDATES.md)。
 
-所有任务使用标准 `ubuntu-24.04` 托管环境；此公开仓库使用 GitHub 对公开项目提供的免费标准运行器。成功后在该次运行底部 **Artifacts** 下载，文件保留 7 天：
+所有任务使用标准 `ubuntu-24.04` 托管环境和运行于 Node.js 24 的官方稳定版 Actions；管理页脚本检查显式使用 Node.js 24 LTS。此公开仓库使用 GitHub 对公开项目提供的免费标准运行器。成功后在该次运行底部 **Artifacts** 下载，文件保留 7 天：
 
 | Artifact | 内容 |
 |---|---|

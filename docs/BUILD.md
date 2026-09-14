@@ -9,9 +9,11 @@ Actions 使用已核实的官方稳定版：`checkout@v7.0.1`、`upload-artifact
 - 客户端：`scripts/build-client-linux.sh x64|x86` 使用 Ubuntu 的 MinGW MSVCRT 交叉工具链，静态合并协议与运行库，审计导入表，再打包原样 Wintun DLL。
 - 服务端：`scripts/fetch-sdk.py 24|25 --version 具体版本或auto --output /tmp/sdk` 校验并解压 SDK；SDK 放在源码 Git 仓库之外。`server/tools/build-ocserv.sh` 同时构建所选 ocserv、原 LuCI 页、简体中文翻译与新增管理页。
 - 源码：客户端 artifact `corresponding-source` 包含第三方源压缩包；服务端 artifact 的 `source` 目录包含 ocserv 源码、配方及此次 LuCI feed 源码。
-- 结果：客户端执行 PE 静态检查，服务端检查包产物和 AArch64 ELF；共同运行 Lua 5.1 管理逻辑回归。Linux 构建不会被描述为 Windows 或 N1 实机测试。
+- 结果：客户端执行 PE 静态检查；服务端先运行 Lua 5.1 管理逻辑回归，再检查包产物、AArch64 ELF 和管理页样式完整性。Linux 编译和 Windows/N1 实机运行分开记录。
 
 SDK 的版本、哈希、feed 配置和实际提交随产物记录。具体 SDK 版本在手动运行参数中选择，脚本自动解析官方 URL 与 SHA-256；包格式按 SDK 实际配置选择。使用固件作者 SDK 时，可直接在独立 Linux 目录调用 `build-ocserv.sh`。上游版本参数见 [更新说明](UPSTREAM-UPDATES.md)。
+
+服务端校验读取 SDK 自动清理后保留的 `.pkgdir` 包缓存。新增管理页保留原始 CSS，避免 SDK 旧版 CSSTidy 删除 Grid、`gap`、`inset` 等样式；打包后的 JavaScript 和 CSS 同时放在 artifact 的 `validation/ui` 中供复核。
 
 ## Windows 客户端
 
