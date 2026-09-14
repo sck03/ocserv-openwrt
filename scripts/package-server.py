@@ -32,14 +32,28 @@ if not any(path.name.startswith("luci-app-ocserv") and not path.name.startswith(
 for package in packages:
     shutil.copyfile(package, output / package.name)
 
-executables = list((sdk / "build_dir").glob(f"target-*/ocserv-{ocserv_version}/ipkg-install/usr/sbin/ocserv"))
+# SDK CONFIG_AUTOREMOVE deletes ipkg-install after packaging but retains .pkgdir.
+# This staged package tree contains the installed binary for the ELF audit.
+executables = list((sdk / "build_dir").glob(f"target-*/ocserv-{ocserv_version}/.pkgdir/ocserv/usr/sbin/ocserv"))
 if len(executables) != 1:
-    raise RuntimeError("Cannot locate the built ocserv ELF executable")
+    raise RuntimeError("Cannot locate the staged ocserv ELF executable in the SDK package cache")
 header = executables[0].read_bytes()[:64]
 if header[:5] != b"\x7fELF\x02" or header[5] != 1 or struct.unpack_from("<H", header, 18)[0] != 183:
     raise RuntimeError("ocserv must be a 64-bit little-endian AArch64 ELF executable")
 dynamic = subprocess.check_output(["readelf", "-d", str(executables[0])], text=True)
 (output / "ocserv-elf-dependencies.txt").write_text(dynamic, encoding="utf-8")
+ui_validation = output / "validation/ui"
+ui_validation.mkdir(parents=True, exist_ok=True)
+for filename in ("app.js", "style.css"):
+    assets = list((sdk / "build_dir").glob(
+        "target-*/luci-app-ocserv-easy/.pkgdir/luci-app-ocserv-easy/www/luci-static/resources/ocserv-easy/" + filename))
+    if len(assets) != 1:
+        raise RuntimeError(f"Cannot locate the staged management page asset: {filename}")
+    if filename == "style.css":
+        original = ROOT / "server/openwrt/luci-app-ocserv-easy/htdocs/luci-static/resources/ocserv-easy/style.css"
+        if sha256(assets[0]) != sha256(original):
+            raise RuntimeError("The SDK modified the management CSS; keep LUCI_MINIFY_CSS disabled")
+    shutil.copyfile(assets[0], ui_validation / filename)
 revisions = {}
 for feed in ("packages", "luci"):
     revisions[feed] = subprocess.check_output(["git", "-C", str(sdk / "feeds" / feed), "rev-parse", "HEAD"], text=True).strip()
