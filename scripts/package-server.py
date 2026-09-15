@@ -15,12 +15,16 @@ parser.add_argument("sdk", type=Path)
 args = parser.parse_args()
 sdk = args.sdk.resolve()
 entry = json.loads((sdk / "sdk-info.json").read_text(encoding="utf-8"))
+if not re.fullmatch(r"25\.12\.\d+", entry["version"]):
+    raise RuntimeError("Only OpenWrt 25.12.x packages are supported")
 recipe = (ROOT / "server/openwrt/ocserv/Makefile").read_text(encoding="utf-8")
 ocserv_version = re.search(r"(?m)^PKG_VERSION:=(\d+\.\d+\.\d+)$", recipe).group(1)
 source_hash = re.search(r"(?m)^PKG_HASH:=([a-f0-9]{64})$", recipe).group(1)
 output = ROOT / "dist" / f"ocserv-{ocserv_version}-openwrt-{entry['version']}-aarch64_generic"
 output.mkdir(parents=True, exist_ok=True)
-fmt = "apk" if re.search(r"(?m)^CONFIG_USE_APK=y$", (sdk / ".config").read_text()) else "ipk"
+if not re.search(r"(?m)^CONFIG_USE_APK=y$", (sdk / ".config").read_text()):
+    raise RuntimeError("The OpenWrt 25.12 SDK must produce APK packages")
+fmt = "apk"
 entry["format"] = fmt
 patterns = (f"ocserv*{ocserv_version}*.{fmt}", f"luci-app-ocserv[._-]*.{fmt}", f"luci-i18n-ocserv-zh-cn*.{fmt}")
 packages = sorted({path for pattern in patterns for path in (sdk / "bin/packages").rglob(pattern)})
@@ -40,6 +44,22 @@ if len(executables) != 1:
 header = executables[0].read_bytes()[:64]
 if header[:5] != b"\x7fELF\x02" or header[5] != 1 or struct.unpack_from("<H", header, 18)[0] != 183:
     raise RuntimeError("ocserv must be a 64-bit little-endian AArch64 ELF executable")
+server_root = executables[0].parents[2]
+if sha256(server_root / "etc/init.d/ocserv") != sha256(ROOT / "server/openwrt/ocserv/files/ocserv.init"):
+    raise RuntimeError("The staged ocserv startup/certificate script is stale")
+ui_roots = list((sdk / "build_dir").glob("target-*/luci-app-ocserv-easy/.pkgdir/luci-app-ocserv-easy"))
+if len(ui_roots) != 1:
+    raise RuntimeError("Cannot locate the staged management package")
+for relative in ("etc/init.d/ocserv-easy-guard", "usr/libexec/ocserv-easy-guard", "usr/share/ocserv-easy/guard.nft.in"):
+    if sha256(ui_roots[0] / relative) != sha256(ROOT / "server/openwrt/luci-app-ocserv-easy/root" / relative):
+        raise RuntimeError("Stale guard runtime file: " + relative)
+for relative in ("etc/init.d/ocserv-easy-guard", "usr/libexec/ocserv-easy-guard"):
+    if not (ui_roots[0] / relative).stat().st_mode & 0o111:
+        raise RuntimeError("Guard runtime is not executable: " + relative)
+for name in ("guard.lua", "process.lua", "backend.lua"):
+    relative = "usr/lib/lua/luci/model/ocserv_easy/" + name
+    if sha256(ui_roots[0] / relative) != sha256(ROOT / "server/openwrt/luci-app-ocserv-easy/luasrc/model/ocserv_easy" / name):
+        raise RuntimeError("Stale management module: " + name)
 dynamic = subprocess.check_output(["readelf", "-d", str(executables[0])], text=True)
 (output / "ocserv-elf-dependencies.txt").write_text(dynamic, encoding="utf-8")
 ui_validation = output / "validation/ui"
@@ -62,10 +82,11 @@ info = {"ocserv": ocserv_version, "sdk": entry, "architecture": "aarch64_generic
         "boundary": "SDK compile/ELF validation; OPL/Flippy device ABI and real VPN traffic require device testing."}
 (output / "BUILDINFO.json").write_text(json.dumps(info, indent=2) + "\n", encoding="utf-8")
 shutil.copyfile(sdk / "feeds.conf", output / "feeds.conf.build")
-for filename in ("preflight-n1.sh", "upgrade-ocserv-24.10.sh", "diagnose-n1.sh", "export-profile.sh", "add-user.sh"):
+for filename in ("install.sh", "preflight-n1.sh", "diagnose-n1.sh", "export-profile.sh", "add-user.sh"):
     shutil.copyfile(ROOT / "server/tools" / filename, output / filename)
-shutil.copyfile(ROOT / "docs/OPENWRT-N1.md", output / "INSTALL-zh-CN.md")
+shutil.copyfile(ROOT / "docs/OPENWRT-N1.md", output / "OPENWRT-N1.md")
 shutil.copyfile(ROOT / "docs/SERVER-UI.md", output / "SERVER-UI.md")
+shutil.copyfile(ROOT / "docs/VPN-ONLY-OPENCLASH.md", output / "VPN-ONLY-OPENCLASH.md")
 source = output / "source"
 source.mkdir(exist_ok=True)
 archive = sdk / "dl" / f"ocserv-{ocserv_version}.tar.xz"

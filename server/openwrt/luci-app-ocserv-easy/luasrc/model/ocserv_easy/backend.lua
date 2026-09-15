@@ -4,6 +4,7 @@ local fs = require "nixio.fs"
 local uci = require "luci.model.uci"
 local json = require "luci.jsonc"
 local logic = require "luci.model.ocserv_easy.logic"
+local guard = require "luci.model.ocserv_easy.guard"
 local run = require("luci.model.ocserv_easy.process").run
 local M = {}
 local config_path="/etc/config/ocserv"
@@ -97,7 +98,7 @@ function M.status()
     end
     return result
 end
-function M.data()
+function M.data(admin)
     local s=snapshot(); local state=M.status()
     state.version=version()
     state.supported=logic.supported_version(state.version)
@@ -109,6 +110,7 @@ function M.data()
     state.settings_supported=state.auth=="plain" and s.config.proxy_arp~="1"
     state.autostart=run({"/etc/init.d/ocserv","enabled"},3)==0
     state.ca_available=(read("/etc/ocserv/ca.pem",65536) or ""):find("BEGIN CERTIFICATE",1,true)~=nil
+    state.guard=guard.status(admin)
     return state
 end
 local function hash_password(password)
@@ -247,7 +249,7 @@ local function apply_settings(s,request)
         return {effect=was_running and "restarted" or "saved"}
     end)
 end
-function M.action(request)
+function M.action(request,admin)
     logic.require(type(request)=="table" and type(request.action)=="string","bad_request")
     directory(work)
     local lock=nixio.open(work.."/lock","w",384)
@@ -261,7 +263,11 @@ function M.action(request)
         local changes=s.cursor:changes("ocserv")
         logic.require(not changes or not next(changes.ocserv or changes),"pending_changes")
         if request.action=="save_user" or request.action=="delete_user" then return change_user(s,request) end
-        if request.action=="settings" then return apply_settings(s,request) end
+        if request.action=="guard" then return guard.begin(request.command,admin,request.token) end
+        if request.action=="settings" then
+            logic.require(not guard.active(),"guard_settings_locked")
+            return apply_settings(s,request)
+        end
         if request.action=="disconnect" then
             logic.require(type(request.id)=="string" and request.id:match("^%d+$") and tonumber(request.id)>0 and tonumber(request.id)<=2147483647,"bad_request")
             local code,output=run({occtl,"disconnect","id",request.id},5)
@@ -282,12 +288,17 @@ function M.action(request)
     return result
 end
 function M.export(kind,url)
+    logic.require(kind=="ca" or kind=="profile" or kind=="address","bad_request")
+    local normalized
+    if kind~="ca" then
+        if type(url)=="string" and not url:find("://",1,true) then url="https://"..url end
+        normalized=logic.url(url)
+        logic.require(normalized,"invalid_url")
+        if kind=="address" then return "[VPN]\nServer="..normalized.."\n","BulijieVPN.bvpn" end
+    end
     local ca=read("/etc/ocserv/ca.pem",65536)
     logic.require(ca and ca:find("-----BEGIN CERTIFICATE-----",1,true) and ca:find("-----END CERTIFICATE-----",1,true) and not ca:find("PRIVATE KEY",1,true),"ca_unavailable")
     if kind=="ca" then return ca,"ca.pem" end
-    logic.require(kind=="profile","bad_request")
-    local normalized=logic.url(url)
-    logic.require(normalized,"invalid_url")
-    return "[VPN]\nServer="..normalized.."\nCABase64="..nixio.bin.b64encode(ca).."\n","company-vpn.bvpn"
+    return "[VPN]\nServer="..normalized.."\nCABase64="..nixio.bin.b64encode(ca).."\n","BulijieVPN.bvpn"
 end
 return M

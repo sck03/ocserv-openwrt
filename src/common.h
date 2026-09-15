@@ -10,7 +10,7 @@
 
 namespace bridge {
 constexpr wchar_t kProduct[] = L"布利杰VPN";
-constexpr wchar_t kVersion[] = L"0.3.0";
+constexpr wchar_t kVersion[] = L"0.4.0";
 enum class Language { Chinese, English };
 enum class State { Idle, Connecting, Authenticating, Configuring, Connected, Reconnecting, Disconnecting, Failed };
 enum class Error { None, InvalidServer, MissingCredentials, MissingDriver, Administrator, Certificate,
@@ -21,7 +21,7 @@ struct Profile {
     std::string pin;
     std::wstring ca_file;
     std::string auth_group;
-    bool lock_server = false;
+    bool remembered_pin = false;
     bool prefer_udp = true;
     bool protect_dns = true;
     bool block_ipv6 = true;
@@ -58,6 +58,7 @@ std::wstring settings_path();
 std::wstring system_error(DWORD code);
 std::wstring trim(const std::wstring& value);
 bool normalize_server(const std::wstring& input, std::wstring& output);
+std::wstring server_origin(const std::wstring& server);
 bool valid_pin(const std::string& pin);
 bool parse_address(const std::string& input, SOCKADDR_INET& output);
 bool parse_prefix(const std::string& input, Prefix& output);

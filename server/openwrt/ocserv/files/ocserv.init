@@ -2,6 +2,8 @@
 
 START=50
 USE_PROCD=1
+EXTRA_COMMANDS="initcerts"
+EXTRA_HELP="        initcerts  Generate missing server certificates without starting VPN"
 
 . $IPKG_INSTROOT/lib/functions/network.sh
 
@@ -147,48 +149,54 @@ setup_dns() {
 	echo "dns = $ip" >> /var/etc/ocserv.conf
 }
 
+initcerts() (
+	set -eu
+	umask 077
+	[ -x /usr/bin/certtool ] || { logger -t ocserv 'certtool is missing'; exit 1; }
+	mkdir -p /etc/ocserv/pki
+	chmod 700 /etc/ocserv/pki
+	if [ -s /etc/ocserv/server-key.pem ] && [ -s /etc/ocserv/server-cert.pem ]; then
+		chmod 600 /etc/ocserv/server-key.pem
+		[ ! -f /etc/ocserv/ca-key.pem ] || chmod 600 /etc/ocserv/ca-key.pem
+		exit 0
+	fi
+	if [ -s /etc/ocserv/ca.pem ] && [ ! -s /etc/ocserv/ca-key.pem ]; then
+		logger -t ocserv 'Existing CA has no private key; provide the matching server certificate instead of replacing this CA'
+		exit 1
+	fi
+	hostname=$(uci -q get system.@system[0].hostname || true)
+	hostname=$(printf '%s' "$hostname" | tr -cd 'A-Za-z0-9.-')
+	[ -n "$hostname" ] || hostname=OpenWrt
+	lan_address=''
+	network_get_ipaddr lan_address lan || true
+	if [ ! -s /etc/ocserv/ca-key.pem ]; then
+		certtool --bits 3072 --generate-privkey --outfile /etc/ocserv/pki/ca-key.new >/dev/null 2>&1
+		mv /etc/ocserv/pki/ca-key.new /etc/ocserv/ca-key.pem
+	fi
+	if [ ! -s /etc/ocserv/ca.pem ]; then
+		printf 'cn="%s CA"\nexpiration_days=3650\nca\ncert_signing_key\ncrl_signing_key\n' "$hostname" >/etc/ocserv/pki/ca.tmpl
+		certtool --template /etc/ocserv/pki/ca.tmpl --generate-self-signed \
+			--load-privkey /etc/ocserv/ca-key.pem --outfile /etc/ocserv/pki/ca.new >/dev/null 2>&1
+		mv /etc/ocserv/pki/ca.new /etc/ocserv/ca.pem
+	fi
+	if [ ! -s /etc/ocserv/server-key.pem ]; then
+		certtool --bits 3072 --generate-privkey --outfile /etc/ocserv/pki/server-key.new >/dev/null 2>&1
+		mv /etc/ocserv/pki/server-key.new /etc/ocserv/server-key.pem
+	fi
+	if [ ! -s /etc/ocserv/server-cert.pem ]; then
+		printf 'cn="%s"\ndns_name="%s"\nexpiration_days=825\nsigning_key\nencryption_key\ntls_www_server\n' "$hostname" "$hostname" >/etc/ocserv/pki/server.tmpl
+		case "$lan_address" in ''|*[!0-9.]*) ;; *) printf 'ip_address="%s"\n' "$lan_address" >>/etc/ocserv/pki/server.tmpl;; esac
+		certtool --template /etc/ocserv/pki/server.tmpl --generate-certificate \
+			--load-privkey /etc/ocserv/server-key.pem --load-ca-certificate /etc/ocserv/ca.pem \
+			--load-ca-privkey /etc/ocserv/ca-key.pem --outfile /etc/ocserv/pki/server-cert.new >/dev/null 2>&1
+		mv /etc/ocserv/pki/server-cert.new /etc/ocserv/server-cert.pem
+	fi
+	chmod 600 /etc/ocserv/ca-key.pem /etc/ocserv/server-key.pem
+)
+
 start_service() {
-	local hostname iface
-
-	hostname=`uci show ddns 2>/dev/null|grep domain|head -1|cut -d '=' -f 2`
-	[ -z "$hostname" ] && hostname=`uci get system.@system[0].hostname 2>/dev/null`
-
-	[ -f /etc/config/ocserv-dir/ca-key.pem ] && mv /etc/config/ocserv-dir/ca-key.pem /etc/ocserv/ca-key.pem
-	[ -f /etc/config/ocserv-dir/ca.pem ] && mv /etc/config/ocserv-dir/ca.pem /etc/ocserv/ca.pem
-	[ -f /etc/config/ocserv-dir/server-key.pem ] && mv /etc/config/ocserv-dir/server-key.pem /etc/ocserv/server-key.pem
-	[ -f /etc/config/ocserv-dir/server-cert.pem ] && mv /etc/config/ocserv-dir/server-cert.pem /etc/ocserv/server-cert.pem
-	[ -d /etc/config/ocserv-dir ] && rmdir /etc/config/ocserv-dir
-
-	[ ! -f /etc/ocserv/ca-key.pem ] && [ -x /usr/bin/certtool ] && {
-		logger -t ocserv "Generating CA certificate..."
-		mkdir -p /etc/ocserv/pki/
-		certtool --bits 2048 --generate-privkey --outfile /etc/ocserv/ca-key.pem >/dev/null 2>&1
-		echo "cn=$hostname CA" >/etc/ocserv/pki/ca.tmpl
-		echo "expiration_days=-1" >>/etc/ocserv/pki/ca.tmpl
-		echo "serial=1" >>/etc/ocserv/pki/ca.tmpl
-		echo "ca" >>/etc/ocserv/pki/ca.tmpl
-		echo "cert_signing_key" >>/etc/ocserv/pki/ca.tmpl
-
-		certtool --template /etc/ocserv/pki/ca.tmpl \
-			--generate-self-signed --load-privkey /etc/ocserv/ca-key.pem \
-			--outfile /etc/ocserv/ca.pem >/dev/null 2>&1
-	}
-
-	#generate default server certificate/key
-	[ ! -f /etc/ocserv/server-key.pem ] && [ -x /usr/bin/certtool ] && {
-		logger -t ocserv "Generating default server certificate..."
-		mkdir -p /etc/ocserv/pki/
-		certtool --bits 2048 --generate-privkey --outfile /etc/ocserv/server-key.pem >/dev/null 2>&1
-		echo "cn=$hostname" >/etc/ocserv/pki/server.tmpl
-		echo "serial=2" >>/etc/ocserv/pki/server.tmpl
-		echo "expiration_days=-1" >>/etc/ocserv/pki/server.tmpl
-		echo "signing_key" >>/etc/ocserv/pki/server.tmpl
-		echo "encryption_key" >>/etc/ocserv/pki/server.tmpl
-		certtool --template /etc/ocserv/pki/server.tmpl \
-			--generate-certificate --load-privkey /etc/ocserv/server-key.pem \
-			--load-ca-certificate /etc/ocserv/ca.pem --load-ca-privkey \
-			/etc/ocserv/ca-key.pem --outfile /etc/ocserv/server-cert.pem >/dev/null 2>&1
-	}
+	initcerts || return 1
+	mkdir -p /var/etc
 
 	[ -f /var/run/ocserv.pid ] || {
 		touch /var/run/ocserv.pid

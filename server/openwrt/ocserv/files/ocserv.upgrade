@@ -6,3 +6,4 @@
 /etc/ocserv/config-per-user/*
 /etc/ocserv/config-per-group/*
 /etc/ocserv/crl.pem
+/etc/ocserv/easy-guard/

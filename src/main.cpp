@@ -1,6 +1,7 @@
 #include "common.h"
 #include "session.h"
 #include "settings.h"
+#include "certificate_dialog.h"
 #include <commctrl.h>
 #include <commdlg.h>
 #include <shellapi.h>
@@ -15,7 +16,7 @@ constexpr UINT kEvent = WM_APP + 1;
 constexpr UINT kTrayEvent = WM_APP + 2;
 constexpr UINT_PTR kTimer = 1;
 const UINT kTaskbarCreated = RegisterWindowMessageW(L"TaskbarCreated");
-enum Control { Server = 100, Username, Password, LanguageBox, ShowPassword, Remember, Connect, Configuration, About, CopyDetails,
+enum Control { Server = 100, Username, Password, LanguageBox, ShowPassword, Remember, Connect, Configuration, About, CopyDetails, ExportProfile,
                TrayShow=400, TrayDisconnect, TrayExit };
 Handle instance_mutex;
 struct App {
@@ -23,10 +24,11 @@ struct App {
     HWND logo = nullptr;
     HWND title = nullptr, subtitle = nullptr, server_label = nullptr, server = nullptr, user_label = nullptr, username = nullptr;
     HWND password_label = nullptr, password = nullptr, language_box = nullptr, show_password = nullptr, remember = nullptr;
-    HWND connect = nullptr, status = nullptr, traffic = nullptr, hint = nullptr, details = nullptr, configuration = nullptr, about = nullptr, copy_details = nullptr;
+    HWND connect = nullptr, status = nullptr, traffic = nullptr, details = nullptr, configuration = nullptr, about = nullptr, copy_details = nullptr;
+    HWND export_profile_button = nullptr;
     HFONT font = nullptr, title_font = nullptr, status_font = nullptr;
     HBRUSH background = CreateSolidBrush(RGB(245, 247, 251));
-    Profile profile;
+    Profile profile, configured_profile;
     Language language = Language::Chinese;
     State state = State::Idle;
     Error error = Error::None;
@@ -42,7 +44,6 @@ struct App {
     std::wstring restored_user;
     bool tray_added = false;
     std::wstring last_tooltip;
-    std::wstring smoke_directory;
     ~App() { remove_tray(); session.reset(); if(font) DeleteObject(font); if(title_font) DeleteObject(title_font); if(status_font) DeleteObject(status_font); DeleteObject(background); }
     int scale(int value) const { return MulDiv(value, dpi, 96); }
     bool active() const { return static_cast<bool>(session); }
@@ -87,9 +88,9 @@ struct App {
         connect = control(L"BUTTON", BS_DEFPUSHBUTTON | WS_TABSTOP, Connect);
         status = control(L"STATIC", SS_LEFT);
         traffic = control(L"STATIC", SS_LEFT);
-        hint = control(L"STATIC", SS_LEFT);
         details = control(L"EDIT", ES_MULTILINE | ES_AUTOVSCROLL | ES_READONLY | WS_VSCROLL, 0, WS_EX_CLIENTEDGE);
         configuration = control(L"BUTTON", BS_PUSHBUTTON | WS_TABSTOP, Configuration);
+        export_profile_button = control(L"BUTTON", BS_PUSHBUTTON | WS_TABSTOP, ExportProfile);
         about = control(L"BUTTON", BS_PUSHBUTTON | WS_TABSTOP, About);
         copy_details = control(L"BUTTON", BS_PUSHBUTTON | WS_TABSTOP, CopyDetails);
         SendMessageW(server, EM_SETLIMITTEXT, 1024, 0);
@@ -100,6 +101,7 @@ struct App {
         SendMessageW(status, WM_SETFONT, reinterpret_cast<WPARAM>(status_font), TRUE);
         SetWindowTextW(title, kProduct);
         load_profile(profile, profile_error, !smoke);
+        configured_profile = profile;
         language = profile.language;
         settings = settings_path();
         wchar_t value[2048]{};
@@ -110,16 +112,12 @@ struct App {
             SetWindowTextW(username, value);
             bool saved = GetPrivateProfileIntW(L"User", L"RememberCredentials", 1, settings.c_str()) != 0;
             SendMessageW(remember, BM_SETCHECK, saved ? BST_CHECKED : BST_UNCHECKED, 0);
-            if (!profile.lock_server) {
-                GetPrivateProfileStringW(L"User", L"Server", profile.server.c_str(), value, 2048, settings.c_str());
-                profile.server = value;
-            }
+            GetPrivateProfileStringW(L"User", L"Server", profile.server.c_str(), value, 2048, settings.c_str());
+            profile.server = value;
         }
         SetWindowTextW(server, profile.server.c_str());
-        SendMessageW(server, EM_SETREADONLY, profile.lock_server ? TRUE : FALSE, 0);
         SendMessageW(language_box, CB_SETCURSEL, language == Language::Chinese ? 0 : 1, 0);
         if (!is_admin()) SendMessageW(connect, BCM_SETSHIELD, 0, TRUE);
-        ShowWindow(hint,SW_HIDE);
         ShowWindow(details,SW_HIDE);
         ShowWindow(copy_details,SW_HIDE);
         if (smoke) SetWindowTextW(username,L"");
@@ -161,9 +159,9 @@ struct App {
         place(status,34,426,content,28); place(traffic,34,461,content,24);
         place(details,32,501,content,105);
         int footer = diagnostics_visible ? 627 : 516;
-        place(configuration,32,footer,175,30); place(about,width-135,footer,103,30);
-        place(copy_details,222,footer,190,30);
-        int height = scale(diagnostics_visible ? 678 : 568);
+        place(configuration,32,footer,165,30); place(export_profile_button,211,footer,145,30); place(about,width-135,footer,103,30);
+        place(copy_details,32,footer+40,190,30);
+        int height = scale(diagnostics_visible ? 718 : 568);
         if (rect.bottom != height) {
             RECT outer{}; GetWindowRect(window,&outer);
             SetWindowPos(window,nullptr,0,0,outer.right-outer.left,height + (outer.bottom-outer.top-rect.bottom),SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE);
@@ -176,7 +174,8 @@ struct App {
         SetWindowTextW(password_label, tr(L"密码", L"Password"));
         SetWindowTextW(show_password, tr(L"显示密码", L"Show password"));
         SetWindowTextW(remember, tr(L"记住账号和密码", L"Remember username and password"));
-        SetWindowTextW(configuration, tr(L"导入配置", L"Import profile"));
+        SetWindowTextW(configuration, tr(L"导入配置（可选）", L"Import (optional)"));
+        SetWindowTextW(export_profile_button, tr(L"导出配置", L"Export profile"));
         SetWindowTextW(about, tr(L"关于", L"About"));
         SetWindowTextW(copy_details, tr(L"复制诊断", L"Copy diagnostics"));
         refresh();
@@ -201,6 +200,7 @@ struct App {
         SetWindowTextW(traffic, line.c_str());
         EnableWindow(server, !active()); EnableWindow(username, !active()); EnableWindow(password, !active());
         EnableWindow(remember, !active()); EnableWindow(show_password, !active()); EnableWindow(configuration, !active());
+        EnableWindow(export_profile_button, !active());
         EnableWindow(connect, !closing && profile_error.empty() && state != State::Disconnecting);
         InvalidateRect(status, nullptr, TRUE);
         update_tray();
@@ -285,8 +285,9 @@ struct App {
     }
     void restore_credentials() {
         if (smoke || SendMessageW(remember,BM_GETCHECK,0,0) != BST_CHECKED) return;
-        Profile selected = profile;
-        selected.server = get(server);
+        Profile selected;
+        DWORD status = 0;
+        if (!select_server_profile(configured_profile, get(server), selected, status)) return;
         std::wstring user, pass;
         if (read_credentials(selected,user,pass)) {
             updating_fields = true;
@@ -315,9 +316,9 @@ struct App {
         if (!import_connection(filename.data(),selected,message)) { display_error(Error::Certificate,message); return; }
         profile_error.clear();
         if (!load_profile(profile,profile_error)) { display_error(Error::Internal,profile_error); return; }
+        configured_profile = profile;
         updating_fields = true;
         SetWindowTextW(server,profile.server.c_str());
-        SendMessageW(server,EM_SETREADONLY,profile.lock_server,0);
         SetWindowTextW(password,L"");
         updating_fields = false;
         password_from_store = false;
@@ -326,6 +327,32 @@ struct App {
         refresh();
         SetWindowTextW(status,tr(L"配置已导入",L"Profile imported"));
         save();
+    }
+    void export_profile() {
+        Profile selected;
+        DWORD status_code = 0;
+        if (!select_server_profile(configured_profile, get(server), selected, status_code)) {
+            display_error(Error::Internal, system_error(status_code)); return;
+        }
+        std::vector<wchar_t> filename(32768);
+        const std::wstring suggested = L"BulijieVPN.bvpn";
+        std::copy(suggested.begin(), suggested.end(), filename.begin());
+        OPENFILENAMEW dialog{};
+        dialog.lStructSize = sizeof(dialog); dialog.hwndOwner = window;
+        dialog.lpstrFilter = L"VPN profile (*.bvpn)\0*.bvpn\0\0";
+        dialog.lpstrFile = filename.data(); dialog.nMaxFile = static_cast<DWORD>(filename.size());
+        dialog.lpstrDefExt = L"bvpn";
+        dialog.lpstrTitle = tr(L"导出连接配置（不含账号密码）", L"Export connection profile (no credentials)");
+        dialog.Flags = OFN_OVERWRITEPROMPT | OFN_PATHMUSTEXIST | OFN_NOCHANGEDIR | OFN_DONTADDTORECENT;
+        if (!GetSaveFileNameW(&dialog)) return;
+        std::wstring message;
+        if (!export_connection(filename.data(), selected, message)) { display_error(Error::Internal, message); return; }
+        clear_error(); refresh();
+        MessageBoxW(window, (std::wstring(tr(L"配置已导出：\n", L"Profile exported:\n")) + filename.data() +
+            (selected.pin.empty() && selected.ca_file.empty() ?
+                tr(L"\n\n未保存证书信任信息；导入后首次连接可能需要确认证书。", L"\n\nNo certificate trust is saved; the first connection after import may require certificate confirmation.") :
+                tr(L"\n\n包含此服务器的证书信任信息，请通过可信渠道分发。", L"\n\nIncludes certificate trust for this server. Share through a trusted channel.")) +
+            tr(L"\n不含账号、密码或私钥。", L"\nContains no username, password, or private key.")).c_str(), kProduct, MB_OK | MB_ICONINFORMATION);
     }
     void elevate() {
         save();
@@ -355,11 +382,13 @@ struct App {
         Profile current_profile;
         profile_error.clear();
         if (!load_profile(current_profile, profile_error, !smoke)) { display_error(Error::Internal, profile_error); return; }
-        profile = std::move(current_profile);
-        if (profile.lock_server && get(server) != profile.server) { updating_fields = true; SetWindowTextW(server, profile.server.c_str()); updating_fields = false; }
-        SendMessageW(server, EM_SETREADONLY, profile.lock_server ? TRUE : FALSE, 0);
+        configured_profile = std::move(current_profile);
         std::wstring normalized;
         if (!normalize_server(get(server), normalized)) { display_error(Error::InvalidServer); SetFocus(server); return; }
+        DWORD selection_error = 0;
+        if (!select_server_profile(configured_profile, normalized, profile, selection_error)) {
+            display_error(Error::Certificate, system_error(selection_error)); return;
+        }
         auto user = trim(get(username, 256));
         auto pass = get(password, 1024);
         if (user.empty() || pass.empty()) { erase(pass); display_error(Error::MissingCredentials); SetFocus(user.empty() ? username : password); return; }
@@ -372,6 +401,7 @@ struct App {
         if (!is_admin()) { erase(pass); elevate(); return; }
         ConnectOptions options;
         options.profile = profile;
+        options.interactive_certificate = true;
         options.username = utf8(user);
         options.password = utf8(pass);
         erase(pass);
@@ -388,6 +418,29 @@ struct App {
         refresh();
     }
     void event(Event event) {
+        if (event.certificate) {
+            auto request = event.certificate;
+            if (closing || disconnect_requested || !session || request->cancelled) { request->answer(false); return; }
+            bool accepted = confirm_server_certificate(window, language, request);
+            if (accepted && !request->cancelled && !closing && !disconnect_requested && session) {
+                Profile trusted = profile;
+                trusted.pin = request->pin; trusted.ca_file.clear(); trusted.remembered_pin = true;
+                DWORD status = 0;
+                accepted = server_origin(profile.server) == server_origin(request->server) && save_server_pin(request->server, request->pin, status);
+                if (accepted) {
+                    std::wstring user, pass;
+                    if (SendMessageW(remember, BM_GETCHECK, 0, 0) == BST_CHECKED && read_credentials(profile, user, pass)) {
+                        accepted = save_credentials(trusted, user, pass, status);
+                        if (accepted) { DWORD ignored = 0; forget_credentials(profile, ignored); }
+                    }
+                    erase(pass);
+                    profile = std::move(trusted);
+                }
+                if (!accepted) display_error(Error::Certificate, tr(L"无法保存服务器指纹或凭据：", L"Could not save server trust or credentials: ") + system_error(status));
+            } else accepted = false;
+            request->answer(accepted);
+            return;
+        }
         // A queued statistics or handshake event must not undo a user's cancel/close.
         state = disconnect_requested && !event.terminal ? State::Disconnecting : event.state;
         if (event.statistics) { rx = event.rx; tx = event.tx; address = event.address; transport = event.transport; }
@@ -401,21 +454,22 @@ struct App {
             // Restore from Credential Manager only after the worker has discarded
             // its plaintext password. Reconnect can then use one click again.
             if (event.error != Error::Authentication) restore_credentials();
-            SetFocus(GetWindowTextLengthW(password) == 0 ? password : connect);
+            if (!smoke && IsWindowVisible(window)) SetFocus(GetWindowTextLengthW(password) == 0 ? password : connect);
         }
         refresh();
     }
-    bool capture(const std::wstring& file) {
-        RECT rect{}; GetClientRect(window, &rect);
-        HDC dc = GetDC(window), memory = CreateCompatibleDC(dc);
+    bool capture(const std::wstring& file, HWND target = nullptr) {
+        if (!target) target = window;
+        RECT rect{}; GetClientRect(target, &rect);
+        HDC dc = GetDC(target), memory = CreateCompatibleDC(dc);
         BITMAPINFO bitmap{}; bitmap.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
         bitmap.bmiHeader.biWidth = rect.right; bitmap.bmiHeader.biHeight = -rect.bottom;
         bitmap.bmiHeader.biPlanes = 1; bitmap.bmiHeader.biBitCount = 32; bitmap.bmiHeader.biCompression = BI_RGB;
         void* pixels = nullptr;
         HBITMAP image = CreateDIBSection(dc, &bitmap, DIB_RGB_COLORS, &pixels, nullptr, 0);
-        if (!image || !memory) { if(image) DeleteObject(image); if(memory) DeleteDC(memory); ReleaseDC(window,dc); return false; }
+        if (!image || !memory) { if(image) DeleteObject(image); if(memory) DeleteDC(memory); ReleaseDC(target,dc); return false; }
         auto old = SelectObject(memory, image);
-        PrintWindow(window, memory, PW_CLIENTONLY);
+        PrintWindow(target, memory, PW_CLIENTONLY);
         BITMAPFILEHEADER header{};
         header.bfType = 0x4d42;
         header.bfOffBits = sizeof(header) + sizeof(BITMAPINFOHEADER);
@@ -424,7 +478,7 @@ struct App {
         Handle out(CreateFileW(file.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr));
         DWORD n = 0;
         bool ok = out && WriteFile(out.get(), &header, sizeof(header), &n, nullptr) && WriteFile(out.get(), &bitmap.bmiHeader, sizeof(BITMAPINFOHEADER), &n, nullptr) && WriteFile(out.get(), pixels, size, &n, nullptr);
-        SelectObject(memory, old); DeleteObject(image); DeleteDC(memory); ReleaseDC(window, dc);
+        SelectObject(memory, old); DeleteObject(image); DeleteDC(memory); ReleaseDC(target, dc);
         return ok;
     }
 };
@@ -465,8 +519,9 @@ LRESULT CALLBACK window_proc(HWND window, UINT message, WPARAM w, LPARAM l) {
         case Remember:
             if (HIWORD(w) == BN_CLICKED) {
                 if (SendMessageW(app->remember,BM_GETCHECK,0,0) != BST_CHECKED) {
-                    Profile selected = app->profile; selected.server = app->get(app->server);
-                    DWORD error = 0; forget_credentials(selected,error);
+                    Profile selected;
+                    DWORD error = 0;
+                    if (select_server_profile(app->configured_profile, app->get(app->server), selected, error)) forget_credentials(selected,error);
                 } else if (app->get(app->password).empty()) app->restore_credentials();
                 app->save();
             }
@@ -481,9 +536,10 @@ LRESULT CALLBACK window_proc(HWND window, UINT message, WPARAM w, LPARAM l) {
             }
             break;
         case Configuration: app->import_profile(); break;
+        case ExportProfile: app->export_profile(); break;
         case CopyDetails: app->copy_diagnostics(); break;
         case About:
-            MessageBoxW(window, app->tr(L"布利杰VPN 0.3.0\n原生 Windows OpenConnect 客户端\n支持目标：Windows 7 SP1 及以上，x86 / x64\n\nOpenConnect 9.21 · OpenSSL 3.5.8\nWintun 0.14.1（官方签名驱动）\n\n源代码与许可证随发行包提供。", L"布利杰VPN 0.3.0\nNative Windows OpenConnect client\nTarget: Windows 7 SP1 and later, x86 / x64\n\nOpenConnect 9.21 · OpenSSL 3.5.8\nWintun 0.14.1 (official signed driver)\n\nSource and licenses accompany the release."), kProduct, MB_OK | MB_ICONINFORMATION); break;
+            MessageBoxW(window, app->tr(L"布利杰VPN 0.4.0\n原生 Windows OpenConnect 客户端\n支持目标：Windows 7 SP1 及以上，x86 / x64\n\nOpenConnect 9.21 · OpenSSL 3.5.8\nWintun 0.14.1（官方签名驱动）\n\n源代码与许可证随发行包提供。", L"布利杰VPN 0.4.0\nNative Windows OpenConnect client\nTarget: Windows 7 SP1 and later, x86 / x64\n\nOpenConnect 9.21 · OpenSSL 3.5.8\nWintun 0.14.1 (official signed driver)\n\nSource and licenses accompany the release."), kProduct, MB_OK | MB_ICONINFORMATION); break;
         }
         return 0;
     case kEvent: { std::unique_ptr<Event> event(reinterpret_cast<Event*>(l)); app->event(std::move(*event)); return 0; }
@@ -513,9 +569,11 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int show) {
     int count = 0;
     auto args = CommandLineToArgvW(GetCommandLineW(), &count);
     bool smoke = count == 3 && std::wstring(args[1]) == L"--smoke-test";
+    bool certificate_preview = count >= 2 && std::wstring(args[1]) == L"--preview-certificate";
+    bool preview_changed = certificate_preview && count >= 3 && std::wstring(args[2]) == L"changed";
     std::wstring output = smoke ? args[2] : L"";
     if (args) LocalFree(args);
-    if (!smoke) {
+    if (!smoke && !certificate_preview) {
         instance_mutex.reset(CreateMutexW(nullptr, FALSE, L"Local\\BridgeVPN.NativeClient"));
         if (!instance_mutex || GetLastError() == ERROR_ALREADY_EXISTS) {
             if (auto current = FindWindowW(L"BridgeVPNWindow", nullptr)) { ShowWindow(current, SW_RESTORE); SetForegroundWindow(current); }
@@ -532,7 +590,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int show) {
     }
     INITCOMMONCONTROLSEX controls{sizeof(controls), ICC_STANDARD_CLASSES}; InitCommonControlsEx(&controls);
     App app;
-    app.smoke = smoke;
+    app.smoke = smoke || certificate_preview;
     WNDCLASSEXW cls{};
     cls.cbSize = sizeof(cls); cls.hInstance = instance; cls.lpfnWndProc = window_proc;
     cls.hCursor = LoadCursorW(nullptr, IDC_ARROW); cls.hIcon = LoadIconW(instance, MAKEINTRESOURCEW(2));
@@ -555,6 +613,15 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int show) {
         ShowWindow(window, SW_SHOWNOACTIVATE);
         UpdateWindow(window);
         bool ok = true;
+        auto original_server = app.get(app.server);
+        SetWindowTextW(app.server, L"https://127.0.0.1:4440");
+        SendMessageW(app.server, EM_SETSEL, 21, 22);
+        SendMessageW(app.server, EM_REPLACESEL, FALSE, reinterpret_cast<LPARAM>(L"3"));
+        ok = !(GetWindowLongPtrW(app.server, GWL_STYLE) & ES_READONLY) && app.get(app.server) == L"https://127.0.0.1:4443";
+        app.connect_clicked();
+        ok = ok && app.get(app.server) == L"https://127.0.0.1:4443" && app.error == Error::MissingCredentials;
+        SetWindowTextW(app.server, original_server.c_str());
+        app.clear_error();
         for (Language language : {Language::Chinese, Language::English}) {
             app.language = language;
             SendMessageW(app.language_box, CB_SETCURSEL, language == Language::Chinese ? 0 : 1, 0);
@@ -586,11 +653,36 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int show) {
         SetWindowTextW(app.connect,app.tr(L"断开连接",L"Disconnect"));
         RedrawWindow(window,nullptr,nullptr,RDW_INVALIDATE | RDW_UPDATENOW | RDW_ALLCHILDREN);
         ok = app.capture(output+L"\\ui-connected.bmp") && ok;
+        app.state=State::Idle; app.refresh();
+        for (Language language : {Language::Chinese, Language::English}) {
+            for (bool changed : {false, true}) {
+                auto request = std::make_shared<CertificateRequest>();
+                request->server = L"https://192.0.2.1:4443";
+                request->pin = "pin-sha256:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=";
+                if (changed) request->previous_pin = "pin-sha256:BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBA=";
+                request->reason = L"Local test certificate / 本机测试证书";
+                request->details = L"Subject: CN=UI test certificate\nIssuer: CN=Local test CA";
+                bool captured = false;
+                auto file = output + (changed ? L"\\certificate-changed-" : L"\\certificate-first-") +
+                    (language == Language::Chinese ? L"zh.bmp" : L"en.bmp");
+                bool accepted = confirm_server_certificate(window, language, request, [&](HWND target) { captured = app.capture(file, target); });
+                ok = ok && captured && !accepted;
+            }
+        }
         DestroyWindow(window);
         WSACleanup();
         return ok ? 0 : 1;
     }
-    ShowWindow(window, show); UpdateWindow(window);
+    ShowWindow(window, certificate_preview ? SW_SHOWNORMAL : show); UpdateWindow(window);
+    if (certificate_preview) {
+        auto request = std::make_shared<CertificateRequest>();
+        request->server = L"https://192.0.2.1:4443";
+        request->pin = "pin-sha256:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=";
+        if (preview_changed) request->previous_pin = "pin-sha256:BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBA=";
+        request->reason = L"界面测试：示例证书不会用于网络连接，也不会保存。 / UI preview only; no connection or saved trust.";
+        request->details = L"Subject: CN=UI test certificate\nIssuer: CN=Local test CA\nPublic key: RSA 3072\n";
+        confirm_server_certificate(window, app.language, request);
+    }
     SetFocus(app.username);
     MSG message{};
     while (GetMessageW(&message,nullptr,0,0) > 0) {

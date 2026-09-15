@@ -1,4 +1,4 @@
-"""Resolve released OpenWrt 24.x.x/25.x.x SDKs from the official download index."""
+"""Resolve released OpenWrt 25.12.x SDKs from the official download index."""
 import json
 import re
 import urllib.request
@@ -12,18 +12,17 @@ def read_text(url):
         return response.read().decode("utf-8")
 
 
-def resolve_sdk(series, requested="", fetch=read_text):
-    if series not in ("24", "25"):
-        raise ValueError("Choose OpenWrt series 24 or 25")
+def resolve_sdk(requested="", fetch=read_text):
+    series = "25.12"
     pinned = json.loads((ROOT / "server/openwrt/sdks.json").read_text(encoding="utf-8"))[series]
     requested = requested.strip() or pinned["version"]
     if requested == "auto":
-        releases = re.findall(r'href="(' + series + r'\.\d+\.\d+)/"', fetch(BASE))
+        releases = re.findall(r'href="(25\.12\.\d+)/"', fetch(BASE))
         if not releases:
-            raise ValueError(f"No released OpenWrt {series}.x.x version found")
+            raise ValueError(f"No released OpenWrt {series}.x version found")
         requested = max(releases, key=lambda value: tuple(map(int, value.split("."))))
-    if not re.fullmatch(re.escape(series) + r"\.\d+\.\d+", requested):
-        raise ValueError(f"Use a released {series}.x.x version or auto; RC/snapshot versions are not selected implicitly")
+    if not re.fullmatch(r"25\.12\.\d+", requested):
+        raise ValueError("Use a released 25.12.x version or auto; other series, RCs and snapshots are not selected")
     if requested == pinned["version"]:
         return dict(pinned, series=series, checksum_origin="repository pin")
     base = BASE + requested + "/targets/armsr/armv8/"

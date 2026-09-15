@@ -1,5 +1,6 @@
 #ocserv-easy { max-width: 1120px; margin: 0 auto; color: var(--text-color, #24354b); }
 #ocserv-easy .easy-heading { display:flex; align-items:center; justify-content:space-between; gap:16px; margin:12px 0 20px; }
+#ocserv-easy .easy-heading > strong { white-space:nowrap; }
 #ocserv-easy h2 { margin:0 0 6px; font-size:26px; }
 #ocserv-easy h3 { margin-top:0; }
 #ocserv-easy p { line-height:1.6; }
@@ -34,6 +35,8 @@
 #ocserv-easy .easy-modal .easy-buttons { justify-content:flex-end; margin-top:22px; }
 #ocserv-easy [hidden] { display:none !important; }
 @media (max-width:680px) {
+  #ocserv-easy .easy-heading { flex-wrap:wrap; }
+  #ocserv-easy .easy-heading > div:first-child { flex-basis:100%; }
   #ocserv-easy .easy-fields { grid-template-columns:1fr; }
   #ocserv-easy .easy-card { padding:16px; }
   #ocserv-easy .easy-summary { grid-template-columns:1fr; gap:0; }

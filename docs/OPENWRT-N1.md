@@ -1,106 +1,79 @@
-# N1 上的 ocserv 与固件升级
+# N1 / OpenWrt 25.12 安装
 
-核实日期：2026-09-14。
+更新日期：2026-09-16。项目只构建 25.12 系列 APK。
 
 ## 当前设备
 
-| 项目 | 用户提供的值 |
+| 项目 | 用户提供的信息 |
 |---|---|
-| 设备 | Phicomm N1 / `phicomm,n1` |
-| 固件 | OPL_FW4 For N1 v0.0.7 |
-| OpenWrt | 24.10-SNAPSHOT，`r28816-a65ca44cb7` |
-| 内核 | `6.6.102-flippy-93+` |
-| target | `armsr/armv8` |
-| 软件包架构 | `aarch64_generic` |
-| LAN IP | `192.168.19.254` |
-| 包管理器 | opkg |
+| 型号 | Phicomm N1 |
+| 架构 | ARMv8 Processor rev 4 |
+| 目标平台 | armsr/armv8 |
+| 固件 | OPL_FW4 For N1 v0.0.8 |
+| LuCI | openwrt-25.12 branch 26.075.80566~6efa8ae |
+| 内核 | 6.12.66-flippy-94+ |
+| 示例连接地址 | 192.168.19.253:4443（来自最新截图） |
+| 拓扑 | 单网口旁路由，普通电脑通过另一台主路由上网 |
 
-这是一套 N1 定制固件，不能把所有标记为 ARMv8 的固件、软件包和内核模块都视为可互换。
+官方 SDK 默认 25.12.5、软件包架构 aarch64_generic。APK、musl 和各用户态依赖必须匹配实际固件；先使用固件作者配置的软件源。**TUN 来自 OPL/Flippy 自己的内核**：本项目配方不依赖官方 SDK 的 kmod-tun，安装脚本要求现有 `/dev/net/tun` 可用。
 
-## 能不能安装 1.5.0
+## 全新安装：一个脚本
 
-可以做匹配固件的移植/重新打包。`1.3.0-r2` 表示上游 1.3.0、OpenWrt 打包修订 2；不是“1.30-r2”。`1.5.0` 也不是“1.50”。截至核实日期，源代码配方为：
+无需先安装其他版本的 ocserv。
 
-| OpenWrt packages 分支 | ocserv 配方版本 | 构建方式 |
-|---|---|---|
-| openwrt-24.10 | 1.3.0-r2 | Autotools |
-| openwrt-25.12 | 1.4.1-r2 | Autotools |
-| master | 1.5.0-r1 | Meson |
-
-软件源跟随发行分支维护，不会因为上游出新版就自动变成最新。ocserv 自 1.4.2 起转换为 Meson，因此需要移植完整配方、安装路径和补丁，不只是修改版本号。1.5.0 在 2026-06-07 发布，含未认证 cookie 缓冲区问题、DTLS MTU 检查和连接稳定性等修复；旧发行包是否回移特定修复要单独核对。
-
-项目提供 `server/openwrt/ocserv` 的完整 1.5.0 配方及 `server/tools/build-ocserv.sh`。GitHub Actions 在 Linux 中分别使用官方 **24.10.8 / 25.12.5 的 armsr/armv8 SDK** 构建；产物的 `BUILDINFO.json` 记录 SDK、校验值和 feed 提交。**尚未在这套 OPL 固件上实际安装与转发验收**，官方 SDK 包需要先通过下面的设备检查。
-
-优先使用固件作者提供的对应 SDK/软件源。若尝试官方 24.10 的 armsr/armv8 SDK，应先比对 libc、GnuTLS、libev 等 ABI、依赖和实际运行结果。官方 SDK 的架构匹配不等于已验证兼容这套定制固件。不要混用 master 的软件源或强制忽略依赖。
-
-## 当前 24.10 升级与安装管理页
-
-1. 在 GitHub Actions 选择 **手动构建 ocserv 服务端与中文管理页**，`series` 选 `24` 或 `all`，SDK 选择实际固件对应的 24.x.x 版本；下载 `openwrt-24.x-aarch64_generic` 并完整解压。
-2. 在电脑校验 `SHA256SUMS`，把包和工具上传到 N1 的临时目录。
-3. 在路由器运行 `sh preflight-n1.sh`。它逐项读取固件、库版本、TUN 和磁盘信息，不输出密码或私钥。
-4. 从可信的、与当前固件匹配的软件源保留**当前已安装的 1.3.0-r2 原包**用于回滚，并准备其可信 SHA-256 记录。升级脚本要求新旧包各自目录均有包含对应文件名的 `SHA256SUMS`；若在同一目录，将旧包校验记录追加进去。
-5. 将下面 `NEW.ipk` / `OLD.ipk` 替换为实际文件名：
+1. 下载本次 25.12 服务端 ZIP，核对外部 SHA256SUMS，完整解压。
+2. 使用 WinSCP 或 LuCI 文件传输，把解压目录中的文件上传到 N1 的 `/tmp/bulijie-vpn`。`install.sh`、四个 APK 和 `SHA256SUMS` 应在同一层。
+3. SSH 登录 N1，以 root 执行：
 
 ```sh
-sh upgrade-ocserv-24.10.sh --check NEW.ipk OLD.ipk
-sh upgrade-ocserv-24.10.sh --apply NEW.ipk OLD.ipk
-opkg install ./luci-app-ocserv_*.ipk ./luci-i18n-ocserv-zh-cn_*.ipk ./luci-app-ocserv-easy_*.ipk
+cd /tmp/bulijie-vpn
+sh install.sh
 ```
 
-`--check` 核对包名、架构、版本与校验值，先用新二进制在当前设备执行版本与现有配置检查，并拒绝安装或替换内核模块的计划。新包可以是 1.5.0 或后续版本，必须高于当前已安装版本。`--apply` 会短暂断开 VPN，备份现有账号、证书、配置和旧包，安装后验证服务；失败自动尝试恢复。备份目录是 `/root/ocserv-upgrade-日期时间`。
+脚本会校验套装所有文件、检查固件/架构/TUN、更新现有 APK 软件源索引并预演安装。如果计划安装或更换内核模块则停止。安装前把已有配置备份到 `/root/bulijie-before-install-日期时间-进程号`。
 
-安装页面后重新登录 LuCI，打开 **VPN → OpenConnect VPN → 布利杰VPN**。具体功能见 [管理页说明](SERVER-UI.md)。页面要求 1.5.0，不保留旧版会话接口的兼容分支。
+安装的四个包是 ocserv、luci-app-ocserv、luci-i18n-ocserv-zh-cn 和 luci-app-ocserv-easy。`--allow-untrusted` 只用于这些自行构建且已经校验的本地 APK；普通依赖仍由固件现有软件源解析，不跳过依赖检查。
 
-## 以后升级 OpenWrt 25.12
+全新安装还会生成缺失的 CA/服务端证书、保留私钥文件权限，并配置 ocvpn 区域、VPN 到 LAN 上游的转发、源 NAT 和 4443 入口。它不会开启 OpenClash，也不会修改 OpenClash 配置。端口 4443 和 VPN 网段 10.77.0.0/24 需要与现网错开。
 
-ocserv 是用户态程序，通过标准 TUN 接口与内核交互，通常不需要因 Linux 6.6 升到 6.12 而更换应用协议。因此 **1.5.0 可以继续作为 25.12 的移植版本，但要按新固件重新打包、安装和验证**。
+安装或证书步骤失败后可重新运行脚本，继续尚未完成的全新安装。防火墙写入、检查或重载失败时恢复安装前配置；已完成安装后再运行不会重复添加规则。
 
-官方 25.12 默认改用 APK，25.12.0 的 armsr/armv8 清单使用 Linux 6.12.71。24.10 的 `.ipk` 不能当作 25.12 的 `.apk` 直接安装；OPL 作者也可能定制包管理方式，以实际固件为准。
+## 第一次使用管理页
 
-- 新内核的 TUN 支持或 `kmod-tun` 必须来自匹配的新固件。绝不能把官方模块塞入 `6.6.102-flippy-93+`，也不能把旧模块带到新内核。
-- N1 要用明确支持 N1 的固件。官方 armsr/armv8 通用 EFI 镜像不是 N1 可直接刷写的设备镜像。
-- 升级前备份 `/etc/config/ocserv`、`/etc/ocserv`、防火墙、DNS 和 OpenClash 配置；备份含账号哈希和私钥，应限制访问。
-- 升级后安装匹配的 ocserv/依赖，恢复配置，确认生成配置、监听端口、TUN、DNS 和代理转发，再放行用户。
-- 客户端不依赖服务端包管理器或 Linux 内核号。服务器地址/端口、CA 与认证方式保持一致时，客户端通常不需要改；更换 CA/固定公钥时重新分发连接文件。
+重新登录 LuCI，打开 **VPN → OpenConnect VPN → 布利杰VPN**。
 
-升级 N1 固件并恢复配置后，在服务端工作流选择相应的 25.x.x SDK，改用 `openwrt-25.x-aarch64_generic` 中的 APK。先运行 `preflight-n1.sh`，确认 `aarch64_generic`、APK 与 TUN；校验 `SHA256SUMS` 后安装本次下载的四个包：
+1. 在“账号与在线用户”添加账号；新密码至少 8 个字符。程序没有默认账号密码。
+2. 在“服务设置”检查端口、VPN 地址池、DNS、每账号在线数和员工连接地址。
+3. 点击“启动服务”；需要开机启动时点击“开机自动启动”。
+4. 客户端填写 N1 的实际地址和端口，例如 `https://192.168.19.253:4443`，输入账号密码后连接。首次出现证书确认时核对指纹并选择“信息准确，记住并连接”。
+
+需要分发配置时，在管理页“客户端配置”填写同一地址并下载 `.bvpn`；默认在首次连接时确认证书。也可由已连接成功的 Windows 客户端点击“导出配置”，携带已确认的指纹分发。接收者仍需自行填写账号密码。
+
+证书由握手自动传给客户端，确认前不会发送账号密码。首次生成的证书包含生成时的 LAN IPv4 地址和路由器主机名。现有证书不会被自动替换；以后换地址、公钥或证书时应核对对应变化。
+
+若菜单没有刷新，先退出并重新登录 LuCI，必要时执行：
 
 ```sh
-apk add --allow-untrusted ./ocserv-*.apk ./luci-app-ocserv-*.apk ./luci-i18n-ocserv-zh-cn-*.apk
+/etc/init.d/rpcd restart
+/etc/init.d/uhttpd restart
 ```
 
-`luci-app-ocserv-*.apk` 同时包含原页面和 `luci-app-ocserv-easy`。`--allow-untrusted` 用于这里自行构建并核验的本地包，因为它们没有固件官方软件源的签名。普通依赖继续从当前固件匹配的软件源安装。25.12 不使用 24.10 的自动回滚脚本；保留新固件及其匹配的旧包和配置备份，确认版本、服务状态与真实客户端通信后再开放用户。
+## 与 OpenClash 共存
 
-## 本项目的服务配置示例
+ocserv 负责 VPN 隧道与账号，OpenClash 负责出站代理，两者可以共存。默认服务端安装只准备 VPN 的基本网络转发。OpenClash 必须先完成订阅/节点配置并正常运行。
 
-`server/examples/ocserv.uci` 使用 TCP/UDP 4443、VPN 地址池 10.77.0.0/24、`max_same=1`。请确认这个地址池不与现网冲突，LAN 掩码示例按 /24 写出，需按实际情况核对。
+需要“只有连接 VPN 才能借 N1 使用 OpenClash”时，进入 **VPN 专用上网 → 开启**。开关默认关闭；启用时使用实际 LAN 信息、VPN 地址池及当前管理电脑地址，不要求手工复制 nft 规则。应用可能短暂重启防火墙、dnsmasq、OpenClash 和 ocserv。
 
-`max-same-clients=1` 由服务端按认证账号实施。同一账号的新连接超过限制会被拒绝，已有连接保留；断网后的席位释放需要等待服务端检测。管理员停用账号时还应使用 1.5.0 的 `occtl terminate user <用户名>` 终止并使会话失效。
+成功后页面会自动确认当前管理连接仍可使用；无法确认则在待确认阶段约两分钟后尝试恢复。关闭时恢复本功能改动的设置。详见 [专用上网开关](VPN-ONLY-OPENCLASH.md)。
 
-包内 procd 脚本从 UCI 生成 `/var/etc/ocserv.conf` 和 `/var/etc/ocpasswd`。不要直接编辑这些临时文件。用 LuCI 管理账号，或者使用 `server/tools/add-user.sh` 交互输入密码后写入 UCI 的密码哈希，再安排服务重启。客户端记住密码不改变服务器在线数量限制。
+## 已有安装的更新
 
-`server/examples/ocserv.conf.local` 作为额外配置示例。DNS 示例为 VPN 服务端地址 `10.77.0.1`；需让 dnsmasq/OpenClash 在此地址正确应答 VPN 客户端。不要把 VPN 入口 `192.168.19.254` 同时用作隧道 DNS，因为入口需要保留物理路径，容易造成 DNS 绕行/路由冲突。客户端对此情况会拒绝连接并回滚。
+先退出/断开客户端并备份当前固件配置，再使用新套装的 `install.sh`。已有 ocserv 的账号、证书与配置按包管理器配置文件策略保留；不会重新套用全新安装的默认网络。更新不是固件升级，也不包含旧二进制的自动回滚；请保留原来可用的 APK 和固件备份。
 
-## OpenClash 与防绕过
+如果改过自定义地址池，需同步检查 VPN 的转发/NAT。启用专用上网开关时会根据当前地址池生成相应规则；关闭时恢复之前的普通网络配置。
 
-认证客户端的流量应从真实的 `vpns*` 接口进入 OpenClash。给 VPN 建独立 fw4 区域，按实际单臂旁路由出口设置转发、DNS 输入许可及必要的源 NAT。未经认证的 LAN 主机不得通过修改网关进入透明代理，也不得直接连 HTTP/SOCKS/Mihomo 控制端口。
+## 验收
 
-`server/examples/fw4-guard.nft` 是待审核的独立规则表示例，默认 LAN 接口为 `br-lan`，在代理重定向前拒绝 LAN 转发，并对 VPN 地址池做出口 NAT。它不是已经适配并应用到你的机器上的配置：
+确认服务版本、TCP/UDP 4443、账号登录、客户端分配的 VPN IP、DNS 与实际网页访问，再测试断开后路由/DNS 恢复。启用专用上网后，再用未连接 VPN 的电脑验证修改网关/DNS或手填 HTTP/SOCKS 端口不能借用 N1。
 
-1. 核对真实接口、所有代理监听端口及 OpenClash 实际 hook 优先级。
-2. 核对管理 IP 的访问例外，尤其是控制接口 9090；示例默认禁止 LAN 直接访问。
-3. 给真实 VPN 设备添加独立 fw4 区域、DNS 规则和到实际出口的转发；仅放行“VPN 源 IP”不够，必须检查输入接口。
-4. 先用 `nft -c -f 文件` 验证，再在维护窗口加载。不要自动覆盖已有防火墙。
-5. 用未授权电脑测试修改网关、直连代理、伪造 VPN 源 IP 和 IPv6，再验证授权电脑的内网/DNS/外网。
-
-知道服务器 IP 本身不等于获权；客户端无法可靠隐藏实际连接 IP。认证和输入接口隔离才是防绕过的边界。
-
-## 原始来源
-
-- [24.10 配方](https://github.com/openwrt/packages/blob/openwrt-24.10/net/ocserv/Makefile)
-- [25.12 配方](https://github.com/openwrt/packages/blob/openwrt-25.12/net/ocserv/Makefile)
-- [本项目采用的 1.5.0 配方](https://github.com/openwrt/packages/tree/c7a47d583127961590dfd832c424441c6810952c/net/ocserv)
-- [ocserv 1.5.0 NEWS](https://gitlab.com/openconnect/ocserv/-/blob/1.5.0/NEWS)
-- [25.12 默认 USE_APK](https://github.com/openwrt/openwrt/blob/openwrt-25.12/config/Config-build.in)
-- [25.12.0 armsr/armv8 软件清单](https://downloads.openwrt.org/releases/25.12.0/targets/armsr/armv8/openwrt-25.12.0-armsr-armv8.manifest)
-- [25.12.0 armsr/armv8 镜像与 SDK](https://downloads.openwrt.org/releases/25.12.0/targets/armsr/armv8/)
+本地构建和隔离测试已经覆盖相关代码路径；此项目尚未在用户这台 OPL v0.0.8 / Flippy 内核上完成真实转发验收。

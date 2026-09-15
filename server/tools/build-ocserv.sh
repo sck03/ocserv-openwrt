@@ -15,6 +15,8 @@ cd "$sdk"
 # Git checkout can produce an empty package index with SDK metadata scanning.
 mkdir -p package/bulijie
 cp -a "$feed/ocserv" "$feed/luci-app-ocserv-easy" package/bulijie/
+chmod 0755 package/bulijie/luci-app-ocserv-easy/root/etc/init.d/ocserv-easy-guard
+chmod 0755 package/bulijie/luci-app-ocserv-easy/root/usr/libexec/ocserv-easy-guard
 # Install only needed build recipes and their dependencies. Installing every
 # feed package introduces unrelated Kconfig/provider conflicts into an SDK.
 ./scripts/feeds install libgnutls certtool libev libncurses libreadline libprotobuf-c \
@@ -38,6 +40,7 @@ CONFIG_LUCI_LANG_zh_Hans=y
 CONFIG_OCSERV_PROTOBUF=y
 CONFIG
 make defconfig
+grep -q '^CONFIG_USE_APK=y$' .config || { printf '%s\n' 'Use an OpenWrt 25.12 APK SDK.' >&2; exit 1; }
 grep -Eq '^CONFIG_PACKAGE_ocserv=(y|m)$' .config
 grep -Eq '^CONFIG_PACKAGE_luci-app-ocserv-easy=(y|m)$' .config
 if ! grep -q '^CONFIG_TARGET_armsr_armv8=y' .config; then
@@ -49,4 +52,4 @@ make -j"${BUILD_JOBS:-2}" package/bulijie/ocserv/compile V=s
 make -j"${BUILD_JOBS:-2}" package/feeds/luci/luci-app-ocserv/compile V=s
 make -j"${BUILD_JOBS:-2}" package/bulijie/luci-app-ocserv-easy/compile V=s
 printf '%s\n' 'ocserv and LuCI output packages (match firmware ABI before installation):'
-find bin -type f \( -name 'ocserv_*.ipk' -o -name 'ocserv-*.apk' -o -name 'luci-*ocserv*.ipk' -o -name 'luci-*ocserv*.apk' \) -print
+find bin -type f \( -name 'ocserv-*.apk' -o -name 'luci-*ocserv*.apk' \) -print

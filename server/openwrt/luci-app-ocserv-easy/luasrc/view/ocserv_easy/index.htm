@@ -8,8 +8,8 @@
         writable=writable
     }
 %>
-<link rel="stylesheet" href="<%=resource%>/ocserv-easy/style.css?v=0.3.0" />
+<link rel="stylesheet" href="<%=resource%>/ocserv-easy/style.css?v=0.4.0" />
 <div id="ocserv-easy" aria-live="polite"></div>
 <script id="ocserv-easy-options" type="application/json"><%=require("luci.jsonc").stringify(options):gsub("<","\\u003c")%></script>
-<script src="<%=resource%>/ocserv-easy/app.js?v=0.3.0" defer></script>
+<script src="<%=resource%>/ocserv-easy/app.js?v=0.4.0" defer></script>
 <%+footer%>

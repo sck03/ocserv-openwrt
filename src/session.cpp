@@ -122,7 +122,6 @@ bool Session::start() {
     return static_cast<bool>(thread_);
 }
 bool Session::stopping() const { return cancel_event_ && WaitForSingleObject(cancel_event_.get(), 0) == WAIT_OBJECT_0; }
-bool Session::finished() const { return !thread_ || WaitForSingleObject(thread_.get(), 0) == WAIT_OBJECT_0; }
 bool Session::send(char command) {
     EnterCriticalSection(&command_lock_);
     bool sent = command_ != INVALID_SOCKET && ::send(command_, &command, 1, 0) == 1;
@@ -184,28 +183,59 @@ int Session::validate_certificate() {
     if (stopping()) return -1;
     error_ = Error::Certificate;
     if (!same_origin()) { detail_ = L"Cross-origin VPN redirects are not allowed."; return -1; }
+    unsigned char* der = nullptr;
+    int size = openconnect_get_peer_cert_DER(vpn_, &der);
+    if (size <= 0 || !der) return -1;
+    auto cert = CertCreateCertificateContext(X509_ASN_ENCODING, der, static_cast<DWORD>(size));
+    openconnect_free_cert_info(vpn_, der);
+    if (!cert) return -1;
+    bool current = CertVerifyTimeValidity(nullptr, cert->pCertInfo) == 0;
+    CertFreeCertificateContext(cert);
+    if (!current) { detail_ = L"The server certificate is expired or not yet valid. Check the certificate and system time."; return -1; }
+    bool changed = false;
     if (!options_.profile.pin.empty()) {
-        if (!valid_pin(options_.profile.pin) || openconnect_check_peer_cert_hash(vpn_, options_.profile.pin.c_str()) != 0) {
+        if (!valid_pin(options_.profile.pin)) return -1;
+        int match = openconnect_check_peer_cert_hash(vpn_, options_.profile.pin.c_str());
+        if (match == 0) { error_ = Error::None; return 0; }
+        if (match != 1 || !options_.profile.remembered_pin) {
             detail_ = L"The server public key does not match the administrator's configured SHA-256 pin.";
             return -1;
         }
-        unsigned char* der = nullptr;
-        int size = openconnect_get_peer_cert_DER(vpn_, &der);
-        if (size <= 0 || !der) return -1;
-        auto cert = CertCreateCertificateContext(X509_ASN_ENCODING, der, static_cast<DWORD>(size));
-        openconnect_free_cert_info(vpn_, der);
-        if (!cert) return -1;
-        bool current = CertVerifyTimeValidity(nullptr, cert->pCertInfo) == 0;
-        CertFreeCertificateContext(cert);
-        if (!current) { detail_ = L"The pinned server certificate is expired or not yet valid."; return -1; }
-        error_ = Error::None;
-        return 0;
+        changed = true;
     }
     DWORD status = 0;
-    int result = verify_windows_certificate(vpn_, wide(origin_host_), options_.profile.ca_file, status);
-    if (result == 0) error_ = Error::None;
-    else detail_ = L"Windows certificate validation: " + system_error(status) + L" (" + std::to_wstring(status) + L")";
-    return result;
+    if (!changed && verify_windows_certificate(vpn_, wide(origin_host_), options_.profile.ca_file, status) == 0) {
+        error_ = Error::None; return 0;
+    }
+    detail_ = changed ? L"The server public key has changed since it was last accepted." :
+        L"Windows certificate validation: " + system_error(status) + L" (" + std::to_wstring(status) + L")";
+    if (!options_.interactive_certificate || stopping()) return -1;
+    // Only an explicit decision may replace unknown/name-mismatched trust. Never
+    // turn revoked, malformed, or otherwise unusable certificates into TOFU pins.
+    if (!changed && status != static_cast<DWORD>(CERT_E_UNTRUSTEDROOT) && status != static_cast<DWORD>(CERT_E_CHAINING) && status != static_cast<DWORD>(CERT_E_CN_NO_MATCH)) return -1;
+    const char* hash = openconnect_get_peer_cert_hash(vpn_);
+    if (!hash || !*hash || !valid_pin(hash)) return -1;
+    auto request = std::make_shared<CertificateRequest>();
+    if (!request->answered) return -1;
+    request->server = options_.profile.server;
+    request->pin = hash;
+    if (changed) request->previous_pin = options_.profile.pin;
+    request->reason = detail_;
+    if (char* info = openconnect_get_peer_cert_details(vpn_)) {
+        request->details = wide(info);
+        openconnect_free_cert_info(vpn_, info);
+    }
+    Event event; event.state = state_; event.certificate = request;
+    sink_(std::move(event));
+    HANDLE signals[] = {cancel_event_.get(), request->answered.get()};
+    DWORD response = WaitForMultipleObjects(2, signals, FALSE, INFINITE);
+    if (response != WAIT_OBJECT_0 + 1 || stopping()) { request->cancelled = true; return -1; }
+    if (!request->accepted) { detail_ = L"Server certificate was not accepted. / 已取消服务器证书确认。"; return -1; }
+    options_.profile.pin = request->pin;
+    options_.profile.ca_file.clear();
+    options_.profile.remembered_pin = true;
+    error_ = Error::None; detail_.clear();
+    return 0;
 }
 int Session::auth_callback(void* context, oc_auth_form* form) {
     auto& self = *static_cast<Session*>(context);

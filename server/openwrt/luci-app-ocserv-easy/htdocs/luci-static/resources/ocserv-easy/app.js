@@ -27,6 +27,25 @@
         var b=button(label,handler,kind); b.disabled=!writable(); return b;
     }
     var errors = {
+        guard_requires_fw4:t('需要 Firewall4 和 nftables。','Firewall4 and nftables are required.'),
+        guard_requires_openclash:t('请先安装、配置并启用 OpenClash。','Install, configure and enable OpenClash first.'),
+        guard_requires_ocserv:t('请先完成账号和证书设置，并启动 VPN 服务。','Set up accounts and certificates, then start VPN first.'),
+        guard_requires_routed_vpn:t('此功能需要普通账号认证和独立 VPN 地址池，请关闭代理 ARP。','Use password authentication and a separate VPN pool with proxy ARP disabled.'),
+        guard_requires_lan:t('无法读取 LAN 的 IPv4 地址、设备或防火墙区域。','Cannot read the LAN IPv4 address, device or firewall zone.'),
+        guard_admin_not_lan:t('请通过同一局域网的 IPv4 地址访问此页面后开启。','Open this page over IPv4 from the same LAN before enabling.'),
+        guard_side_router_only:t('此开关适用于 N1 单网口旁路由；检测到了正在使用的 WAN。','This switch is for a single-interface N1 side router; an active WAN was detected.'),
+        guard_extra_offload:t('检测到额外的 SFE/快捷转发加速，请先关闭并重启 N1。','Disable extra SFE/shortcut forwarding acceleration and reboot the N1 first.'),
+        guard_pool_overlap:t('VPN 地址池与局域网重叠，请先在服务设置中更换地址池。','The VPN pool overlaps the LAN. Change it in Service settings first.'),
+        guard_port_conflict:t('VPN 端口与 SSH 或网页管理端口冲突。','The VPN port conflicts with SSH or web administration.'),
+        guard_requires_dnsmasq:t('未找到 dnsmasq 配置。','No dnsmasq configuration was found.'),
+        guard_section_conflict:t('发现同名的旧防火墙配置，请先移除旧的手动 VPN-only 规则，再使用此开关。','Existing VPN-only firewall sections conflict. Remove the previous manual guard before using this switch.'),
+        guard_worker_failed:t('后台配置进程未启动，请重试或查看系统日志。','The background configuration process did not start. Retry or check the system log.'),
+        guard_firewall_failed:t('防火墙校验或应用失败，正在恢复原配置。','Firewall validation or apply failed. Restoring the previous configuration.'),
+        guard_dns_failed:t('DNS 服务重启失败，正在恢复原配置。','DNS restart failed. Restoring the previous configuration.'),
+        guard_openclash_failed:t('OpenClash 重启失败，正在恢复原配置。','OpenClash restart failed. Restoring the previous configuration.'),
+        guard_confirmation_expired:t('应用后未能确认管理页面可访问，已尝试自动恢复。','The page could not confirm connectivity after applying. Automatic restoration was attempted.'),
+        guard_state_invalid:t('恢复记录无法读取，请检查 /etc/ocserv/easy-guard 中的备份。','Cannot read the recovery record. Check /etc/ocserv/easy-guard.'),
+        guard_settings_locked:t('请先关闭 VPN-only 开关，再修改 VPN 网络设置。账号仍可正常管理。','Disable VPN-only mode before changing VPN networking. Account management remains available.'),
         invalid_username:t('账号限 1–64 位英文、数字、点、下划线、短横线或 @，以英文或数字开头。','Use 1–64 letters, digits, dots, underscores, hyphens or @. Start with a letter or digit.'),
         duplicate_user:t('这个账号已存在，请使用其他名称。','This username already exists.'),
         invalid_group:t('用户组格式无效；一般保持 * 即可。','Invalid group. Normally leave this as *.'),
@@ -89,7 +108,15 @@
         finally { busy=false; buttons.forEach(function(pair){pair[0].disabled=pair[1];}); }
     }
     var effects={saved:t('已保存，下次启动服务时生效。','Saved for the next service start.'),updated_live:t('账号已生效，其他在线用户保持连接。','Account updated. Other users remain connected.'),terminated:t('账号已更新，该账号的旧登录已失效。','Account updated and its previous sessions revoked.'),restarted:t('配置已应用，VPN 服务已重新启动。','Configuration applied and VPN service restarted.'),disconnected:t('已断开该连接。账号仍可重新登录。','Connection disconnected. The account can sign in again.'),service_changed:t('服务操作已执行，状态将自动刷新。','Service operation submitted. Status will refresh automatically.')};
-    async function complete(payload) { var result=await mutate(payload); await load(); notice(effects[result.effect] || t('操作完成。','Done.')); }
+    effects.guard_queued=t('正在配置，仅需稍候。页面会自动检查管理连接；无法连接时会自动恢复。','Applying settings. This page checks connectivity automatically and restores settings if it cannot reconnect.');
+    effects.guard_restoring=t('正在关闭并恢复启用前的设置…','Disabling and restoring the previous settings…');
+    effects.guard_enabled=t('已开启，仅 VPN 用户可通过 N1 使用 OpenClash。','Enabled. Only VPN clients can use OpenClash through this N1.');
+    effects.guard_disabled=t('已关闭，已恢复启用前的设置。','Disabled. Previous settings restored.');
+    async function complete(payload) {
+        var result=await mutate(payload); await load();
+        if(payload.action==='guard' && state.guard && state.guard.phase==='disabled' && payload.command==='disable')result.effect='guard_disabled';
+        notice(effects[result.effect] || t('操作完成。','Done.'));
+    }
     function closeModal() { if (modal && !busy) { modal.remove(); modal=null; } }
     function showModal(title, children, submit, label) {
         closeModal();
@@ -198,7 +225,7 @@
             textInput('ip6addr',t('VPN IPv6 地址池','VPN IPv6 pool'),t('可留空，例如 fd77::/64。','Optional, for example fd77::/64.')),
             textInput('easy_public_url',t('员工连接地址','Employee connection address'),t('供下载客户端配置使用。','Used when downloading client profiles.'),{placeholder:'https://vpn.example.com:4443'})
         ])]);
-        var save=element('button',{type:'submit',className:'cbi-button cbi-button-apply',text:t('保存并应用','Save and apply'),disabled:!writable() || !state.settings_supported});
+        var save=element('button',{type:'submit',className:'cbi-button cbi-button-apply',text:t('保存并应用','Save and apply'),disabled:!writable() || !state.settings_supported || !!(state.guard && state.guard.enabled)});
         var form=element('form',{},[general,advanced,element('p',{className:'easy-muted',text:t('保存前会检查配置。服务运行时，应用网络设置会短暂重启 VPN，现有连接需要重连。','Configuration is checked before saving. Applying networking changes to a running service restarts VPN; connected users will reconnect.')}),save]);
         form.addEventListener('submit',function(event){
             event.preventDefault();
@@ -209,7 +236,25 @@
         });
         content.appendChild(element('section',{className:'easy-card'},[element('h3',{text:t('常用服务设置','Common service settings')}),form]));
         if(!state.settings_supported)content.appendChild(element('p',{className:'easy-notice error',text:t('当前使用自定义认证或代理 ARP，请在原服务设置页管理。','Custom authentication or proxy ARP is configured. Use the original service settings page.')}));
-        content.appendChild(element('p',{className:'easy-muted',text:t('此页配置 VPN 服务；防火墙、端口转发和 OpenClash 规则仍在各自页面管理。','This page configures VPN. Manage firewall rules, port forwarding and OpenClash in their respective pages.')}));
+        if(state.guard && state.guard.enabled)content.appendChild(element('p',{className:'easy-muted',text:errors.guard_settings_locked}));
+    }
+    function renderGuard() {
+        var g=state.guard || {phase:'disabled'}, labels={disabled:t('已关闭','Disabled'),queued:t('等待应用…','Queued…'),applying:t('正在应用…','Applying…'),pending:t('正在确认管理连接…','Checking management connectivity…'),enabled:t('已开启','Enabled'),restoring:t('正在恢复…','Restoring…'),recovery_failed:t('恢复需要重试','Restoration needs a retry')};
+        var switching=['queued','applying','pending','restoring'].includes(g.phase);
+        var toggle=mutationButton(g.enabled?t('关闭并恢复','Disable and restore'):t('开启','Enable'),function(){
+            if(g.enabled)complete({action:'guard',command:'disable'}).catch(function(e){notice(errorText(e),true);});
+            else confirm(t('开启仅 VPN 上网','Enable VPN-only access'),t('此功能适用于 N1 旁路由。将自动设置防火墙、VPN DNS 和 OpenClash 访问控制，并短暂重启相关服务。保留当前电脑的管理访问；关闭时恢复启用前的设置。','For an N1 side router. Sets firewall, VPN DNS and OpenClash access controls, briefly restarting related services. Management access from this computer is retained; disabling restores the previous settings.'),{action:'guard',command:'enable'});
+        },g.enabled?'cbi-button-reset':'cbi-button-apply');
+        toggle.disabled=!writable() || switching || (!g.enabled && !g.available);
+        var children=[element('div',{className:'easy-heading'},[element('h3',{text:t('仅 VPN 用户可使用 OpenClash','Only VPN clients may use OpenClash')}),element('strong',{className:g.phase==='enabled'?'easy-good':'easy-muted',text:labels[g.phase] || g.phase})]),
+            element('p',{text:t('开启后，未登录 VPN 的局域网设备不能把 N1 当作网关、DNS 或代理服务器使用。普通设备通过主路由上网不受影响。','When enabled, LAN devices without VPN cannot use this N1 as a gateway, DNS or proxy server. Internet access through the main router continues normally.')}),
+            element('p',{className:'easy-muted',text:t('默认关闭；不会自动开启或安装 OpenClash，也不修改订阅、节点和分流规则。','Disabled by default. Does not install or enable OpenClash or change subscriptions, nodes or routing rules.')})];
+        if(g.lan)children.push(element('p',{text:t('N1 地址：','N1 address: ')+g.lan+'　'+t('管理电脑：','Management computer: ')+g.admin+'　'+t('VPN 网段：','VPN pool: ')+g.pool}));
+        if(g.reason)children.push(element('p',{className:'easy-notice error',text:errorText({code:g.reason})}));
+        if(g.phase==='disabled' && g.last && g.last.failure)children.push(element('p',{className:'easy-notice error',text:t('上次应用已恢复：','Previous apply restored: ')+errorText({code:g.last.failure})}));
+        if(g.phase==='disabled' && g.last && g.last.preserved)children.push(element('p',{className:'easy-muted',text:t('已保留启用期间由其他页面修改的设置。','Settings changed in other pages while enabled were preserved.')}));
+        children.push(element('div',{className:'easy-buttons'},[toggle]));
+        content.appendChild(element('section',{className:'easy-card'},children));
     }
     function download(kind,server) {
         var form=element('form',{method:'POST',action:options.base+'/download',target:'_blank'},[
@@ -217,10 +262,11 @@
         ]); document.body.appendChild(form); form.submit(); form.remove();
     }
     function renderExport() {
-        var server=element('input',{value:state.settings.easy_public_url || '',type:'url',required:true,placeholder:'https://vpn.example.com:4443'});
-        var profile=element('button',{type:'submit',className:'cbi-button cbi-button-apply',text:t('下载 .bvpn 连接配置','Download .bvpn profile'),disabled:!state.ca_available});
-        var form=element('form',{},[field(t('员工实际连接的服务器地址','Server address used by employees'),server,t('填写 HTTPS 地址，并确保服务器证书包含此域名或 IP。','Use HTTPS and ensure the server certificate covers this hostname or IP.')),element('p',{text:t('员工导入一个文件即可设置服务器地址和 CA；配置不包含密码或私钥。','Employees import one file to set the server and CA. It contains no passwords or private keys.')}),profile]);
-        form.addEventListener('submit',function(event){event.preventDefault();download('profile',server.value);});
+        var server=element('input',{value:state.settings.easy_public_url || (state.guard && state.guard.lan ? state.guard.lan+':'+state.settings.port : ''),type:'text',required:true,maxLength:512,placeholder:'192.168.19.253:4443'});
+        var trust=element('select',{},[element('option',{value:'address',text:t('首次连接时确认证书（推荐）','Confirm certificate on first connection (recommended)')}),element('option',{value:'profile',text:t('附带公共 CA 证书','Include the public CA certificate'),disabled:!state.ca_available})]);
+        var profile=element('button',{type:'submit',className:'cbi-button cbi-button-apply',text:t('下载 .bvpn 连接配置','Download .bvpn profile')});
+        var form=element('form',{},[field(t('客户端实际连接的服务器地址','Server address used by clients'),server,t('例如 192.168.19.253:4443，也可填写完整的 https:// 地址。','For example 192.168.19.253:4443; a full https:// address is also accepted.')),field(t('证书验证方式','Certificate verification'),trust),element('p',{text:t('导入后填写各自的账号密码。选择首次连接确认时，客户端会显示证书指纹；选择 CA 时，证书须包含填写的域名或 IP。','After import, each user enters their own credentials. First-connection confirmation shows the fingerprint; CA verification requires a certificate covering the entered hostname or IP.')}),element('p',{className:'easy-muted',text:t('配置不包含账号、密码或私钥。','Profiles contain no usernames, passwords, or private keys.')}),profile]);
+        form.addEventListener('submit',function(event){event.preventDefault();download(trust.value,server.value.trim());});
         var ca=button(t('下载 ca.pem','Download ca.pem'),function(){download('ca','');});ca.disabled=!state.ca_available;
         content.appendChild(element('section',{className:'easy-card'},[element('h3',{text:t('分发客户端配置','Distribute client profiles')}),form]));
         content.appendChild(element('section',{className:'easy-card'},[element('h3',{text:t('单独下载 CA 证书','Download the CA certificate')}),element('p',{className:'easy-muted',text:t('适用于已有服务器地址的布利杰VPN，或其他支持导入 CA 的客户端。','For BulijieVPN with a configured server address, or another client that can import a CA.')}),ca]));
@@ -232,7 +278,7 @@
     }
     function renderTab() {
         content.replaceChildren();
-        if(activeTab==='users')renderUsers(); else if(activeTab==='settings')renderSettings(); else renderExport();
+        if(activeTab==='users')renderUsers(); else if(activeTab==='settings')renderSettings(); else if(activeTab==='guard')renderGuard(); else renderExport();
         root.querySelectorAll('[role="tab"]').forEach(function(b){b.setAttribute('aria-selected',String(b.dataset.tab===activeTab));});
     }
     function render() {
@@ -250,7 +296,7 @@
         if(!state.supported)notice(errors.upgrade_required,true);
         else if(!options.writable)notice(errors.forbidden);
         var tabs=element('div',{className:'easy-tabs',role:'tablist'});
-        [['users',t('账号与在线用户','Accounts and connections')],['settings',t('服务设置','Service settings')],['export',t('客户端配置','Client profiles')]].forEach(function(item){var b=button(item[1],function(){activeTab=item[0];renderTab();});b.dataset.tab=item[0];b.setAttribute('role','tab');tabs.appendChild(b);});
+        [['users',t('账号与在线用户','Accounts and connections')],['settings',t('服务设置','Service settings')],['guard',t('VPN 专用上网','VPN-only access')],['export',t('客户端配置','Client profiles')]].forEach(function(item){var b=button(item[1],function(){activeTab=item[0];renderTab();});b.dataset.tab=item[0];b.setAttribute('role','tab');tabs.appendChild(b);});
         root.appendChild(tabs);content=element('div',{});root.appendChild(content);renderTab();
     }
     async function load() { state=await request('data'); render(); }
@@ -258,10 +304,23 @@
     setInterval(async function(){
         if(!state || busy || modal || document.hidden || statusPending)return;
         statusPending=true;
-        try { var current=await request('status');state.running=current.running;state.online=current.online;state.online_error=current.online_error;renderStatus(); }
+        try {
+            var current=await request('status');state.running=current.running;state.online=current.online;state.online_error=current.online_error;
+            var previous=state.guard && state.guard.phase;state.guard=current.guard;renderStatus();
+            if(state.guard && state.guard.phase==='pending' && state.guard.token && writable()) {
+                // A successful authenticated request from the retained management IP
+                // confirms connectivity. No confirmation is sent after a failed request.
+                state=await request('data'); render();
+                if(state.guard && state.guard.phase==='pending' && state.guard.token)
+                    await complete({action:'guard',command:'confirm',token:state.guard.token});
+            } else if(previous!== (state.guard && state.guard.phase) && !modal) {
+                if(activeTab==='guard')renderTab();
+                if(state.guard && state.guard.phase==='disabled')await load();
+            }
+        }
         catch(_){ /* Explicit refresh shows errors; background polling never interrupts typing. */ }
         finally {statusPending=false;}
-    },10000);
+    },3000);
     root.textContent=t('正在读取服务配置…','Loading service settings…');
     load().catch(function(error){root.replaceChildren(element('div',{className:'easy-notice error',text:errorText(error)}));});
 })();

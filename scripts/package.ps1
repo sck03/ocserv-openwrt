@@ -19,19 +19,23 @@ $quickStart=@'
 
 1. 完整解压。64 位 Windows 使用 x64 包，32 位 Windows 使用 x86 包。
 2. 运行“布利杰VPN.exe”。更新时先退出旧版本窗口。
-3. 点击“导入配置”，选择公司提供的 .bvpn 文件；或者填写服务器地址后，在文件类型中选择 CA 证书，导入服务端保存的 ca.pem。
-4. 输入账号和密码，点击“连接”。需要时完成 Windows 管理员授权。
+3. 填写服务器地址。也可以选用管理员提供的 .bvpn 或公共 CA；无需预先导入自签证书。
+4. 输入账号密码并点击“连接”。首次出现证书确认时，核对地址和指纹，点击“信息准确，记住并连接”。证书确认前不发送密码。需要时完成 Windows 管理员授权。
 5. “记住账号和密码”使用当前 Windows 用户的凭据管理器；取消勾选可清除当前连接的已存凭据。
 6. 连接后可断开。最小化进入系统托盘，单击托盘图标还原，右键可断开或退出。关闭窗口会先断开再退出。
 
-默认地址 https://192.168.19.254:4443 是部署示例，请使用管理员确认的实际地址。
+点击“导出配置”可保存地址、连接选项和已确认的指纹或公共 CA；其他客户端使用“导入配置”打开 .bvpn 文件。导出不包含账号、密码或私钥。
+
+默认地址 https://192.168.19.253:4443 来自本项目部署示例，请使用管理员确认的实际地址。
+未连接时可直接编辑服务器地址。指纹按主机和端口记住；公钥变化时会再次要求确认。
 必须保留同目录下的 wintun.dll，不要从其他架构程序包替换它。
 
 当前为联调版本，Windows 7 实机及 N1 的完整 VPN 转发尚待验收。应用 EXE 未商业代码签名，Wintun 使用官方签名文件。
 请向提供本程序的管理员索取同版本源码包，相关许可证见 licenses 与 THIRD-PARTY-NOTICES.md。
 
 English
-Extract the whole archive. Import your company's .bvpn profile, or set the server address and import ca.pem using the CA certificate file filter.
+Extract the whole archive and enter your server address. On the first untrusted certificate, verify its fingerprint and choose Accurate information. Credentials are sent only after certificate approval. Profile/CA import is optional.
+Export profile saves the address, connection options and public trust for import on another client, without credentials or private keys.
 Enter your username and password and connect. Remembered credentials are stored in Windows Credential Manager for the current Windows user.
 Minimize to the notification area; click its icon to restore, or right-click to disconnect/exit. Closing the window disconnects before exiting.
 Use the matching x86/x64 package. Administrator privileges are needed to configure the tunnel. This build still requires Windows 7 and real VPN deployment validation.
@@ -65,7 +69,9 @@ if(!$SkipSource) {
     python (Join-Path $PSScriptRoot 'package-source.py')
     if($LASTEXITCODE) { throw 'Source package creation failed' }
 }
-$hashes=Get-ChildItem -LiteralPath $distribution -Filter '*.zip' -File | ForEach-Object {
+$artifactNames=@("BulijieVPN-$version-windows-x64.zip","BulijieVPN-$version-windows-x86.zip")
+if(!$SkipSource) { $artifactNames += "BulijieVPN-$version-source.zip" }
+$hashes=$artifactNames | ForEach-Object { Get-Item -LiteralPath (Join-Path $distribution $_) } | ForEach-Object {
     $hash=(Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
     "$hash  $($_.Name)"
 }

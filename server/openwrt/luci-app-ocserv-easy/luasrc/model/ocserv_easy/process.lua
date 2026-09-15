@@ -8,6 +8,9 @@ function M.run(argv,timeout)
     local pid=nixio.fork()
     if not pid then input:close(); output:close(); return 127,"" end
     if pid==0 then
+        -- Give service scripts their own process group, so a timed-out restart
+        -- cannot leave children applying stale configuration after rollback.
+        if not nixio.setsid() then os.exit(127) end
         input:close()
         local null=nixio.open("/dev/null","r")
         if null then nixio.dup(null,nixio.stdin); null:close() end
@@ -37,7 +40,7 @@ function M.run(argv,timeout)
             break
         end
         if size>131072 or nixio.gettimeofday()-start>=(timeout or 5) then
-            nixio.kill(pid,9); nixio.waitpid(pid); break
+            nixio.kill(-pid,9); nixio.kill(pid,9); nixio.waitpid(pid); break
         end
         nixio.poll({{fd=input,events=nixio.poll_flags("in","hup","err")}},100)
     end

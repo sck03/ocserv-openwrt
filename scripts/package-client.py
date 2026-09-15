@@ -65,15 +65,17 @@ def main():
         (folder / "使用说明.txt").write_text(
             f"布利杰VPN {version()}\n\n"
             "1. 完整解压，运行“布利杰VPN.exe”。64 位 Windows 用 x64，32 位用 x86。\n"
-            "2. 点击“导入配置”选择管理员提供的 .bvpn；也可填写地址后导入 ca.pem。\n"
-            "3. 填写账号和密码，点击“连接”，按需完成 Windows 管理员授权。\n"
+            "2. 填写服务器地址；未连接时可以直接修改。也可选用 .bvpn 或公共 CA。\n"
+            "3. 填写账号密码并连接。首次遇到未知证书时核对指纹，点击“信息准确，记住并连接”；确认前不发送密码。按需完成管理员授权。\n"
             "4. “记住账号和密码”使用当前 Windows 用户的凭据管理器。\n"
             "5. 连接后点击“断开连接”。最小化进入托盘，单击托盘图标还原；关闭窗口先断开再退出。\n"
             "6. 出现错误时可用“复制诊断”向管理员提供诊断信息。\n\n"
+            "“导出配置”可保存地址、连接选项和已确认的指纹或公共 CA；不包含账号密码和私钥。其他客户端可用“导入配置”打开该 .bvpn 文件。\n\n"
             "必须保留同目录的 wintun.dll，不要混用不同架构的文件。\n"
             "默认地址是部署示例，请使用管理员提供的实际地址。\n"
             "Win7 SP1 为兼容目标，仍需实机验证；VPN 驱动需要相应系统更新和管理员权限。\n\n"
-            "Extract the complete archive. Import a .bvpn profile or the server CA, enter credentials and connect.\n"
+            "Enter your server address and connect. Verify an unknown certificate and choose Accurate information to remember its key. Credentials are sent after certificate approval. Profile/CA import is optional.\n"
+            "Export profile saves the address, connection options and public trust for import on another client; no credentials or private keys are included.\n"
             "Minimize to the tray; click its icon to restore. Closing the window disconnects first.\n"
             "Obtain the matching corresponding-source artifact before redistributing. See licenses/.\n",
             encoding="utf-8-sig",

@@ -141,12 +141,113 @@ static bool atomic_write(const std::wstring& path, const std::vector<BYTE>& byte
     }
     return true;
 }
+static std::wstring pin_path(const std::wstring& server, const std::wstring& directory, DWORD& error) {
+    auto origin = utf8(server_origin(server));
+    if (origin.empty()) { error = ERROR_INVALID_PARAMETER; return {}; }
+    auto root = directory;
+    if (root.empty()) {
+        auto settings = settings_path();
+        if (settings.empty()) { error = ERROR_PATH_NOT_FOUND; return {}; }
+        root = settings.substr(0, settings.find_last_of(L'\\'));
+    }
+    auto digest = sha256(std::vector<BYTE>(origin.begin(), origin.end()));
+    if (digest.empty()) { error = ERROR_GEN_FAILURE; return {}; }
+    return root + L"\\trusted-" + wide(digest) + L".ini";
+}
+bool read_server_pin(const std::wstring& server, std::string& pin, DWORD& error, const std::wstring& directory) {
+    pin.clear(); error = ERROR_SUCCESS;
+    auto path = pin_path(server, directory, error);
+    if (path.empty()) return false;
+    if (GetFileAttributesW(path.c_str()) == INVALID_FILE_ATTRIBUTES) {
+        error = GetLastError();
+        if (error == ERROR_FILE_NOT_FOUND) { error = ERROR_SUCCESS; return true; }
+        return false;
+    }
+    wchar_t origin[1100]{}, value[128]{};
+    GetPrivateProfileStringW(L"Server", L"Origin", L"", origin, 1100, path.c_str());
+    GetPrivateProfileStringW(L"Server", L"Pin", L"", value, 128, path.c_str());
+    pin = utf8(value);
+    if (origin != server_origin(server) || pin.empty() || !valid_pin(pin)) { pin.clear(); error = ERROR_INVALID_DATA; return false; }
+    return true;
+}
+bool save_server_pin(const std::wstring& server, const std::string& pin, DWORD& error, const std::wstring& directory) {
+    error = ERROR_SUCCESS;
+    if (pin.empty() || !valid_pin(pin)) { error = ERROR_INVALID_PARAMETER; return false; }
+    auto path = pin_path(server, directory, error);
+    if (path.empty()) return false;
+    std::wstring contents = L"\xfeff[Server]\r\nOrigin=" + server_origin(server) + L"\r\nPin=" + wide(pin) + L"\r\n";
+    auto first = reinterpret_cast<const BYTE*>(contents.data());
+    if (!atomic_write(path, std::vector<BYTE>(first, first + contents.size() * sizeof(wchar_t)), error)) return false;
+    WritePrivateProfileStringW(nullptr, nullptr, nullptr, path.c_str());
+    return true;
+}
+bool select_server_profile(const Profile& configured, const std::wstring& server, Profile& selected, DWORD& error, const std::wstring& directory) {
+    error = ERROR_SUCCESS;
+    std::wstring normalized;
+    if (!normalize_server(server, normalized)) { error = ERROR_INVALID_PARAMETER; return false; }
+    selected = configured;
+    if (server_origin(configured.server) != server_origin(normalized)) {
+        selected.pin.clear(); selected.ca_file.clear(); selected.auth_group.clear();
+        selected.remembered_pin = false;
+    }
+    selected.server = normalized;
+    if (selected.pin.empty()) {
+        if (!read_server_pin(normalized, selected.pin, error, directory)) return false;
+        selected.remembered_pin = !selected.pin.empty();
+        if (selected.remembered_pin) selected.ca_file.clear();
+    }
+    return true;
+}
+static bool valid_auth_group(const std::wstring& value) {
+    return value.size() <= 256 && value == trim(value) &&
+        std::none_of(value.begin(), value.end(), [](wchar_t c) { return c < 32 || c == 127 || c == L'\"'; });
+}
+static std::wstring connection_options(const Profile& profile) {
+    return L"\r\nAuthGroup=" + wide(profile.auth_group) +
+        L"\r\nPreferUDP=" + (profile.prefer_udp ? L"1" : L"0") +
+        L"\r\nReconnectSeconds=" + std::to_wstring(profile.reconnect_seconds) +
+        L"\r\nProtectDNS=" + (profile.protect_dns ? L"1" : L"0") +
+        L"\r\nBlockUntunneledIPv6=" + (profile.block_ipv6 ? L"1" : L"0") + L"\r\n";
+}
+bool export_connection(const std::wstring& file, const Profile& profile, std::wstring& error) {
+    error.clear();
+    std::wstring normalized;
+    if (!normalize_server(profile.server, normalized)) { error = L"请先填写有效的服务器地址。 / Enter a valid server address first."; return false; }
+    if (!valid_pin(profile.pin) || (!profile.pin.empty() && !profile.ca_file.empty()) ||
+        !valid_auth_group(wide(profile.auth_group)) || profile.reconnect_seconds < 0 || profile.reconnect_seconds > 300) {
+        error = L"连接配置无效，无法导出。 / The connection profile is invalid."; return false;
+    }
+    std::wstring contents = L"\xfeff[VPN]\r\nServer=" + normalized;
+    if (!profile.pin.empty()) contents += L"\r\nServerPin=" + wide(profile.pin);
+    DWORD status = 0;
+    if (!profile.ca_file.empty()) {
+        std::vector<BYTE> bytes;
+        std::string pem;
+        if (!read_file(profile.ca_file, bytes, status)) { error = system_error(status); return false; }
+        if (!certificate_pem(bytes, pem) || pem.size() > 49149) {
+            error = L"只能导出有效的公共 CA 证书，不能包含私钥。 / Export requires a valid public CA certificate without a private key."; return false;
+        }
+        DWORD size = 0;
+        auto data = reinterpret_cast<const BYTE*>(pem.data());
+        const DWORD flags = CRYPT_STRING_BASE64 | CRYPT_STRING_NOCRLF;
+        if (!CryptBinaryToStringW(data, static_cast<DWORD>(pem.size()), flags, nullptr, &size)) { error = system_error(GetLastError()); return false; }
+        std::vector<wchar_t> encoded(size);
+        if (!CryptBinaryToStringW(data, static_cast<DWORD>(pem.size()), flags, encoded.data(), &size)) { error = system_error(GetLastError()); return false; }
+        contents += L"\r\nCABase64=" + std::wstring(encoded.data());
+    }
+    contents += connection_options(profile);
+    const auto* first = reinterpret_cast<const BYTE*>(contents.data());
+    if (!atomic_write(file, std::vector<BYTE>(first, first + contents.size() * sizeof(wchar_t)), status)) { error = system_error(status); return false; }
+    WritePrivateProfileStringW(nullptr, nullptr, nullptr, file.c_str());
+    return true;
+}
 bool import_connection(const std::wstring& file, const Profile& current, std::wstring& error, const std::wstring& destination) {
     DWORD status = 0;
     std::vector<BYTE> bytes;
     if (!read_file(file,bytes,status)) { error=system_error(status); return false; }
     std::wstring server = current.server;
     std::string pin, pem;
+    Profile options;
     auto dot = file.find_last_of(L'.');
     bool bundle = dot != std::wstring::npos && _wcsicmp(file.substr(dot).c_str(),L".bvpn") == 0;
     if (bundle) {
@@ -157,8 +258,8 @@ bool import_connection(const std::wstring& file, const Profile& current, std::ws
         pin = utf8(trim(value.data()));
         GetPrivateProfileStringW(L"VPN",L"CABase64",L"",value.data(),static_cast<DWORD>(value.size()),file.c_str());
         std::wstring encoded = trim(value.data());
-        if ((!pin.empty() && !encoded.empty()) || (pin.empty() && encoded.empty()) || !valid_pin(pin)) {
-            error = L"连接配置需要一个有效的 CA 证书或完整 SHA-256 指纹。 / The profile needs one CA certificate or a complete SHA-256 pin.";
+        if ((!pin.empty() && !encoded.empty()) || !valid_pin(pin)) {
+            error = L"连接配置中的 CA 证书与 SHA-256 指纹不能同时设置，指纹必须完整。 / Use either a CA certificate or a complete SHA-256 pin.";
             return false;
         }
         if (!encoded.empty()) {
@@ -171,6 +272,24 @@ bool import_connection(const std::wstring& file, const Profile& current, std::ws
                 error = L"请选择有效的 CA 根证书；不能导入私钥或过期证书。 / Choose a valid CA certificate, not a private key or expired certificate."; return false;
             }
         }
+        GetPrivateProfileStringW(L"VPN",L"AuthGroup",L"",value.data(),static_cast<DWORD>(value.size()),file.c_str());
+        if (!valid_auth_group(value.data())) { error = L"无效的登录组。 / Invalid authentication group."; return false; }
+        options.auth_group = utf8(value.data());
+        const struct { const wchar_t* key; bool* value; } flags[] = {
+            {L"PreferUDP", &options.prefer_udp}, {L"ProtectDNS", &options.protect_dns}, {L"BlockUntunneledIPv6", &options.block_ipv6}
+        };
+        for (const auto& option : flags) {
+            GetPrivateProfileStringW(L"VPN",option.key,L"1",value.data(),static_cast<DWORD>(value.size()),file.c_str());
+            std::wstring flag = value.data();
+            if (flag != L"0" && flag != L"1") { error = L"连接选项必须为 0 或 1。 / Connection flags must be 0 or 1."; return false; }
+            *option.value = flag == L"1";
+        }
+        GetPrivateProfileStringW(L"VPN",L"ReconnectSeconds",L"300",value.data(),static_cast<DWORD>(value.size()),file.c_str());
+        std::wstring seconds = value.data();
+        if (seconds.empty() || seconds.size() > 3 || seconds.find_first_not_of(L"0123456789") != std::wstring::npos || std::stoi(seconds) > 300) {
+            error = L"重连时间须为 0 到 300 秒。 / Reconnection time must be between 0 and 300 seconds."; return false;
+        }
+        options.reconnect_seconds = std::stoi(seconds);
     } else if (!certificate_pem(bytes,pem)) {
         error = L"请选择有效的 CA 根证书（PEM/DER）；不能导入私钥。 / Choose a valid CA certificate (PEM/DER), not a private key."; return false;
     }
@@ -185,8 +304,8 @@ bool import_connection(const std::wstring& file, const Profile& current, std::ws
         ca_name = L"ca-" + wide(sha256(ca)) + L".pem";
         if (!atomic_write(directory + L"\\" + ca_name,ca,status)) { error=system_error(status); return false; }
     }
-    std::wstring contents = L"\xfeff[VPN]\r\nServer=" + normalized + L"\r\nLockServer=1\r\nServerPin=" + wide(pin) +
-        L"\r\nCAFile=" + ca_name + L"\r\nPreferUDP=1\r\nReconnectSeconds=300\r\nProtectDNS=1\r\nBlockUntunneledIPv6=1\r\n";
+    std::wstring contents = L"\xfeff[VPN]\r\nServer=" + normalized + L"\r\nServerPin=" + wide(pin) +
+        L"\r\nCAFile=" + ca_name + connection_options(options);
     const auto* first = reinterpret_cast<const BYTE*>(contents.data());
     std::vector<BYTE> out(first,first + contents.size()*sizeof(wchar_t));
     if (!atomic_write(target,out,status)) { error=system_error(status); return false; }

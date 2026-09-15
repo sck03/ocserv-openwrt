@@ -1,0 +1,46 @@
+# Generated from validated N1 settings by the VPN-only switch.
+define LAN_DEVICE = "@LAN_DEVICE@"
+define LAN_ADDRESS = @LAN_ADDRESS@
+define ADMIN_ADDRESS = @ADMIN_ADDRESS@
+define VPN_DEVICE = "vpns*"
+define VPN_POOL = @VPN_POOL@
+define VPN_DNS = @VPN_DNS@
+define VPN_TCP_PORT = @VPN_TCP_PORT@
+define VPN_UDP_PORT = @VPN_UDP_PORT@
+define ADMIN_PORTS = { @ADMIN_PORTS@ }
+
+table inet bulijie_guard
+flush table inet bulijie_guard
+table inet bulijie_guard {
+    chain reject_unauthenticated_transit {
+        type filter hook prerouting priority -310; policy accept;
+        iifname $LAN_DEVICE ip saddr $VPN_POOL counter drop comment "LAN forged VPN source"
+        iifname $LAN_DEVICE fib daddr type != { local, broadcast, multicast } counter drop comment "LAN gateway bypass"
+        iifname $VPN_DEVICE meta nfproto ipv6 counter drop comment "VPN IPv6 disabled"
+        iifname $VPN_DEVICE ip saddr != $VPN_POOL counter drop comment "Unexpected VPN source"
+    }
+    chain before_openclash {
+        type filter hook prerouting priority -190; policy accept;
+        iifname $LAN_DEVICE jump lan_services
+        iifname $VPN_DEVICE fib daddr type local jump vpn_services
+    }
+    chain lan_services {
+        ct state invalid counter drop
+        ct direction reply ct state { established, related } counter return
+        meta l4proto ipv6-icmp icmpv6 type { nd-router-advert, nd-neighbor-solicit, nd-neighbor-advert } ip6 hoplimit 255 counter return
+        ip daddr $LAN_ADDRESS tcp dport $VPN_TCP_PORT counter return
+        ip daddr $LAN_ADDRESS udp dport $VPN_UDP_PORT counter return
+        ip daddr $LAN_ADDRESS ip saddr $ADMIN_ADDRESS tcp dport $ADMIN_PORTS counter return
+        ip daddr $LAN_ADDRESS ip saddr $ADMIN_ADDRESS icmp type echo-request counter return
+        counter drop comment "LAN service denied"
+    }
+    chain vpn_services {
+        ip daddr $VPN_DNS meta l4proto { tcp, udp } th dport 53 counter return
+        ip daddr $VPN_DNS icmp type echo-request counter return
+        counter drop comment "VPN local service denied"
+    }
+    chain nat_vpn_to_main_router {
+        type nat hook postrouting priority srcnat; policy accept;
+        iifname $VPN_DEVICE oifname $LAN_DEVICE ip saddr $VPN_POOL counter masquerade
+    }
+}

@@ -4,21 +4,16 @@ set -eu
 printf '%s\n' 'BulijieVPN / ocserv upgrade preflight'
 ubus call system board
 printf 'Kernel: %s\n' "$(uname -r)"
-if command -v opkg >/dev/null 2>&1; then
-    printf '%s\n' 'Package format: IPK (opkg)'
-    opkg print-architecture
-    # opkg status accepts one pattern on some firmware builds; query separately.
-    for package in ocserv libc libgnutls libev libncurses6 libreadline8 libprotobuf-c libseccomp luci-app-ocserv luci-compat; do
-        opkg status "$package" 2>/dev/null | sed -n '/^Package:/p; /^Version:/p; /^Architecture:/p; /^Status:/p; /^Depends:/p'
-    done
-elif command -v apk >/dev/null 2>&1; then
-    printf '%s\n' 'Package format: APK (OpenWrt 25.12 or later)'
+release=$(ubus call system board | jsonfilter -e '@.release.version')
+case "$release" in 25.12|25.12.*|25.12-SNAPSHOT) ;; *) printf '%s\n' 'ERROR: this bundle requires OpenWrt 25.12.' >&2; exit 1;; esac
+if command -v apk >/dev/null 2>&1; then
+    printf '%s\n' 'Package format: APK (OpenWrt 25.12)'
     apk --print-arch
     for package in ocserv musl libgnutls libev libncurses libreadline libprotobuf-c luci-app-ocserv luci-compat; do
         apk info -v "$package" 2>/dev/null || true
     done
 else
-    printf '%s\n' 'ERROR: unsupported package manager.' >&2
+    printf '%s\n' 'ERROR: APK is required for the OpenWrt 25.12 bundle.' >&2
     exit 1
 fi
 if [ -c /dev/net/tun ]; then

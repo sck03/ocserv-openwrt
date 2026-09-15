@@ -9,7 +9,7 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=ocserv
 PKG_VERSION:=1.5.0
-PKG_RELEASE:=1
+PKG_RELEASE:=2
 PKG_BUILD_FLAGS:=no-mips16
 
 PKG_SOURCE:=$(PKG_NAME)-$(PKG_VERSION).tar.xz
@@ -41,7 +41,8 @@ define Package/ocserv
   TITLE:=OpenConnect VPN server
   URL:=https://ocserv.openconnect-vpn.net/
   MAINTAINER:=Nikos Mavrogiannopoulos <n.mavrogiannopoulos@gmail.com>
-  DEPENDS:= +USE_GLIBC:libcrypt-compat +OCSERV_RADIUS:libradcli +OCSERV_SECCOMP:libseccomp +libgnutls +certtool +libncurses +libreadline +OCSERV_PAM:libpam +OCSERV_PROTOBUF:libprotobuf-c +OCSERV_LIBOATH:liboath +libev +kmod-tun
+  # OPL/Flippy supplies TUN for its own kernel. Never pull an official SDK kmod.
+  DEPENDS:= +USE_GLIBC:libcrypt-compat +OCSERV_RADIUS:libradcli +OCSERV_SECCOMP:libseccomp +libgnutls +certtool +libncurses +libreadline +OCSERV_PAM:libpam +OCSERV_PROTOBUF:libprotobuf-c +OCSERV_LIBOATH:liboath +libev
   USERID:=ocserv=72:ocserv=72
 endef
 

@@ -281,10 +281,22 @@ test("custom extra configuration is preserved and not silently overridden",funct
 end)
 test("downloads include public CA only and reject private-key mixtures",function()
     reset();local profile,name=backend.export("profile","https://vpn.example.com:4443")
-    check(name=="company-vpn.bvpn" and profile:find("Server=https://vpn.example.com:4443",1,true))
+    check(name=="BulijieVPN.bvpn" and profile:find("Server=https://vpn.example.com:4443",1,true))
     check(not profile:find("Password",1,true) and not profile:find(old_hash,1,true))
     S.files["/etc/ocserv/ca.pem"]=S.files["/etc/ocserv/ca.pem"].."-----BEGIN PRIVATE KEY-----\n"
     expect("ca_unavailable",function()backend.export("ca","")end)
+end)
+test("address profiles work without a CA and normalize a LAN address",function()
+    reset();S.files["/etc/ocserv/ca.pem"]=nil
+    local profile,name=backend.export("address","192.168.19.253:4443")
+    check(name=="BulijieVPN.bvpn" and profile=="[VPN]\nServer=https://192.168.19.253:4443\n")
+end)
+test("profile downloads reject insecure addresses and injected lines",function()
+    reset()
+    for _,url in ipairs({"http://vpn.example.com","vpn.example.com\nServerPin=bad","vpn.example.com:99999","user:password@vpn.example.com"}) do
+        expect("invalid_url",function()backend.export("address",url)end)
+    end
+    expect("bad_request",function()backend.export("private-key","")end)
 end)
 -- A separate local preview process may keep this isolated in-memory backend.
 TEST_PREVIEW={reset=reset,backend=backend,request=request,state=function()return S end}

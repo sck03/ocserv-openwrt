@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.18)
-project(BridgeVPN VERSION 0.3.0 LANGUAGES C CXX RC)
+project(BridgeVPN VERSION 0.4.0 LANGUAGES C CXX RC)
 if(NOT WIN32)
     message(FATAL_ERROR "BridgeVPN is a native Windows desktop application.")
 endif()
@@ -29,7 +29,8 @@ target_link_libraries(bridge_core PUBLIC
     "${BRIDGE_DEPS}/lib/libxml2.a"
     "${BRIDGE_DEPS}/lib/libz.a"
     ws2_32 iphlpapi crypt32 bcrypt secur32 advapi32 user32 gdi32 shell32 ole32 fwpuclnt rpcrt4 comctl32 comdlg32)
-add_executable(BridgeVPN WIN32 src/main.cpp resources/app.rc)
+add_executable(BridgeVPN WIN32 src/main.cpp src/certificate_dialog.cpp resources/app.rc)
+set_source_files_properties(resources/app.rc PROPERTIES OBJECT_DEPENDS "${CMAKE_SOURCE_DIR}/resources/app.manifest;${CMAKE_SOURCE_DIR}/resources/app.ico")
 set_target_properties(BridgeVPN PROPERTIES OUTPUT_NAME "布利杰VPN")
 target_link_libraries(BridgeVPN PRIVATE bridge_core)
 target_link_options(BridgeVPN PRIVATE -municode)

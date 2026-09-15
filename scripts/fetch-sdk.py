@@ -9,13 +9,12 @@ from build_common import ROOT, download_verified
 from sdk_config import resolve_sdk
 
 parser = argparse.ArgumentParser(description=__doc__)
-parser.add_argument("series", choices=("24", "25"))
-parser.add_argument("--version", default="", help="Released version such as 24.10.8 or 25.12.5; auto selects the newest stable in this series")
+parser.add_argument("--version", default="", help="Released 25.12.x version; auto selects the newest stable 25.12 release")
 parser.add_argument("--output", type=Path, required=True, help="Empty SDK directory outside the source checkout")
 args = parser.parse_args()
 if os.name == "nt":
     raise SystemExit("The OpenWrt SDK needs a Linux build host.")
-entry = resolve_sdk(args.series, args.version)
+entry = resolve_sdk(args.version)
 name = Path(urlsplit(entry["url"]).path).name
 archive = ROOT / ".tools/downloads" / name
 download_verified(archive, entry["url"], entry["sha256"])

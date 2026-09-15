@@ -4,6 +4,7 @@
 #include <functional>
 #include <cstdarg>
 #include <atomic>
+#include <memory>
 
 namespace bridge {
 struct ConnectOptions {
@@ -11,6 +12,14 @@ struct ConnectOptions {
     std::string username;
     std::string password;
     bool authentication_only = false; // Used by local protocol verification; never enabled by the GUI.
+    bool interactive_certificate = false;
+};
+struct CertificateRequest {
+    std::wstring server, reason, details;
+    std::string pin, previous_pin;
+    Handle answered{CreateEventW(nullptr, TRUE, FALSE, nullptr)};
+    std::atomic<bool> accepted{false}, cancelled{false};
+    void answer(bool trust) { accepted = trust; SetEvent(answered.get()); }
 };
 struct Event {
     State state = State::Idle;
@@ -22,6 +31,7 @@ struct Event {
     std::wstring transport;
     uint64_t rx = 0;
     uint64_t tx = 0;
+    std::shared_ptr<CertificateRequest> certificate;
 };
 class Session {
 public:
@@ -33,7 +43,6 @@ public:
     bool start();
     void cancel();
     void request_stats();
-    bool finished() const;
 private:
     static DWORD WINAPI thread_entry(void* context);
     static int certificate_callback(void* context, const char* reason);

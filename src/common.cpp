@@ -111,6 +111,24 @@ bool normalize_server(const std::wstring& input, std::wstring& output) {
     output = value;
     return true;
 }
+std::wstring server_origin(const std::wstring& server) {
+    std::wstring normalized;
+    if (!normalize_server(server, normalized)) return {};
+    auto end = normalized.find(L'/', 8);
+    auto authority = normalized.substr(8, end == std::wstring::npos ? end : end - 8);
+    size_t colon = authority.front() == L'[' ? authority.find(L':', authority.find(L']')) : authority.find(L':');
+    auto host = authority.substr(0, colon);
+    if (host.front() == L'[') {
+        IN6_ADDR address{}; wchar_t canonical[INET6_ADDRSTRLEN]{};
+        auto literal = host.substr(1, host.size() - 2);
+        if (InetPtonW(AF_INET6, literal.c_str(), &address) != 1 || !InetNtopW(AF_INET6, &address, canonical, INET6_ADDRSTRLEN)) return {};
+        host = L"[" + std::wstring(canonical) + L"]";
+    }
+    std::transform(host.begin(), host.end(), host.begin(), [](wchar_t ch) { return static_cast<wchar_t>(std::towlower(ch)); });
+    unsigned port = 443;
+    if (colon != std::wstring::npos && !decimal(utf8(authority.substr(colon + 1)), 65535, port)) return {};
+    return L"https://" + host + L":" + std::to_wstring(port);
+}
 bool valid_pin(const std::string& pin) {
     if (pin.empty()) return true;
     // Require the complete SHA-256 public-key pin; never accept prefix matching or SHA-1.
@@ -187,7 +205,8 @@ bool load_profile(Profile& profile, std::wstring& error, bool use_imported_profi
     if (!profile.ca_file.empty() && profile.ca_file.find(L':') == std::wstring::npos && profile.ca_file.front() != L'\\')
         profile.ca_file = path.substr(0,path.find_last_of(L'\\')) + L"\\" + profile.ca_file;
     profile.auth_group = utf8(ini(L"VPN", L"AuthGroup", L"", path));
-    profile.lock_server = GetPrivateProfileIntW(L"VPN", L"LockServer", 0, path.c_str()) != 0;
+    // Older imported profiles wrote LockServer=1. Addresses are always editable now.
+    profile.remembered_pin = false;
     profile.prefer_udp = GetPrivateProfileIntW(L"VPN", L"PreferUDP", 1, path.c_str()) != 0;
     profile.protect_dns = GetPrivateProfileIntW(L"VPN", L"ProtectDNS", 1, path.c_str()) != 0;
     profile.block_ipv6 = GetPrivateProfileIntW(L"VPN", L"BlockUntunneledIPv6", 1, path.c_str()) != 0;

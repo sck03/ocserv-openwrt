@@ -116,6 +116,39 @@ def main():
                       "credential_submissions": sent, "client_result": completed.stdout.strip()}
             results.append(result)
             print(json.dumps(result))
+        trust_dir = args.output / ("trust-" + str(time.time_ns()))
+        trust_dir.mkdir()
+        for name, route, mode, success, posts, prompts, changes in [
+            ("first_certificate_cancelled", "/ok", "reject", False, 0, 1, 0),
+            ("pending_certificate_is_cancellable", "/ok", "cancel", True, 0, 1, 0),
+            ("first_certificate_confirmed", "/ok", "accept", True, 1, 1, 0),
+            ("remembered_key_survives_new_process", "/ok", "auto", True, 1, 0, 0),
+            ("remembered_key_same_host_other_path", "/another-path", "auto", True, 1, 0, 0),
+            ("changed_key_rejected", "/ok", "reject", False, 0, 1, 1),
+            ("changed_key_cancelled", "/ok", "cancel", True, 0, 1, 1),
+            ("changed_key_explicitly_confirmed", "/ok", "accept", True, 1, 1, 1),
+            ("replacement_key_remembered", "/ok", "auto", True, 1, 0, 0),
+        ]:
+            if name == "changed_key_rejected":
+                replacement_key, replacement_cert = args.output / "replacement.key", args.output / "replacement.pem"
+                subprocess.run([str(args.openssl), "req", "-x509", "-newkey", "rsa:2048", "-nodes", "-keyout", str(replacement_key),
+                                "-out", str(replacement_cert), "-days", "1", "-config", str(config), "-subj", "/CN=changed-server"],
+                               check=True, capture_output=True)
+                tls.load_cert_chain(replacement_cert, replacement_key)
+            before = dict(counts)
+            saved_before = {p.name: p.read_bytes() for p in trust_dir.glob("*.ini")}
+            completed = subprocess.run([str(args.client.resolve()), "--authenticate-trust", f"https://127.0.0.1:{server.server_port}{route}",
+                                        str(trust_dir.resolve()), mode], input="fixture-password\n", text=True, capture_output=True, timeout=25)
+            sent = counts["credentials"] - before["credentials"]
+            saved_after = {p.name: p.read_bytes() for p in trust_dir.glob("*.ini")}
+            passed = ((completed.returncode == 0) == success and sent == posts
+                      and f"prompts={prompts} changes={changes}" in completed.stdout
+                      and "fixture-password" not in completed.stdout + completed.stderr
+                      and (mode == "accept" or saved_before == saved_after))
+            result = {"test": name, "passed": passed, "exit_code": completed.returncode,
+                      "credential_submissions": sent, "client_result": completed.stdout.strip()}
+            results.append(result)
+            print(json.dumps(result))
     finally:
         server.shutdown()
         server.server_close()
