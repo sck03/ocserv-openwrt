@@ -90,13 +90,21 @@ function M.revision(value)
     -- Optimistic concurrency token, not a password hash or an authentication token.
     local a, b = 1, 7
     for i = 1,#value do local c=value:byte(i); a=(a*131+c)%4294967296; b=(b*65599+c)%4294967296 end
-    return string.format("%08x%08x%08x", a, b, #value)
+    -- OpenWrt Lua uses a signed 32-bit lua_Integer and rejects %x arguments
+    -- above INT_MAX. Format each checksum as two bounded 16-bit halves.
+    return string.format("%04x%04x%04x%04x%08x",math.floor(a/65536),a%65536,math.floor(b/65536),b%65536,#value)
 end
+function M.password_hash(value)
+    return M.text(value,512) and value:match("^%$[A-Za-z0-9]+%$[^:%s]+%$[./A-Za-z0-9]+$")~=nil
+end
+function M.user_group(value) return value and value~="" and value or "*" end
 function M.public_users(users)
     local rows = {}
     for _, u in ipairs(users) do
         if u.name and u.name ~= "" then
-            rows[#rows+1] = { id=u.id, name=u.name, group=u.group or "*", enabled=type(u.password)=="string" and u.password:sub(1,1)=="$" }
+            local password=type(u.password)=="string" and u.password or ""
+            local valid=M.password_hash((password:gsub("^!+","")))
+            rows[#rows+1] = { id=u.id, name=u.name, group=M.user_group(u.group), enabled=valid and password:sub(1,1)~="!", needs_password=not valid }
         end
     end
     return rows
@@ -108,13 +116,45 @@ function M.passwd(users)
             M.require(M.username(u.name), "invalid_existing_user")
             M.require(not seen[u.name], "duplicate_user")
             seen[u.name] = true
-            M.require(M.group(u.group or "*"), "invalid_group")
-            M.require(M.text(u.password, 512) and u.password ~= "" and not u.password:find(":", 1, true), "invalid_existing_password")
-            M.require(u.password:match("^!?%$") or u.password:match("^[!*]+$"), "invalid_existing_password")
-            rows[#rows+1] = u.name .. ":" .. (u.group or "*") .. ":" .. u.password .. "\n"
+            local group=M.user_group(u.group)
+            M.require(M.group(group), "invalid_group")
+            local password=type(u.password)=="string" and u.password or ""
+            -- Broken legacy records stay visible for repair, but must never be
+            -- emitted as a plaintext password or prevent repairing another user.
+            if not M.password_hash((password:gsub("^!+",""))) then password="!" end
+            rows[#rows+1] = u.name .. ":" .. group .. ":" .. password .. "\n"
         end
     end
     return table.concat(rows)
+end
+function M.same_users(left,right)
+    if #left~=#right then return false end
+    for i,u in ipairs(left) do
+        local v=right[i]
+        for _,key in ipairs({"id","name","group","password"}) do if u[key]~=v[key] then return false end end
+    end
+    return true
+end
+function M.repair_users(users,hash_password)
+    local result,converted,invalid={ },0,0
+    for _,u in ipairs(users) do
+        local password=u.password
+        local group=u.group
+        -- The upstream JS editor wrote literal passwords instead of crypt
+        -- hashes. Preserve those passwords, including short legacy passwords.
+        -- Hash-like or disabled records are never guessed or reinterpreted.
+        if u.name and u.name~="" then
+            group=M.user_group(group)
+            if M.text(password,128) and #password>0 and not password:match("^[!*$]") then
+                password=hash_password(password)
+                M.require(M.password_hash(password),"hash_failed")
+                converted=converted+1
+            end
+            if not M.password_hash((tostring(password or ""):gsub("^!+",""))) then invalid=invalid+1 end
+        end
+        result[#result+1]={id=u.id,name=u.name,group=group,password=password}
+    end
+    return result,converted,invalid
 end
 function M.change_user(users, request, hash_password)
     M.require(type(request) == "table", "bad_request")
@@ -141,11 +181,12 @@ function M.change_user(users, request, hash_password)
         M.require(target or password ~= "", "password_required")
         if password ~= "" then M.require(M.password(password), "invalid_password") end
         local previous = target and target.password or ""
+        M.require(password~="" or M.password_hash((previous:gsub("^!+",""))),"password_required")
         local encoded = password ~= "" and hash_password(password) or previous:gsub("^!+", "")
-        M.require(type(encoded)=="string" and encoded:match("^%$[A-Za-z0-9]+%$") and #encoded <= 512 and not encoded:find("[%s:]"), "hash_failed")
+        M.require(M.password_hash(encoded), "hash_failed")
         if not request.enabled then encoded = "!" .. encoded end
         if target and (target.name ~= request.name or (target.group or "*") ~= (request.group or "*") or
-           (target.password ~= encoded and not (target.password:sub(1,1)=="!" and request.enabled and password==""))) then revoke=target.name end
+           (target.password ~= encoded and not (previous:sub(1,1)=="!" and request.enabled and password==""))) then revoke=target.name end
         target = target or {}
         if not index then copy[#copy+1]=target end
         target.name=request.name; target.group=request.group or "*"; target.password=encoded

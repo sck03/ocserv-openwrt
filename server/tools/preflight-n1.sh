@@ -9,7 +9,7 @@ case "$release" in 25.12|25.12.*|25.12-SNAPSHOT) ;; *) printf '%s\n' 'ERROR: thi
 if command -v apk >/dev/null 2>&1; then
     printf '%s\n' 'Package format: APK (OpenWrt 25.12)'
     apk --print-arch
-    for package in ocserv musl libgnutls libev libncurses libreadline libprotobuf-c luci-app-ocserv luci-compat; do
+    for package in ocserv musl libgnutls libev libncurses libreadline libprotobuf-c luci-app-ocserv-easy luci-compat; do
         apk info -v "$package" 2>/dev/null || true
     done
 else
@@ -24,7 +24,9 @@ else
 fi
 if [ -x /usr/sbin/ocserv ]; then /usr/sbin/ocserv --version | sed -n '1,3p'; fi
 printf '%s\n' 'Storage:'
-df -Pk /etc /tmp
+# BusyBox df cannot always resolve /etc on OPL's btrfs subvolumes. Storage is
+# informational; a failed report must not abort an otherwise compatible install.
+df -Pk / /tmp || { printf '%s\n' 'Warning: storage details are unavailable for one mount.'; df -Pk || true; }
 for file in /etc/config/ocserv /etc/ocserv/ca.pem /etc/ocserv/server-cert.pem /etc/ocserv/server-key.pem; do
     [ ! -f "$file" ] || printf 'Present: %s\n' "$file"
 done

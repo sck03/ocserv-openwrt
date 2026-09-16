@@ -7,14 +7,30 @@ cd "$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)"
 [ -f SHA256SUMS ] || { echo '请完整解压服务端套装后运行 install.sh。'; exit 1; }
 sha256sum -c SHA256SUMS
 sh ./preflight-n1.sh
-[ "$(apk --print-arch)" = aarch64_generic ] || { echo '此套装仅适用于 aarch64_generic。'; exit 1; }
+case "$(apk --print-arch)" in
+    aarch64|aarch64_generic) ;;
+    *) echo '此套装仅适用于 N1 的 aarch64 / aarch64_generic 用户空间。'; exit 1 ;;
+esac
 
 fresh=0
 pending=/etc/ocserv/easy-install-pending
 if [ -f "$pending" ] || { ! apk info -e ocserv >/dev/null 2>&1 && [ ! -e /etc/config/ocserv ]; }; then fresh=1; fi
-set -- ./ocserv-*.apk ./luci-app-ocserv-*.apk ./luci-i18n-ocserv-zh-cn-*.apk
-[ "$#" -eq 4 ] || { echo '套装应包含 ocserv、两个管理页和中文翻译，共四个 APK。'; exit 1; }
+# An APK-only installation skipped this bundle's first-run network setup.
+# Repair that known default configuration, while retaining customized networks.
+if [ "$fresh" = 0 ] &&
+    [ "$(uci -q get ocserv.config.zone)" = ocvpn ] &&
+    [ "$(uci -q get ocserv.config.ipaddr)" = 10.77.0.0 ] &&
+    [ "$(uci -q get ocserv.config.netmask)" = 255.255.255.0 ] &&
+    [ "$(uci -q get ocserv.config.port)" = 4443 ] &&
+    [ "$(uci -q get ocserv.config.proxy_arp)" != 1 ] &&
+    ! uci -q show firewall | grep -Eq '(vpns|ocvpn|ocserv)'; then
+    fresh=1
+    echo '检测到此前只安装了 APK，正在补齐默认 VPN 的网络设置。'
+fi
+set -- ./*.apk
+[ "$#" -eq 2 ] || { echo '修复版套装应只包含 ocserv 和 luci-app-ocserv-easy 两个 APK。请解压到新目录，不要混入旧包。'; exit 1; }
 for package do [ -f "$package" ] || { echo "缺少安装包：$package"; exit 1; }; done
+case "$1 $2" in ./luci-app-ocserv-easy-*.apk\ ./ocserv-*.apk) ;; *) echo '安装包名称与修复版套装不符。'; exit 1;; esac
 if [ "$fresh" = 1 ]; then
     [ -z "$(uci -q changes firewall)" ] || { echo '其他页面有未应用的防火墙修改，请先处理后重跑安装。'; exit 1; }
     for id in ocserv_vpn ocserv_vpn_to_lan ocserv_vpn_nat ocserv_vpn_entry; do
@@ -42,6 +58,17 @@ if [ "$fresh" = 1 ]; then
     printf '%s\n' 'Fresh installation awaiting VPN network setup' > "$pending"
 fi
 apk add --allow-untrusted "$@"
+/usr/libexec/ocserv-easy-repair-users
+# The maintained page now depends on ocserv directly. Retire the upstream
+# duplicate editors only after both replacement packages installed successfully.
+legacy=''
+for package in luci-i18n-ocserv-zh-cn luci-app-ocserv; do
+    if apk info -e "$package" >/dev/null 2>&1; then legacy="$legacy $package"; fi
+done
+if [ -n "$legacy" ]; then
+    # Deliberate word splitting of fixed package names, never user input.
+    apk del $legacy
+fi
 /etc/init.d/ocserv initcerts
 /etc/init.d/ocserv-easy-guard enable
 
@@ -91,7 +118,9 @@ UCI
     rm -f "$pending"
 fi
 /etc/init.d/rpcd restart
+# Invalidate both older Lua and current ucode dispatcher caches.
+rm -f /tmp/luci-indexcache* /tmp/luci-modulecache/*
 echo "安装完成。安装前备份：$backup"
-echo '请重新登录 LuCI → VPN → OpenConnect VPN → 布利杰VPN。'
+echo '请重新登录 LuCI → VPN → 布利杰VPN（管理页 0.4.1）。'
 echo '全新安装：添加账号，检查服务设置，然后点击「启动服务」。'
 echo '默认端口 4443，VPN 地址池 10.77.0.0/24；专用 OpenClash 开关默认关闭。'

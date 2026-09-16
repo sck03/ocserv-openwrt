@@ -58,6 +58,7 @@ jobs:
           python tests/server_integration.py
           python tests/guard_integration.py
           python tests/server_install_tests.py
+          python tests/server_userfile_tests.py
           node --check server/openwrt/luci-app-ocserv-easy/htdocs/luci-static/resources/ocserv-easy/app.js
           for script in server/tools/*.sh; do bash -n "$script"; done
           bash -n scripts/publish-release.sh
@@ -75,6 +76,7 @@ jobs:
             test-results/guard-transactions.json
             test-results/server-certificates.json
             test-results/server-install.json
+            test-results/server-userfile.json
             test-results/vpn-guard-tests.log
           if-no-files-found: error
           retention-days: 7

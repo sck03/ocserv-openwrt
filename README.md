@@ -1,6 +1,6 @@
-# 布利杰VPN 0.4.0
+# 布利杰VPN
 
-原生 Win32 / C++17 的 OpenConnect 客户端，配套 ocserv 1.5.0 服务端和中文管理页。Windows 提供 x86/x64 便携包；N1 服务端只维护 **OpenWrt 25.12 系列、armsr/armv8、aarch64_generic、APK**。
+原生 Win32 / C++17 的 OpenConnect 客户端 0.4.0，配套 ocserv 1.5.0-r3 服务端和中文管理页 0.4.1。Windows 提供 x86/x64 便携包；N1 服务端只维护 **OpenWrt 25.12 系列、armsr/armv8、aarch64_generic、APK**，兼容 OPL 的 `apk --print-arch` 输出 `aarch64`。
 
 客户端静态合并 OpenConnect 9.21、OpenSSL、libxml2 和 zlib，不需要 Qt、.NET 或额外 VC 运行库；同目录的官方 Wintun 驱动组件必须保留。Windows 7 SP1 是兼容目标，仍需实机验收。
 
@@ -28,7 +28,7 @@ cd /tmp/bulijie-vpn
 sh install.sh
 ```
 
-安装脚本校验文件、检查 25.12/APK/TUN、预演依赖安装并备份配置，然后安装四个 APK。全新安装生成证书并配置旁路由的基本 VPN 转发；保留系统现有的 TUN。重新登录 LuCI，进入 **VPN → OpenConnect VPN → 布利杰VPN**，添加账号、核对服务设置并启动服务。
+请解压到新目录，避免混入旧 APK。安装脚本校验文件、检查 25.12/APK/TUN、预演依赖安装并备份配置，然后安装 **ocserv、luci-app-ocserv-easy 两个 APK**。它会修复旧页面留下的明文密码记录，安装成功后移除重复的原版界面和翻译包。全新安装生成证书并配置旁路由的基本 VPN 转发；之前只手动安装 APK、仍使用本套装默认网络的设备，也会补齐转发。重新登录 LuCI，进入 **VPN → 布利杰VPN**，添加账号、核对服务设置并启动服务。
 
 默认端口 `4443`、VPN 网段 `10.77.0.0/24`、每个账号同时一台设备。没有预设账号或密码。初始 DNS 为 `1.1.1.1`，需按实际部署检查连通性。
 
@@ -44,7 +44,7 @@ sh install.sh
 - [N1 服务端工作流](https://github.com/sck03/ocserv-openwrt/actions/workflows/build-server.yml)：通过 `sdk_version` 指定具体 `25.12.x` 或 `auto`。默认 25.12.5，`auto` 只选择 25.12 系列稳定版。
 - 标准运行器为 `ubuntu-24.04`，Actions/管理页脚本检查使用 Node.js 24。运行器系统版本与 N1 固件版本是不同概念。
 - 手动工作流全部检查成功后发布独立 Pre-release；[Releases](https://github.com/sck03/ocserv-openwrt/releases) 附件长期保留，Actions artifacts 保留 7 天。
-- 服务端 artifact 为 `openwrt-25.12-aarch64_generic`，内含四个 APK、安装工具、源码、BUILDINFO 和 SHA256SUMS。
+- 服务端 artifact 为 `openwrt-25.12-aarch64_generic`，内含两个 APK、安装工具、源码、BUILDINFO 和 SHA256SUMS；ZIP 名称带管理页版本，便于区分修复版。
 
 ## 资料
 

@@ -21,8 +21,8 @@ local function read(path)
     return value
 end
 local function directory(path)
-    if not fs.stat(path) then logic.require(fs.mkdir(path,448),"write_failed") end
-    logic.require(fs.chmod(path,448),"write_failed")
+    if not fs.stat(path) then logic.require(fs.mkdir(path,"700"),"write_failed") end
+    logic.require(fs.chmod(path,"700"),"write_failed")
 end
 local function random()
     local f=nixio.open("/dev/urandom","r"); logic.require(f,"random_failed")
@@ -31,7 +31,7 @@ local function random()
 end
 local function atomic(path,value)
     local temp=path..".new-"..random()
-    local f=nixio.open(temp,nixio.open_flags("wronly","creat","excl"),384)
+    local f=nixio.open(temp,nixio.open_flags("wronly","creat","excl"),"600")
     logic.require(f,"write_failed")
     local offset,ok=1,true
     while offset<=#value do
@@ -70,10 +70,10 @@ local function current(c,op)
 end
 local function put(c,op,value)
     if op.key then
-        if value==false then if c:get(op.package,op.id,op.key)~=nil then logic.require(c:delete(op.package,op.id,op.key),"write_failed") end
+        if value==false then if c:get(op.package,op.id,op.key) then logic.require(c:delete(op.package,op.id,op.key),"write_failed") end
         else logic.require(c:set(op.package,op.id,op.key,value),"write_failed") end
     else
-        if c:get(op.package,op.id)~=nil then logic.require(c:delete(op.package,op.id),"write_failed") end
+        if c:get(op.package,op.id) then logic.require(c:delete(op.package,op.id),"write_failed") end
         if value~=false then
             logic.require(c:set(op.package,op.id,value[".type"]),"write_failed")
             for key,item in pairs(value) do if key~=".type" then logic.require(c:set(op.package,op.id,key,item),"write_failed") end end
@@ -119,7 +119,9 @@ local function detect(c,admin)
     logic.require(poolnum and bits and bits>=8 and bits<=30 and poolnum%2^(32-bits)==0,"invalid_pool")
     logic.require(poolnum+2^(32-bits)-1<network or poolnum>network+size-1,"guard_pool_overlap")
     local port=tonumber(c:get("ocserv","config","port") or "4443")
-    local udp=tonumber(c:get("ocserv","config","udp_port")) or port
+    -- The LuCI UCI bridge returns false, error for an absent option. Do not
+    -- pass the error string as tonumber()'s optional numeric-base argument.
+    local udp=tonumber((c:get("ocserv","config","udp_port"))) or port
     logic.require(port and port>=1 and port<=65535 and port%1==0 and udp>=1 and udp<=65535 and udp%1==0,"invalid_port")
     local ports={[22]=true,[80]=true,[443]=true}
     c:foreach("uhttpd","uhttpd",function(s)
@@ -337,7 +339,7 @@ local function apply(state)
 end
 local function locked(operation)
     directory(work)
-    local lock=nixio.open(work.."/lock","w",384); logic.require(lock,"write_failed")
+    local lock=nixio.open(work.."/lock","w","600"); logic.require(lock,"write_failed")
     local acquired=false
     for _=1,100 do if lock:lock("tlock") then acquired=true; break end; nixio.poll({},100) end
     if not acquired then lock:close(); logic.fail("busy") end

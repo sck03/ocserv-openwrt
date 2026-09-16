@@ -43,7 +43,11 @@ local function cursor()
     local cache={}
     local function db(package) if not cache[package] then cache[package]=clone(S.cfg[package] or {}) end; return cache[package] end
     local c={}
-    function c:get(package,id,key) local r=db(package)[id]; return r and r[key or ".type"] end
+    function c:get(package,id,key)
+        local r=db(package)[id];local value=r and r[key or ".type"]
+        if value==nil then return false,"Entry not found" end
+        return value
+    end
     function c:get_all(package,id) local r=clone(db(package)[id]); if r then r[".name"]=id end; return r end
     function c:get_first(package,kind,key,default)
         for id,r in pairs(db(package)) do if r[".type"]==kind then if key then return r[key] or default end; return id end end
@@ -60,6 +64,7 @@ local function cursor()
         return true
     end
     function c:delete(package,id,key)
+        if not db(package)[id] or key and db(package)[id][key]==nil then return false,"Entry not found" end
         if key then if db(package)[id] then db(package)[id][key]=nil end else db(package)[id]=nil end
         return true
     end
@@ -73,10 +78,14 @@ local function cursor()
     return c
 end
 local fs={}
+local function mode(value)
+    assert(type(value)=="string" and value:match("^[0-7][0-7][0-7]$"),"nixio expects octal permission digits")
+    return tonumber(value,8)
+end
 function fs.stat(path) if S.files[path]~=nil then return {} end; return S.dirs[path] end
 function fs.access(path) return fs.stat(path)~=nil end
-function fs.mkdir(path,mode) S.dirs[path]={mode=mode}; return true end
-function fs.chmod() return true end
+function fs.mkdir(path,value) S.dirs[path]={mode=mode(value)}; return true end
+function fs.chmod(path,value) mode(value);return true end
 function fs.remove(path) S.files[path]=nil; return true end
 function fs.rename(from,to)
     if S.fail_write==to then S.fail_write=nil; return false end
@@ -90,8 +99,9 @@ end
 os.time=function() return S.now end
 local nixio={bin={},open_flags=function()return 1 end}
 nixio.bin.hexlify=function(v)return (v:gsub(".",function(ch)return string.format("%02x",ch:byte())end))end
-function nixio.open(path)
+function nixio.open(path,flags,permissions)
     if path=="/dev/urandom" then return {read=function(_,n)S.counter=S.counter+1;return string.rep(string.char(S.counter%255),n)end,close=function()end} end
+    mode(permissions)
     S.files[path]=""
     return {write=function(_,v)S.files[path]=S.files[path]..v;return #v end,sync=function()return true end,close=function()end,lock=function()return not S.locked end}
 end

@@ -20,19 +20,24 @@ if not re.fullmatch(r"25\.12\.\d+", entry["version"]):
 recipe = (ROOT / "server/openwrt/ocserv/Makefile").read_text(encoding="utf-8")
 ocserv_version = re.search(r"(?m)^PKG_VERSION:=(\d+\.\d+\.\d+)$", recipe).group(1)
 source_hash = re.search(r"(?m)^PKG_HASH:=([a-f0-9]{64})$", recipe).group(1)
-output = ROOT / "dist" / f"ocserv-{ocserv_version}-openwrt-{entry['version']}-aarch64_generic"
+ui_recipe = (ROOT / "server/openwrt/luci-app-ocserv-easy/Makefile").read_text(encoding="utf-8")
+ui_version = re.search(r"(?m)^PKG_VERSION:=(\d+\.\d+\.\d+)$", ui_recipe).group(1)
+ui_release = re.search(r"(?m)^PKG_RELEASE:=(\d+)$", ui_recipe).group(1)
+ocserv_release = re.search(r"(?m)^PKG_RELEASE:=(\d+)$", recipe).group(1)
+output = ROOT / "dist" / f"ocserv-{ocserv_version}-openwrt-{entry['version']}-aarch64_generic-ui-{ui_version}"
 output.mkdir(parents=True, exist_ok=True)
 if not re.search(r"(?m)^CONFIG_USE_APK=y$", (sdk / ".config").read_text()):
     raise RuntimeError("The OpenWrt 25.12 SDK must produce APK packages")
 fmt = "apk"
 entry["format"] = fmt
-patterns = (f"ocserv*{ocserv_version}*.{fmt}", f"luci-app-ocserv[._-]*.{fmt}", f"luci-i18n-ocserv-zh-cn*.{fmt}")
+patterns = (f"ocserv-{ocserv_version}-r{ocserv_release}.{fmt}", f"luci-app-ocserv-easy-{ui_version}-r{ui_release}.{fmt}")
 packages = sorted({path for pattern in patterns for path in (sdk / "bin/packages").rglob(pattern)})
-for prefix in ("ocserv", "luci-app-ocserv-easy", "luci-i18n-ocserv-zh-cn"):
-    if not any(path.name.startswith(prefix) for path in packages):
-        raise RuntimeError(f"Missing {prefix} {fmt} package")
-if not any(path.name.startswith("luci-app-ocserv") and not path.name.startswith("luci-app-ocserv-easy") for path in packages):
-    raise RuntimeError("Missing the upstream LuCI application package")
+for pattern in patterns:
+    if len([path for path in packages if path.name == pattern]) != 1:
+        raise RuntimeError(f"Expected exactly one current package: {pattern}")
+for old in output.glob("*.apk"):
+    if old.name not in patterns:
+        raise RuntimeError(f"Stale package in output directory: {old.name}; use a clean output directory")
 for package in packages:
     shutil.copyfile(package, output / package.name)
 
@@ -50,16 +55,19 @@ if sha256(server_root / "etc/init.d/ocserv") != sha256(ROOT / "server/openwrt/oc
 ui_roots = list((sdk / "build_dir").glob("target-*/luci-app-ocserv-easy/.pkgdir/luci-app-ocserv-easy"))
 if len(ui_roots) != 1:
     raise RuntimeError("Cannot locate the staged management package")
-for relative in ("etc/init.d/ocserv-easy-guard", "usr/libexec/ocserv-easy-guard", "usr/share/ocserv-easy/guard.nft.in"):
+for relative in ("etc/init.d/ocserv-easy-guard", "usr/libexec/ocserv-easy-guard", "usr/libexec/ocserv-easy-repair-users", "usr/share/ocserv-easy/guard.nft.in"):
     if sha256(ui_roots[0] / relative) != sha256(ROOT / "server/openwrt/luci-app-ocserv-easy/root" / relative):
         raise RuntimeError("Stale guard runtime file: " + relative)
-for relative in ("etc/init.d/ocserv-easy-guard", "usr/libexec/ocserv-easy-guard"):
+for relative in ("etc/init.d/ocserv-easy-guard", "usr/libexec/ocserv-easy-guard", "usr/libexec/ocserv-easy-repair-users"):
     if not (ui_roots[0] / relative).stat().st_mode & 0o111:
         raise RuntimeError("Guard runtime is not executable: " + relative)
-for name in ("guard.lua", "process.lua", "backend.lua"):
+for name in ("guard.lua", "process.lua", "backend.lua", "logic.lua"):
     relative = "usr/lib/lua/luci/model/ocserv_easy/" + name
     if sha256(ui_roots[0] / relative) != sha256(ROOT / "server/openwrt/luci-app-ocserv-easy/luasrc/model/ocserv_easy" / name):
         raise RuntimeError("Stale management module: " + name)
+for relative in ("controller/ocserv_easy.lua", "view/ocserv_easy/index.htm"):
+    if sha256(ui_roots[0] / "usr/lib/lua/luci" / relative) != sha256(ROOT / "server/openwrt/luci-app-ocserv-easy/luasrc" / relative):
+        raise RuntimeError("Stale management entry point: " + relative)
 dynamic = subprocess.check_output(["readelf", "-d", str(executables[0])], text=True)
 (output / "ocserv-elf-dependencies.txt").write_text(dynamic, encoding="utf-8")
 ui_validation = output / "validation/ui"
@@ -77,7 +85,8 @@ for filename in ("app.js", "style.css"):
 revisions = {}
 for feed in ("packages", "luci"):
     revisions[feed] = subprocess.check_output(["git", "-C", str(sdk / "feeds" / feed), "rev-parse", "HEAD"], text=True).strip()
-info = {"ocserv": ocserv_version, "sdk": entry, "architecture": "aarch64_generic",
+info = {"ocserv": ocserv_version, "management_ui": ui_version, "sdk": entry, "architecture": "aarch64_generic",
+        "apk_architectures": ["aarch64", "aarch64_generic"], "packages": [p.name for p in packages],
         "commit": os.environ.get("GITHUB_SHA", "local"), "feeds": revisions,
         "boundary": "SDK compile/ELF validation; OPL/Flippy device ABI and real VPN traffic require device testing."}
 (output / "BUILDINFO.json").write_text(json.dumps(info, indent=2) + "\n", encoding="utf-8")

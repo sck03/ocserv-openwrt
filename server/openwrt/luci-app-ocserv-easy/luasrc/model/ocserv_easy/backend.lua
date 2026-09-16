@@ -23,8 +23,8 @@ local function read(path, limit)
     return data
 end
 local function directory(path)
-    if not fs.stat(path) then logic.require(fs.mkdir(path,448),"write_failed") end
-    logic.require(fs.chmod(path,448),"write_failed")
+    if not fs.stat(path) then logic.require(fs.mkdir(path,"700"),"write_failed") end
+    logic.require(fs.chmod(path,"700"),"write_failed")
 end
 local function random_bytes(count)
     local source=nixio.open("/dev/urandom","r")
@@ -35,7 +35,7 @@ local function random_bytes(count)
 end
 local function atomic(path,data)
     local tmp=path..".easy-"..nixio.getpid().."-"..nixio.bin.hexlify(random_bytes(8))
-    local out=nixio.open(tmp,nixio.open_flags("wronly","creat","excl"),384)
+    local out=nixio.open(tmp,nixio.open_flags("wronly","creat","excl"),"600")
     logic.require(out,"write_failed")
     local offset=1; local ok=true
     while offset<=#data do
@@ -51,7 +51,7 @@ end
 
 local function version()
     local code,output=run({"/usr/sbin/ocserv","--version"},3)
-    return code==0 and output:match("ocserv%s+([^%s]+)") or "unknown"
+    return code==0 and (output:match("OpenConnect VPN Server%s+([^%s]+)") or output:match("ocserv%s+([^%s]+)")) or "unknown"
 end
 local function running()
     local pid=(read("/var/run/ocserv.pid",64) or ""):match("^%s*(%d+)%s*$")
@@ -101,6 +101,7 @@ end
 function M.data(admin)
     local s=snapshot(); local state=M.status()
     state.version=version()
+    state.ui_version="0.4.1"
     state.supported=logic.supported_version(state.version)
     state.capabilities=capabilities()
     state.revision=s.revision
@@ -140,7 +141,7 @@ local function commit(s)
     logic.require((read(config_path) or "")==s.raw,"stale_revision")
     logic.require(s.cursor:commit("ocserv"),"write_failed")
     s.committed_raw=read(config_path)
-    logic.require(fs.chmod(config_path,384),"write_failed")
+    logic.require(fs.chmod(config_path,"600"),"write_failed")
 end
 local function backup(s,old_passwd)
     local path="/etc/ocserv/easy-backup"
@@ -187,11 +188,11 @@ local function change_user(s,request)
     local was_running=running()
     if was_running then logic.require(logic.standard_auth(read(runtime_path) or ""),"custom_auth_file") end
     local users,revoke=logic.change_user(s.users,request,hash_password)
-    if logic.passwd(users)==logic.passwd(s.users) then return {effect="unchanged"} end
+    if logic.same_users(users,s.users) then return {effect="unchanged"} end
     if was_running and revoke then logic.require(capabilities().terminate,"upgrade_required") end
     return transaction(s,was_running,function(mark)
         write_users(s,users); commit(s)
-        if not fs.stat("/var/etc") then logic.require(fs.mkdir("/var/etc",493),"write_failed") end
+        if not fs.stat("/var/etc") then logic.require(fs.mkdir("/var/etc","755"),"write_failed") end
         atomic(passwd_path,logic.passwd(users))
         local effect=was_running and "updated_live" or "saved"
         if was_running and revoke then
@@ -209,6 +210,18 @@ local function change_user(s,request)
             effect="terminated"
         end
         return {effect=effect}
+    end)
+end
+local function repair_users(s)
+    logic.require((s.config.auth or "plain")=="plain","plain_auth_required")
+    local was_running=running()
+    if was_running then logic.require(logic.standard_auth(read(runtime_path) or ""),"custom_auth_file") end
+    local users,converted,invalid=logic.repair_users(s.users,hash_password)
+    return transaction(s,was_running,function()
+        if not logic.same_users(users,s.users) then write_users(s,users); commit(s) end
+        if not fs.stat("/var/etc") then logic.require(fs.mkdir("/var/etc","755"),"write_failed") end
+        atomic(passwd_path,logic.passwd(users))
+        return {effect="accounts_repaired",converted=converted,needs_password=invalid}
     end)
 end
 local managed={"tcp-port","udp-port","max-clients","max-same-clients","dpd","ipv4-network","ipv4-netmask","ipv6-network","dns","route","auth","compression","predictable-ips","cisco-client-compat","default-domain"}
@@ -252,7 +265,7 @@ end
 function M.action(request,admin)
     logic.require(type(request)=="table" and type(request.action)=="string","bad_request")
     directory(work)
-    local lock=nixio.open(work.."/lock","w",384)
+    local lock=nixio.open(work.."/lock","w","600")
     logic.require(lock,"write_failed")
     if not lock:lock("tlock") then lock:close(); logic.fail("busy") end
     local ok,result=pcall(function()
@@ -263,6 +276,7 @@ function M.action(request,admin)
         local changes=s.cursor:changes("ocserv")
         logic.require(not changes or not next(changes.ocserv or changes),"pending_changes")
         if request.action=="save_user" or request.action=="delete_user" then return change_user(s,request) end
+        if request.action=="repair_users" then return repair_users(s) end
         if request.action=="guard" then return guard.begin(request.command,admin,request.token) end
         if request.action=="settings" then
             logic.require(not guard.active(),"guard_settings_locked")
@@ -286,6 +300,11 @@ function M.action(request,admin)
     lock:lock("ulock"); lock:close()
     if not ok then error(result,0) end
     return result
+end
+function M.repair_users()
+    local s=snapshot()
+    if (s.config.auth or "plain")~="plain" then return {effect="unchanged",converted=0,needs_password=0} end
+    return M.action({action="repair_users",revision=s.revision})
 end
 function M.export(kind,url)
     logic.require(kind=="ca" or kind=="profile" or kind=="address","bad_request")

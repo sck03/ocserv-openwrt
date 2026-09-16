@@ -1,0 +1,9 @@
+#!/usr/bin/lua
+-- Repair the upstream editor's plaintext records without printing any secrets.
+local ok,result=pcall(function() return require("luci.model.ocserv_easy.backend").repair_users() end)
+if not ok then
+    io.stderr:write("Account repair failed: ",type(result)=="table" and result.code or "internal_error","\n")
+    os.exit(1)
+end
+io.write("Account repair: ",tostring(result.converted or 0)," legacy password(s) converted; ",
+    tostring(result.needs_password or 0)," account(s) need a new password in LuCI.\n")

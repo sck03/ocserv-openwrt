@@ -49,10 +49,11 @@
         invalid_username:t('账号限 1–64 位英文、数字、点、下划线、短横线或 @，以英文或数字开头。','Use 1–64 letters, digits, dots, underscores, hyphens or @. Start with a letter or digit.'),
         duplicate_user:t('这个账号已存在，请使用其他名称。','This username already exists.'),
         invalid_group:t('用户组格式无效；一般保持 * 即可。','Invalid group. Normally leave this as *.'),
-        password_required:t('新增账号需要填写密码。','A password is required for a new account.'),
+        password_required:t('新增账号或修复密码记录时需要填写新密码。','A password is required for a new account or an invalid password record.'),
+        password_mismatch:t('两次输入的密码不一致，请重新核对。','The two passwords do not match. Check them and try again.'),
         invalid_password:t('密码至少 8 个字符，不能包含换行，UTF-8 长度最多 128 字节。','Use a password of at least 8 characters, without control characters, and at most 128 UTF-8 bytes.'),
         hash_failed:t('无法生成或保留密码，请设置新密码并检查系统的 SHA-512 crypt 支持。','Cannot generate or preserve this password. Set a new password and check SHA-512 crypt support.'),
-        invalid_existing_user:t('现有配置中有不支持的账号名，请先在原“用户设置”页修正。','An existing username is unsupported. Correct it in the original User Settings page.'),
+        invalid_existing_user:t('现有配置中有不支持的账号名，请修改或删除该账号。','An existing username is unsupported. Edit or delete that account.'),
         invalid_existing_password:t('现有账号的密码记录无效，请先修正。','An existing account has an invalid password record.'),
         stale_revision:t('配置已被其他页面修改。请关闭此对话框，刷新页面后重试。','Configuration changed in another page. Close this dialog, refresh and try again.'),
         pending_changes:t('其他页面有尚未提交的 ocserv 修改，请先应用或撤销。','Another editor has pending ocserv changes. Apply or discard them first.'),
@@ -60,7 +61,7 @@
         upgrade_required:t('请先升级到 ocserv 1.5.0 或后续版本。','Upgrade to ocserv 1.5.0 or later first.'),
         plain_auth_required:t('账号管理需要使用 plain 用户名密码认证。','Account management requires plain username/password authentication.'),
         custom_auth_file:t('正在使用自定义认证文件；请先恢复标准 UCI 账号配置。','A custom authentication file is active. Restore standard UCI account management first.'),
-        proxy_arp_managed:t('此配置启用了代理 ARP，请在原服务设置页管理网络。','Proxy ARP is enabled. Manage networking in the original settings page.'),
+        proxy_arp_managed:t('当前启用了代理 ARP。使用本页管理网络前，请先将 VPN 改为独立地址池。','Proxy ARP is enabled. Configure a separate VPN pool before managing networking here.'),
         custom_override:t('额外配置文件覆盖了这些设置，请先在原设置中移除重复项。','The extra configuration file overrides these settings. Resolve duplicate directives in the original configuration first.'),
         config_check_failed:t('ocserv 配置检查未通过，未应用更改。请检查证书、地址池及原有额外配置；首次部署需先生成服务器证书。','ocserv rejected the proposed configuration. No changes were applied. Check certificates, address pools and extra configuration; a new deployment needs server certificates first.'),
         rollback_failed:t('回滚未完成，请检查服务状态。上次配置保存在 /etc/ocserv/easy-backup。','Rollback was incomplete. Check the service. Previous settings are in /etc/ocserv/easy-backup.'),
@@ -69,6 +70,7 @@
         disconnect_failed:t('该连接可能已经断开，请刷新在线列表。','The connection may already be closed. Refresh the online list.'),
         forbidden:t('当前登录只有查看权限。','Your login has read-only access.'),
         session_expired:t('管理登录可能已过期，请刷新页面重新登录。','Your administration login may have expired. Refresh and sign in again.'),
+        internal_error:t('管理页读取或应用失败。请运行套装中的 diagnose-n1.sh，查看故障位置后重试。','The administration page could not read or apply settings. Run diagnose-n1.sh from the bundle to locate the failure.'),
         invalid_pool:t('请填写有效 IPv4 网段，掩码范围为 /8 至 /30。','Enter a valid IPv4 network with a /8 to /30 mask.'),
         pool_not_network:t('地址池应填写网段地址，例如 10.77.0.0，不能填写 10.77.0.1。','Use a network address such as 10.77.0.0, not 10.77.0.1.'),
         invalid_dns:t('请填写 1–3 个有效 DNS 服务器 IP，每行一个。','Enter 1–3 valid DNS server IP addresses, one per line.'),
@@ -112,6 +114,7 @@
     effects.guard_restoring=t('正在关闭并恢复启用前的设置…','Disabling and restoring the previous settings…');
     effects.guard_enabled=t('已开启，仅 VPN 用户可通过 N1 使用 OpenClash。','Enabled. Only VPN clients can use OpenClash through this N1.');
     effects.guard_disabled=t('已关闭，已恢复启用前的设置。','Disabled. Previous settings restored.');
+    effects.accounts_repaired=t('旧账号密码记录已修复。标有“需重设密码”的账号仍需填写新密码。','Legacy password records repaired. Accounts marked “Reset password” still need a new password.');
     async function complete(payload) {
         var result=await mutate(payload); await load();
         if(payload.action==='guard' && state.guard && state.guard.phase==='disabled' && payload.command==='disable')result.effect='guard_disabled';
@@ -123,6 +126,7 @@
         var errorBox=element('div',{className:'easy-notice error',hidden:true});
         var submitButton=element('button',{type:'submit',className:'cbi-button cbi-button-apply',text:label || t('保存','Save')});
         var form=element('form',{},[element('h3',{id:'easy-modal-title',text:title})].concat(children,[errorBox,element('div',{className:'easy-buttons'},[button(t('取消','Cancel'),closeModal),submitButton])]));
+        form.addEventListener('input',function(){errorBox.hidden=true;});
         form.addEventListener('submit',async function(event){
             event.preventDefault(); if (busy) return;
             errorBox.hidden=true;
@@ -148,20 +152,24 @@
     }
     function editUser(user) {
         var name=element('input',{value:user?user.name:'',maxlength:64,required:true,autocomplete:'off',pattern:'[A-Za-z0-9][A-Za-z0-9_.@\\-]*'});
-        var password=element('input',{type:'password',autocomplete:'new-password',minlength:8,maxlength:128,required:!user});
+        var needsPassword=!user || !!user.needs_password;
+        var password=element('input',{type:'password',autocomplete:'new-password',minlength:8,maxlength:128,required:needsPassword});
+        var repeat=element('input',{type:'password',autocomplete:'new-password',maxlength:128,required:needsPassword});
         var group=element('input',{value:user?user.group:'*',maxlength:128});
-        var enabled=element('input',{type:'checkbox',checked:!user || user.enabled});
-        var reveal=element('input',{type:'checkbox',onChange:function(){password.type=reveal.checked?'text':'password';}});
+        var enabled=element('input',{type:'checkbox',checked:!user || user.enabled || user.needs_password});
+        var reveal=element('input',{type:'checkbox',onChange:function(){password.type=repeat.type=reveal.checked?'text':'password';}});
         var fields=element('div',{className:'easy-fields'},[
-            field(t('登录账号','Username'),name,t('支持英文、数字及 . _ - @','Letters, digits and . _ - @ are supported.')),
-            field(user?t('新密码','New password'):t('密码','Password'),password,user?t('留空保留原密码。','Leave blank to keep the current password.'):t('至少 8 个字符。','At least 8 characters.')),
-            field(t('用户组','Group'),group,t('通常保持 *。','Normally leave this as *.')),
-            element('div',{className:'easy-field'},[element('label',{className:'easy-check'},[enabled,t('允许此账号登录','Allow this account to sign in')]),element('label',{className:'easy-check'},[reveal,t('显示新密码','Show new password')])])
+            field(t('登录账号','Username'),name,t('支持英文、数字及 . _ - @','Letters, digits and . _ - @ are supported.'),true),
+            field(user?t('新密码','New password'):t('密码','Password'),password,needsPassword?t('至少 8 个字符，保存后即可用于登录。','At least 8 characters. Ready for login after saving.'):t('留空保留原密码。','Leave blank to keep the current password.')),
+            field(t('再次输入密码','Confirm password'),repeat),
+            element('div',{className:'easy-field wide'},[element('label',{className:'easy-check'},[enabled,t('允许此账号登录','Allow this account to sign in')]),element('label',{className:'easy-check'},[reveal,t('显示新密码','Show new password')])])
         ]);
-        showModal(user?t('修改账号','Edit account'):t('添加账号','Add account'),[fields,element('p',{className:'easy-muted',text:t('修改密码、账号名称、用户组或停用账号时，会使该账号的旧登录失效。','Changing the password, username, group or disabling an account revokes its previous sessions.')})],async function(){
+        var advanced=element('details',{},[element('summary',{text:t('用户组（可选）','Group (optional)')}),field(t('用户组','Group'),group,t('不需要分组时保持 *。','Leave * unless you need groups.'))]);
+        showModal(user?t('修改账号','Edit account'):t('添加账号','Add account'),[fields,advanced,element('p',{className:'easy-muted',text:t('修改密码、账号名称、用户组或停用账号时，会使该账号的旧登录失效。','Changing the password, username, group or disabling an account revokes its previous sessions.')})],async function(){
+            if(password.value!==repeat.value)throw {code:'password_mismatch'};
             await complete({action:'save_user',id:user?user.id:'',name:name.value,group:group.value || '*',password:password.value,enabled:enabled.checked});
-            password.value='';
-        });
+            password.value=repeat.value='';
+        },t('保存并生效','Save and activate'));
     }
     function table(headers,rows) {
         return element('div',{className:'easy-scroll'},[element('table',{},[element('thead',{},[element('tr',{},headers.map(function(h){return element('th',{text:h});}))]),element('tbody',{},rows.length?rows:[element('tr',{},[element('td',{colspan:headers.length,className:'easy-muted',text:t('暂无记录','No records')})])])])]);
@@ -174,13 +182,18 @@
                 var toggle=mutationButton(user.enabled?t('停用','Disable'):t('恢复','Enable'),function(){
                     confirm(user.enabled?t('停用账号','Disable account'):t('恢复账号','Enable account'),user.name+' — '+(user.enabled?t('此账号将无法登录，现有登录也会失效。','This account will be blocked and existing sessions revoked.'):t('恢复后可使用原密码登录。','The existing password will work again.')),{action:'save_user',id:user.id,name:user.name,group:user.group,password:'',enabled:!user.enabled});
                 });
-                return element('tr',{},[element('td',{text:user.name}),element('td',{text:user.group}),element('td',{className:user.enabled?'easy-good':'easy-muted',text:user.enabled?t('已启用','Enabled'):t('已停用','Disabled')}),element('td',{},[element('div',{className:'easy-buttons'},[
-                    mutationButton(t('修改','Edit'),function(){editUser(user);}),toggle,
+                if(user.needs_password)toggle.disabled=true;
+                return element('tr',{},[element('td',{text:user.name}),element('td',{text:user.group}),element('td',{className:user.needs_password?'easy-bad':user.enabled?'easy-good':'easy-muted',text:user.needs_password?t('需重设密码','Reset password'):user.enabled?t('已启用','Enabled'):t('已停用','Disabled')}),element('td',{},[element('div',{className:'easy-buttons'},[
+                    mutationButton(user.needs_password?t('重设密码','Reset password'):t('修改','Edit'),function(){editUser(user);}),toggle,
                     mutationButton(t('删除','Delete'),function(){confirm(t('删除账号','Delete account'),t('删除账号“','Delete account "')+user.name+t('”？该账号的旧登录将失效。','"? Previous sessions will be revoked.'),{action:'delete_user',id:user.id});},'cbi-button-remove')
                 ])])]);
             })));
         }
         search.addEventListener('input',rows); rows();
+        if(array(state.users).some(function(user){return user.needs_password;}))content.appendChild(element('div',{className:'easy-notice error'},[
+            element('p',{text:t('旧页面保存的部分密码记录无效。可先修复旧记录；仍标记异常的账号请点击“重设密码”。','Some password records saved by the old page are invalid. Repair legacy records first, then reset any passwords still marked invalid.')}),
+            mutationButton(t('修复旧密码记录','Repair legacy passwords'),function(){complete({action:'repair_users'}).catch(function(e){notice(errorText(e),true);});})
+        ]));
         content.appendChild(element('section',{className:'easy-card'},[element('div',{className:'easy-heading'},[element('h3',{text:t('登录账号','Accounts')}),mutationButton(t('＋ 添加账号','＋ Add account'),function(){editUser(null);},'cbi-button-add')]),search,list]));
         var online=element('section',{className:'easy-card',id:'easy-online'}); content.appendChild(online); renderOnline();
     }
@@ -226,7 +239,7 @@
             textInput('easy_public_url',t('员工连接地址','Employee connection address'),t('供下载客户端配置使用。','Used when downloading client profiles.'),{placeholder:'https://vpn.example.com:4443'})
         ])]);
         var save=element('button',{type:'submit',className:'cbi-button cbi-button-apply',text:t('保存并应用','Save and apply'),disabled:!writable() || !state.settings_supported || !!(state.guard && state.guard.enabled)});
-        var form=element('form',{},[general,advanced,element('p',{className:'easy-muted',text:t('保存前会检查配置。服务运行时，应用网络设置会短暂重启 VPN，现有连接需要重连。','Configuration is checked before saving. Applying networking changes to a running service restarts VPN; connected users will reconnect.')}),save]);
+        var form=element('form',{},[general,advanced,element('div',{className:'easy-save-bar'},[element('span',{className:'easy-muted',text:t('应用前检查配置；运行中的 VPN 会短暂重启。','Checks configuration before applying; a running VPN briefly restarts.')}),save])]);
         form.addEventListener('submit',function(event){
             event.preventDefault();
             var values={}; Object.keys(inputs).forEach(function(key){var input=inputs[key];values[key]=input.type==='checkbox'?(input.checked?'1':'0'):input.value;});
@@ -235,7 +248,7 @@
             confirm(t('应用服务设置','Apply service settings'),state.running?t('会短暂重启 VPN，断开当前连接。确认应用这些设置？','This briefly restarts VPN and disconnects current users. Apply these settings?'):t('保存后在下次启动服务时生效。','Settings take effect on the next service start.'),{action:'settings',settings:values,allow_restart:true});
         });
         content.appendChild(element('section',{className:'easy-card'},[element('h3',{text:t('常用服务设置','Common service settings')}),form]));
-        if(!state.settings_supported)content.appendChild(element('p',{className:'easy-notice error',text:t('当前使用自定义认证或代理 ARP，请在原服务设置页管理。','Custom authentication or proxy ARP is configured. Use the original service settings page.')}));
+        if(!state.settings_supported)content.appendChild(element('p',{className:'easy-notice error',text:t('当前使用自定义认证或代理 ARP。请先恢复普通账号认证和独立 VPN 地址池，再使用本页管理网络。','Custom authentication or proxy ARP is configured. Restore password authentication and a separate VPN pool before managing networking here.')}));
         if(state.guard && state.guard.enabled)content.appendChild(element('p',{className:'easy-muted',text:errors.guard_settings_locked}));
     }
     function renderGuard() {
@@ -290,7 +303,7 @@
             }),
             mutationButton(state.autostart?t('关闭开机启动','Disable autostart'):t('开机自动启动','Enable autostart'),function(){complete({action:'service',command:state.autostart?'disable':'enable'}).catch(function(e){notice(errorText(e),true);});})
         ]);
-        root.appendChild(element('div',{className:'easy-heading'},[element('div',{},[element('h2',{text:'布利杰VPN'}),element('span',{className:'easy-muted',text:t('服务端管理','Server administration')+' · ocserv '+state.version})]),actions]));
+        root.appendChild(element('div',{className:'easy-heading'},[element('div',{},[element('h2',{text:'布利杰VPN'}),element('span',{className:'easy-muted',text:t('管理页 ','UI ')+(state.ui_version || '0.4.1')+' · ocserv '+state.version})]),actions]));
         messageBox=element('div',{className:'easy-notice',hidden:true});root.appendChild(messageBox);
         statusBox=element('div',{className:'easy-summary'});root.appendChild(statusBox);renderStatus();
         if(!state.supported)notice(errors.upgrade_required,true);

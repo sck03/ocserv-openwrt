@@ -124,8 +124,14 @@ setup_users() {
 	config_get password $1 password
 
 	[ -z "$name" -o -z "$password" ] && return
-
-	echo "$name:$group:$password" >> /var/etc/ocpasswd
+	[ -n "$group" ] || group='*'
+	case "$name" in *[!A-Za-z0-9_.@-]*) logger -t ocserv 'Ignoring an invalid account name'; return;; esac
+	case "$group" in *[!A-Za-z0-9_.@,*-]*) logger -t ocserv 'Ignoring an invalid account group'; return;; esac
+	# ocserv expects a crypt hash. A raw value left by a broken editor must not
+	# enter the authentication file. The management page can repair that record.
+	case "$password" in '$'*|'!$'*) ;; *) password='!';; esac
+	case "$password" in *:*|*[[:space:]]*) password='!';; esac
+	printf '%s:%s:%s\n' "$name" "$group" "$password" >> "$ocpasswd_new"
 }
 
 setup_routes() {
@@ -216,10 +222,11 @@ start_service() {
 	config_foreach setup_routes routes
 	config_foreach setup_dns dns
 
-	rm -f /var/etc/ocpasswd
-	touch /var/etc/ocpasswd
-	chmod 600 /var/etc/ocpasswd
+	local ocpasswd_new
+	ocpasswd_new=$(mktemp /var/etc/ocpasswd.XXXXXX) || return 1
+	chmod 600 "$ocpasswd_new"
 	config_foreach setup_users ocservusers
+	mv -f "$ocpasswd_new" /var/etc/ocpasswd || { rm -f "$ocpasswd_new"; return 1; }
 
 	procd_open_instance
 	procd_set_param command /usr/sbin/ocserv -s -f -c /var/etc/ocserv.conf

@@ -22,6 +22,18 @@ test("1.5 minimum and future versions",function()
     for _,v in ipairs({"1.5.0","1.5.0-r1","1.6.0","2.0.0"}) do check(logic.supported_version(v)) end
     for _,v in ipairs({"1.3.0","1.4.9","unknown","1.5","invalid"}) do check(not logic.supported_version(v)) end
 end)
+test("revision respects OpenWrt signed 32-bit formatting",function()
+    local native_format=string.format
+    string.format=function(format,...)
+        for _,value in ipairs({...})do
+            check(type(value)=="number" and value%1==0 and value>=-2147483648 and value<=2147483647,"OpenWrt integer formatter rejected an argument")
+        end
+        return native_format(format,...)
+    end
+    local ok,result=pcall(logic.revision,string.rep("overflow-fixture",100))
+    string.format=native_format
+    check(ok and #result==24,"revision failed on OpenWrt's integer ABI")
+end)
 test("URL validation blocks credentials and injection",function()
     for _,s in ipairs({"https://vpn.example.com:4443","https://192.168.19.254:4443","https://[2001:db8::1]:443"}) do check(logic.url(s)) end
     for _,s in ipairs({"http://example.com","https://user:pass@example.com","https://example.com\nPassword=bad","https://example.com?secret","https://example.com:0","https://999.1.1.1","https://example.com\\bad","https://[:::1]"}) do check(not logic.url(s)) end
@@ -36,6 +48,22 @@ end)
 test("public account data never includes hashes",function()
     local rows=logic.public_users(original)
     check(rows[1].name=="employee01" and rows[1].password==nil and rows[1].enabled)
+end)
+test("invalid legacy records remain repairable without entering ocpasswd",function()
+    local users={{id="legacy",name="legacy",password="literal:password"},{id="broken",name="broken",password="$6$invalid"}}
+    local rows=logic.public_users(users)
+    check(rows[1].needs_password and not rows[1].enabled and rows[1].group=="*")
+    local passwd=logic.passwd(users)
+    check(passwd=="legacy:*:!\nbroken:*:!\n" and not passwd:find("literal",1,true))
+    local fixed,converted,invalid=logic.repair_users(users,hasher)
+    check(converted==1 and invalid==1 and fixed[1].password==hasher())
+    local again,count=logic.repair_users(fixed,hasher)
+    check(count==0 and logic.same_users(fixed,again))
+end)
+test("migration preserves hashes locks and the anonymous default row",function()
+    local users={original[1],{id="locked",name="locked",password="!"..old_hash},{id="empty"}}
+    local fixed,count,invalid=logic.repair_users(users,hasher)
+    check(count==0 and invalid==0 and fixed[1].password==old_hash and fixed[2].password=="!"..old_hash and fixed[3].group==nil)
 end)
 test("blank edit preserves password and avoids revocation",function()
     local rows,revoke=logic.change_user(original,{action="save_user",id="employee",name="employee01",group="*",password="",enabled=true},hasher)
@@ -138,12 +166,16 @@ io.open=function(path)
     if not S or S.files[path]==nil then return nil end
     return {read=function(_,limit)return S.files[path]:sub(1,limit)end,close=function()end}
 end
+local function mode(value)
+    check(type(value)=="string" and value:match("^[0-7][0-7][0-7]$"),"nixio expects octal permission digits, not decimal bit masks")
+    return tonumber(value,8)
+end
 local fs={
     stat=function(path)return S.dirs[path] or S.files[path] and {} end,
     access=function(path)return S.dirs[path]~=nil or S.files[path]~=nil end,
     readlink=function(path)if S.running and path=="/proc/101/exe"then return "/usr/sbin/ocserv"end end,
-    mkdir=function(path,mode)S.dirs[path]={mode=mode};return true end,
-    chmod=function()return true end,
+    mkdir=function(path,value)S.dirs[path]={mode=mode(value)};return true end,
+    chmod=function(path,value)mode(value);return true end,
     remove=function(path)S.files[path]=nil;return true end,
     rename=function(from,to)
         if S.fail_write==to then S.fail_write=nil;return nil end
@@ -156,8 +188,9 @@ local nixio={bin={},getpid=function()return 42 end,open_flags=function()return 1
 nixio.bin.hexlify=function(value)return (value:gsub(".",function(c)return string.format("%02x",c:byte())end)) end
 nixio.bin.b64encode=TEST_BASE64
 nixio.crypt=function()if S.fail_hash then return "*0" end return hasher()end
-nixio.open=function(path,flags,mode)
+nixio.open=function(path,flags,permissions)
     if path=="/dev/urandom" then return {read=function(_,count)S.counter=S.counter+1;return string.rep(string.char(S.counter%255),count)end,close=function()end} end
+    mode(permissions)
     S.files[path]=""
     return {write=function(_,data)S.files[path]=S.files[path]..data;return #data end,sync=function()return true end,close=function()end,lock=function()return not S.busy end}
 end
@@ -183,7 +216,7 @@ local function cursor()
 end
 local function run(argv)
     local command=table.concat(argv," ");S.commands[#S.commands+1]=command
-    if command=="/usr/sbin/ocserv --version"then return 0,"ocserv "..S.version.."\n"end
+    if command=="/usr/sbin/ocserv --version"then return 0,(S.legacy_banner and "ocserv " or "OpenConnect VPN Server ")..S.version.."\n"end
     if command:find("--test-config",1,true)then S.candidate=S.files[argv[4]];return S.bad_config and 1 or 0,""end
     if command:find("occtl --help",1,true)or command:find("occtl help",1,true)then return 0,"terminate user\nshow sessions all"end
     if command:find("occtl -j show users",1,true)then return 0,"ONLINE"end
@@ -207,6 +240,25 @@ local backend=require "luci.model.ocserv_easy.backend"
 local function request(payload)payload.revision=payload.revision or backend.data().revision;return backend.action(payload)end
 local function edit(password,enabled)return {action="save_user",id="employee",name="employee01",group="*",password=password or "",enabled=enabled~=false}end
 local function contains_command(part)for _,cmd in ipairs(S.commands)do if cmd:find(part,1,true)then return true end end return false end
+test("both actual and legacy ocserv version banners enable the page",function()
+    reset();check(backend.data().supported and backend.data().version=="1.5.0")
+    S.legacy_banner=true;check(backend.data().supported)
+end)
+test("account repair converts old plaintext and syncs the live file",function()
+    reset();local c=cursor();c:set("ocserv","employee","password","test");c:set("ocserv","employee","group","");c:commit("ocserv")
+    check(backend.data().users[1].needs_password)
+    local result=request({action="repair_users"})
+    check(result.converted==1 and result.needs_password==0 and backend.data().users[1].enabled)
+    check(S.files["/var/etc/ocpasswd"]=="employee01:*:"..hasher().."\n")
+    check(not contains_command("restart"))
+    check(request({action="repair_users"}).converted==0)
+end)
+test("a malformed hash can be reset without treating the old record as valid",function()
+    reset();local c=cursor();c:set("ocserv","employee","password","$6$invalid");c:commit("ocserv")
+    expect("password_required",function()request(edit())end)
+    request(edit("FixturePassword"))
+    check(backend.data().users[1].enabled and not backend.data().users[1].needs_password)
+end)
 test("backend default plain auth and no hash disclosure",function()
     reset();local data=backend.data();check(data.auth=="plain" and data.supported and data.running and data.users[1].password==nil)
 end)

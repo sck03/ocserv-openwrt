@@ -17,10 +17,11 @@ mkdir -p package/bulijie
 cp -a "$feed/ocserv" "$feed/luci-app-ocserv-easy" package/bulijie/
 chmod 0755 package/bulijie/luci-app-ocserv-easy/root/etc/init.d/ocserv-easy-guard
 chmod 0755 package/bulijie/luci-app-ocserv-easy/root/usr/libexec/ocserv-easy-guard
+chmod 0755 package/bulijie/luci-app-ocserv-easy/root/usr/libexec/ocserv-easy-repair-users
 # Install only needed build recipes and their dependencies. Installing every
 # feed package introduces unrelated Kconfig/provider conflicts into an SDK.
 ./scripts/feeds install libgnutls certtool libev libncurses libreadline libprotobuf-c \
-    luci-app-ocserv luci-compat luci-lib-nixio luci-lib-jsonc
+    luci-compat luci-lib-nixio luci-lib-jsonc
 touch .config
 for symbol in ALL ALL_NONSHARED ALL_KMODS PACKAGE_ocserv PACKAGE_luci-app-ocserv PACKAGE_luci-app-ocserv-easy LUCI_LANG_zh_Hans OCSERV_PAM OCSERV_RADIUS OCSERV_LIBOATH OCSERV_PROTOBUF OCSERV_SECCOMP; do
     sed -i "/^CONFIG_${symbol}=/d; /^# CONFIG_${symbol} is not set$/d" .config
@@ -30,7 +31,7 @@ CONFIG_ALL=n
 CONFIG_ALL_NONSHARED=n
 CONFIG_ALL_KMODS=n
 CONFIG_PACKAGE_ocserv=m
-CONFIG_PACKAGE_luci-app-ocserv=m
+# CONFIG_PACKAGE_luci-app-ocserv is not set
 CONFIG_PACKAGE_luci-app-ocserv-easy=m
 CONFIG_LUCI_LANG_zh_Hans=y
 # CONFIG_OCSERV_PAM is not set
@@ -49,7 +50,6 @@ if ! grep -q '^CONFIG_TARGET_armsr_armv8=y' .config; then
 fi
 make package/bulijie/ocserv/download V=s
 make -j"${BUILD_JOBS:-2}" package/bulijie/ocserv/compile V=s
-make -j"${BUILD_JOBS:-2}" package/feeds/luci/luci-app-ocserv/compile V=s
 make -j"${BUILD_JOBS:-2}" package/bulijie/luci-app-ocserv-easy/compile V=s
 printf '%s\n' 'ocserv and LuCI output packages (match firmware ABI before installation):'
 find bin -type f \( -name 'ocserv-*.apk' -o -name 'luci-*ocserv*.apk' \) -print
