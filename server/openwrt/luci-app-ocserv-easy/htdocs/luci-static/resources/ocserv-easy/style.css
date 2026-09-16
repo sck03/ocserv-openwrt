@@ -28,7 +28,7 @@
 #ocserv-easy textarea { min-height:82px; font-family:inherit; }
 #ocserv-easy .easy-field small { display:block; margin-top:6px; font-weight:400; line-height:1.5; }
 #ocserv-easy .easy-field.wide { grid-column:1/-1; }
-#ocserv-easy .easy-save-bar { position:sticky; bottom:0; display:flex; align-items:center; justify-content:space-between; gap:16px; padding:16px 0; margin-top:20px; border-top:1px solid var(--border-color, #dfe5ec); background:var(--background-color-high, #fff); z-index:2; }
+#ocserv-easy .easy-save-bar { display:flex; align-items:center; justify-content:space-between; gap:16px; padding:16px 0; margin-top:20px; border-top:1px solid var(--border-color, #dfe5ec); background:var(--background-color-high, #fff); }
 #ocserv-easy .easy-save-bar button { flex-shrink:0; }
 #ocserv-easy details > summary { cursor:pointer; margin:18px 0; font-weight:600; }
 #ocserv-easy .easy-check { display:flex; align-items:center; gap:9px; font-weight:400; }
