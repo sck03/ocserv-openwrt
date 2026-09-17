@@ -3,10 +3,6 @@
     "url": "https://www.infradead.org/openconnect/download/openconnect-9.21.tar.gz",
     "sha256": "5b32369467db6e5f317aa1ed12cfcbb81ed00bdbc765450b6bfcbdc300944a58"
   },
-  "openssl-3.5.8.tar.gz": {
-    "url": "https://github.com/openssl/openssl/releases/download/openssl-3.5.8/openssl-3.5.8.tar.gz",
-    "sha256": "a8f84a39918ec6415ce765d9b429d313ba97b8143169c172e734b9514464f5b2"
-  },
   "libxml2-2.15.3.tar.xz": {
     "url": "https://download.gnome.org/sources/libxml2/2.15/libxml2-2.15.3.tar.xz",
     "sha256": "78262a6e7ac170d6528ebfe2efccdf220191a5af6a6cd61ea4a9a9a5042c7a07"
@@ -18,5 +14,21 @@
   "wintun-0.14.1.zip": {
     "url": "https://www.wintun.net/builds/wintun-0.14.1.zip",
     "sha256": "07c256185d6ee3652e09fa55c0b673e2624b565e02c4b9091c79ca7d2f24ef51"
+  },
+  "gnutls-3.8.13.tar.xz": {
+    "url": "https://distfiles.macports.org/gnutls/gnutls-3.8.13.tar.xz",
+    "sha256": "ffed8ec1bf09c2426d4f14aae377de4753b53e537d685e604e99a8b16ca9c97e"
+  },
+  "gmp-6.3.0.tar.xz": {
+    "url": "https://ftp.gnu.org/gnu/gmp/gmp-6.3.0.tar.xz",
+    "sha256": "a3c2b80201b89e68616f4ad30bc66aee4927c3ce50e33929ca819d5c43538898"
+  },
+  "nettle-3.10.2.tar.gz": {
+    "url": "https://ftp.gnu.org/gnu/nettle/nettle-3.10.2.tar.gz",
+    "sha256": "fe9ff51cb1f2abb5e65a6b8c10a92da0ab5ab6eaf26e7fc2b675c45f1fb519b5"
+  },
+  "stoken-0.92.tar.gz": {
+    "url": "https://deb.debian.org/debian/pool/main/s/stoken/stoken_0.92.orig.tar.gz",
+    "sha256": "aa2b481b058e4caf068f7e747a2dcf5772bcbf278a4f89bc9efcbf82bcc9ef5a"
   }
 }

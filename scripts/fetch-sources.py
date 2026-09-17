@@ -1,4 +1,4 @@
-"""Fetch checksum-pinned client sources using Python 3.12+ on Linux or Windows."""
+"""Fetch checksum-pinned client sources using Python 3.11+ on Linux or Windows."""
 import argparse
 import json
 from pathlib import Path
@@ -40,7 +40,17 @@ def main():
                     package.extractall(temporary)
             else:
                 with tarfile.open(archive) as package:
-                    package.extractall(temporary, filter="data")
+                    if hasattr(tarfile, "data_filter"):
+                        package.extractall(temporary, filter="data")
+                    else:
+                        # Older Python 3.11 builds have no extraction filters. These
+                        # source releases contain only directories and regular files.
+                        # Refuse links/devices rather than relaxing the path boundary.
+                        for member in package.getmembers():
+                            target = (Path(temporary) / member.name).resolve()
+                            if not target.is_relative_to(Path(temporary).resolve()) or not (member.isdir() or member.isfile()):
+                                raise RuntimeError("Unsafe source archive member")
+                        package.extractall(temporary)
             extracted = Path(temporary) / folder
             if not extracted.is_dir():
                 raise RuntimeError(f"Unexpected source archive layout: {name}")

@@ -1,21 +1,21 @@
 # 布利杰VPN
 
-原生 Win32 / C++17 的 OpenConnect 客户端 0.4.0，配套 ocserv 1.5.0-r3 服务端和中文管理页 0.4.1。Windows 提供 x86/x64 便携包；N1 服务端只维护 **OpenWrt 25.12 系列、armsr/armv8、aarch64_generic、APK**，兼容 OPL 的 `apk --print-arch` 输出 `aarch64`。
+原生 Win32 / C++17 的 OpenConnect 客户端 0.5.0，配套 ocserv 1.5.0-r3 服务端和中文管理页 0.4.1。Windows 提供 x86/x64 便携包；N1 服务端只维护 **OpenWrt 25.12 系列、armsr/armv8、aarch64_generic、APK**，兼容 OPL 的 `apk --print-arch` 输出 `aarch64`。
 
-客户端静态合并 OpenConnect 9.21、OpenSSL、libxml2 和 zlib，不需要 Qt、.NET 或额外 VC 运行库；同目录的官方 Wintun 驱动组件必须保留。Windows 7 SP1 是兼容目标，仍需实机验收。
+客户端按官方 OpenConnect GUI 1.6.2 的交互重写：服务器配置列表、主界面 / VPN 信息页、独立日志、服务器认证弹窗和托盘，默认中文，可切换英文。静态合并 OpenConnect 9.21、GnuTLS、软件令牌和 XML/压缩库，无需安装 Qt、.NET 或 VC 运行库。完整保留随包的 `wintun.dll` 和 `vpnc-script-win.js`；Windows 7 SP1 是兼容目标，仍需实机验收。
 
 ## 客户端连接
 
 1. 完整解压对应架构的 ZIP，退出旧版，运行 `布利杰VPN.exe`。
-2. 填写服务器，例如 `192.168.19.253:4443`（自动补上 `https://`），再填写账号密码。
-3. 点击连接。首次遇到自签或名称不匹配的证书时，核对地址及完整 `pin-sha256`，点击 **信息准确，记住并连接**，对应 OpenConnect GUI 的 **Accurate information**。
-4. 指纹按服务器主机和端口保存，后续同一公钥无需再次确认。公钥变化时显示新旧指纹，必须重新确认。
+2. 从 **配置 → 新建配置** 保存服务器，也可直接输入 `192.168.19.253:4443`（自动补上 `https://`）。高级配置可设置证书、HOTP/TOTP/STOKEN、系统代理、UDP 和重连。
+3. 点击 **连接**，按需完成 Windows 管理员授权。首次遇到未知证书时，核对地址及完整 `pin-sha256`，点击 **信息准确，记住并连接**。
+4. 按服务器返回的弹窗填写用户名、密码、分组或验证码。**VPN 信息** 显示地址、加密方式和流量，**查看日志** 可检查连接过程。
 
-证书确认在 TLS 握手中完成，**早于账号密码提交**；取消确认不提交密码。未连接时地址始终可编辑，旧导入文件的 `LockServer=1` 不再锁住输入框。更换主机或端口不会沿用另一台服务器的证书或自动填入其密码。
+证书确认在 TLS 握手中完成，**早于账号密码提交**；取消确认不提交密码。已记住的公钥变化时必须重新确认，指定的固定指纹或 CA 不匹配则拒绝连接。高级配置的 **记住密码** 使用当前 Windows 用户的 DPAPI 加密，验证码不作为密码保存。
 
 `.bvpn` 配置、公共 CA 和管理员预先核实的完整指纹仍可选用。无需先把自签证书导入 Windows 根证书库。过期或尚未生效的证书仍需修正证书或系统时间。
 
-客户端的 **导出配置** 可将当前地址、连接选项与已确认的指纹或公共 CA 保存为 `.bvpn`，供其他客户端导入。服务端管理页的 **客户端配置** 也可下载地址配置或附带 CA 的配置。导出不包含账号、密码或私钥。
+客户端的 **配置 → 导出配置** 可将所选地址、连接选项与指纹或公共 CA 保存为 `.bvpn`。服务端管理页的 **客户端配置** 也可下载配置。导出不包含账号、密码、令牌、脚本或私钥。新版配置位于程序旁的 `data/`；旧版可先导出 `.bvpn` 再导入新版，旧数据不会自动迁移。
 
 ## N1 全新安装
 
@@ -40,7 +40,7 @@ sh install.sh
 
 ## 构建与发行
 
-- [Windows 客户端工作流](https://github.com/sck03/ocserv-openwrt/actions/workflows/build-client.yml)：独立构建 x86/x64、源码和校验文件。
+- [Windows 客户端工作流](https://github.com/sck03/ocserv-openwrt/actions/workflows/build-client.yml)：Linux 并行构建 x86/x64，Windows 运行界面、配置、认证及便携 EXE 启动回归，再生成发行版。`build_jobs=auto` 使用可用 CPU，`publish_release=false` 可只验证构建。
 - [N1 服务端工作流](https://github.com/sck03/ocserv-openwrt/actions/workflows/build-server.yml)：通过 `sdk_version` 指定具体 `25.12.x` 或 `auto`。默认 25.12.5，`auto` 只选择 25.12 系列稳定版。`build_jobs` 默认 `auto`，使用运行器全部可用 CPU 并行编译，也可手动填写任务数。
 - 标准运行器为 `ubuntu-24.04`，Actions/管理页脚本检查使用 Node.js 24。运行器系统版本与 N1 固件版本是不同概念。
 - 手动工作流全部检查成功后发布独立 Pre-release；[Releases](https://github.com/sck03/ocserv-openwrt/releases) 附件长期保留，Actions artifacts 保留 7 天。

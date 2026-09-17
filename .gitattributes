@@ -8,6 +8,8 @@
 *.md text eol=lf
 *.init text eol=lf
 Makefile text eol=lf
-*.patch text eol=lf whitespace=-blank-at-eol
+# Unified diff context and vendored sources preserve upstream whitespace.
+*.patch text eol=lf whitespace=-blank-at-eol,-space-before-tab,-blank-at-eof
+client/vendor/* whitespace=-blank-at-eol,-space-before-tab,-blank-at-eof
 *.ico binary
 *.png binary

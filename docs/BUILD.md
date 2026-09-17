@@ -1,80 +1,117 @@
-# 构建
+# 构建与发布
 
-## GitHub Actions（全部使用 Linux）
+## GitHub Actions
 
-仓库 Actions 有两套独立工作流：**手动构建 Windows 客户端**与**手动构建 ocserv 服务端与中文管理页**。选择所需工作流 → Run workflow → main。全部构建与校验成功后自动发布到 Releases。不需要额外配置仓库 Secret，发布任务使用自动提供的 `GITHUB_TOKEN`，仅该任务授予 `contents: write`；没有 push、pull_request 或定时触发器。标准 `ubuntu-24.04` 运行器可用于这个公开仓库的免费构建，Release 附件长期保留，artifact 保留 7 天。
+使用 Actions 中的 **手动构建 Windows 客户端** 或 **手动构建 ocserv 服务端与中文管理页**，选择分支后手动运行。客户端在 Ubuntu 24.04 交叉编译，在 Windows Server 2022 原生回归；服务端使用 Ubuntu 24.04。没有 push、pull_request 或定时触发器。
 
-Actions 使用已核实的官方稳定版：`checkout@v7.0.1`、`upload-artifact@v7.0.1`、`download-artifact@v8.0.1`、`setup-python@v7.0.0`、`setup-node@v7.0.0`，它们的执行运行时均为 Node.js 24。管理页 JavaScript 检查显式使用 Node.js 24 LTS 的最新补丁版，Lua 回归使用 Python 3.14 和 Lupa 2.8。Ubuntu 26.04 的托管镜像目前仍为预览版，构建主机继续使用稳定的 24.04（核实日期：2026-09-14）。
+| 客户端参数 | 默认值 | 用途 |
+|---|---|---|
+| openconnect_version | 9.21 | 官方协议核心版本 |
+| openconnect_sha256 | 空 | 默认使用锁定值，改版本时须提供官方源码 SHA-256 |
+| build_jobs | auto | 使用全部可用 CPU，也可指定正整数 |
+| publish_release | true | 检查成功后发布 Pre-release，仅 main 生效 |
 
-服务端的 `build_jobs` 默认 `auto`，通过 `nproc` 使用运行器全部可用 CPU，GNU Make 和 SDK 内的 Ninja 共用并行任务额度。也可填写正整数指定任务数；构建日志会打印实际选择值和可用 CPU 数。本地 Linux 构建同样默认自动选择，可用 `BUILD_JOBS=4 bash server/tools/build-ocserv.sh /path/to/sdk` 覆盖。线程数设置不会增加运行器本身的 CPU 资源。
+客户端流程为：参数和脚本检查 → x64/x86 编译及 PE 审计 → Windows 配置、界面、回环认证和便携 EXE 启动回归 → 与对应源码一同发布。源码归档与静态依赖有缓存；源码、配方、编译器或补丁变化时重建。artifact 保留 7 天。
 
-- 客户端：`scripts/build-client-linux.sh x64|x86` 使用 Ubuntu 的 MinGW MSVCRT 交叉工具链，静态合并协议与运行库，审计导入表，再打包原样 Wintun DLL。
-- 服务端：`scripts/fetch-sdk.py --version 具体版本或auto --output /tmp/sdk` 校验并解压 SDK；SDK 放在源码 Git 仓库之外。`server/tools/build-ocserv.sh` 构建所选 ocserv 和独立中文管理页，共两个 APK；不再编译有重复表单和密码保存缺陷的上游界面。
-- 源码：客户端 artifact `corresponding-source` 包含第三方源压缩包；服务端 ZIP 套装的 `source` 目录包含 ocserv 源码、配方及此次 LuCI feed 源码。
-- 结果：客户端执行 PE 静态检查；服务端先运行 Lua 5.1 管理逻辑回归，再检查包产物、AArch64 ELF 和管理页样式完整性。Linux 编译和 Windows/N1 实机运行分开记录。
+Actions 使用官方 checkout、cache、setup-node、setup-python、upload-artifact 和 download-artifact。JavaScript 检查用 Node.js 24，Windows 测试用 Python 3.14；用户运行客户端无需这些工具。
 
-SDK 的版本、哈希、feed 配置和实际提交随产物记录。具体 SDK 版本在手动运行参数中选择，脚本自动解析官方 URL 与 SHA-256；仅接受 25.12.x SDK 的 APK 格式。使用固件作者 SDK 时，可直接在独立 Linux 目录调用 `build-ocserv.sh`。上游版本参数见 [更新说明](UPSTREAM-UPDATES.md)。
+服务端 build_jobs=auto 通过 nproc 使用可用 CPU，GNU Make 和 SDK 的 Ninja 共用额度。sdk_version 默认 25.12.5，auto 只选稳定的 25.12.x。SDK 放在 Git 仓库之外，仅构建 ocserv 和独立中文管理页两个 APK。详见 [上游更新](UPSTREAM-UPDATES.md)。
 
-服务端校验读取 SDK 自动清理后保留的 `.pkgdir` 包缓存。新增管理页保留原始 CSS，避免 SDK 旧版 CSSTidy 删除 Grid、`gap`、`inset` 等样式；打包后的 JavaScript 和 CSS 同时放在 ZIP 套装的 `validation/ui` 中供复核。
+## 客户端结构
 
-## Windows 客户端
+根 CMakeLists.txt 只调用 client/CMakeLists.txt：
 
-开发机需要 MSYS2 的构建工具、7-Zip 和 PowerShell。终端用户不需要这些工具。实际使用 w64devkit 的 MSVCRT 工具链生成 x86/x64 程序，不用 MSYS2 UCRT GCC 生成发布二进制。
+| 文件 | 职责 |
+|---|---|
+| client/application.*、main.cpp | 主窗口、配置列表、菜单、托盘和生命周期 |
+| client/ui.*、dialogs.cpp | Win32 控件、配置/认证弹窗和日志 |
+| client/profile.*、platform.* | 便携配置、DPAPI、地址与公共证书解析 |
+| client/session.*、certificates.cpp | 官方核心回调、认证、Windows 证书链与系统证书 |
+| client/vendor/、patches/ | JSON、上游网络脚本、许可证和核心补丁 |
+| client/tests/ | 配置、界面、认证和网络脚本回归 |
+| scripts/build-dependencies.sh | Linux/MSYS2 共用静态依赖配方 |
 
-示例 MSYS2 安装位置为 `D:\msys64`，在 MSYS2 shell 安装构建工具：
+版本和 SHA-256 集中在 scripts/sources.json。静态组件：OpenConnect 9.21、GnuTLS 3.8.13、GMP 6.3.0、Nettle 3.10.2、stoken 0.92、libxml2 2.15.3、zlib 1.3.2。驱动为未修改的官方 Wintun 0.14.1。支持软件令牌、Windows 系统证书；PKCS#11、TPM、浏览器 SSO 未启用。
 
-```sh
-pacman -S --needed make perl autoconf automake libtool pkgconf gettext-devel mingw-w64-ucrt-x86_64-cmake
-```
+旧 src/ 的网络/WFP 实现、默认 INI、OpenSSL 配方和旧测试已移除。上游及补丁说明见 [client/UPSTREAM.md](../client/UPSTREAM.md)。
 
-PowerShell 中运行：
+## Linux 交叉编译
 
-```powershell
+使用 Ubuntu 24.04 或相同的 MSVCRT MinGW 工具链：
+
+~~~sh
+sudo apt-get install build-essential cmake ninja-build perl pkg-config autoconf automake \
+  libtool gettext gcc-mingw-w64-x86-64-posix g++-mingw-w64-x86-64-posix \
+  gcc-mingw-w64-i686-posix g++-mingw-w64-i686-posix mingw-w64-common patch xz-utils python3
+BUILD_JOBS=auto bash scripts/build-client-linux.sh x64
+BUILD_JOBS=auto bash scripts/build-client-linux.sh x86
+python3 scripts/package-source.py
+~~~
+
+CMake 需要 3.24+，Python 需要 3.11+。构建目录为 build/client/<arch>，依赖为 .deps/<arch>，输出在 dist/。Linux 不执行 Windows EXE。
+
+依赖先校验归档再解压，补丁只应用于构建目录中的源码副本。没有校验标记的旧源码目录会报错，应使用干净工作区，或在确认只是构建缓存后将旧目录移出 .deps/sources/ 再构建。
+
+## Windows 构建
+
+开发机需要 Python 3.11+、PowerShell、7-Zip 和 MSYS2。使用校验过的 w64devkit 2.10.0 MSVCRT 编译器；MSYS2 UCRT64 仅提供 CMake/Ninja 等开发工具。
+
+在 MSYS2 安装：
+
+~~~sh
+pacman -S --needed make perl autoconf automake libtool pkgconf gettext-devel patch python \
+  mingw-w64-ucrt-x86_64-cmake mingw-w64-ucrt-x86_64-ninja
+~~~
+
+PowerShell：
+
+~~~powershell
+python -m pip install -r client/tests/requirements.txt
 .\scripts\fetch-deps.ps1
-.\scripts\build.ps1 -Architecture all -MsysRoot D:\msys64 -OutputRoot build/verified
-```
+.\scripts\build.ps1 -Architecture all -MsysRoot D:\msys64
+.\scripts\package.ps1 -Architecture all
+~~~
 
-构建脚本锁定并检查源文件 SHA-256。首次静态编译 OpenSSL 较耗时；后续复用 `.deps/x64` 和 `.deps/x86`。`--with-vpnc-script` 是 OpenConnect 构建期默认值，客户端运行时明确传入空脚本指针并自行配置网络，发行包没有该脚本，也不会运行它。
-
-静态组件：OpenConnect 9.21、OpenSSL 3.5.8、libxml2 2.15.3、zlib 1.3.2。动态驱动组件：官方 Wintun 0.14.1。禁用 PKCS#11、TPM、SSO 等此版本不使用的可选功能与动态 OpenSSL providers。
+-Jobs 0 默认使用可用 CPU。后续构建检查并复用匹配的依赖。Windows 与 Linux 调用同一打包器，统一文件、架构、许可证和校验规则。
 
 ## 验证
 
-```powershell
-.\build\verified\x64\bridge_tests.exe
-python tests/auth_integration.py --client build/verified/x64/bridge_tests.exe --openssl .deps/x64/bin/openssl.exe --output test-results/auth-x64
-python tests/profile_integration.py --client build/verified/x64/bridge_tests.exe --certificate test-results/auth-x64/fixture.pem --output test-results/profile-x64
-python scripts/audit-pe.py build/verified/x64/布利杰VPN.exe --output test-results/imports-x64.json
-```
+~~~sh
+python tests/build_config_tests.py
+python tests/release_tests.py
+python tests/client_build_tests.py
+node client/tests/script_tests.js
+~~~
 
-对 x86 同样运行。集成测试使用本机回环地址和临时测试证书，不接入真实 N1，也不创建虚拟网卡。凭据管理测试写入带测试进程标识的合成凭据，完成后删除。
+Windows 原生回归：
 
-`布利杰VPN.exe --smoke-test 输出目录` 在屏幕之外渲染本程序自己的窗口，导出中英文及空凭据错误的 BMP，并退出。此模式不读取已保存密码、不连接 VPN、不添加托盘图标。图标源为 `resources/app.svg`；`scripts/make-icon.py` 可用 Pillow 重建 ICO，已生成的 ICO 本身足以构建，无需 Python。
+~~~powershell
+python scripts/test-client.py --build build/client/x64 --package dist/BulijieVPN-0.5.0-windows-x64.zip --output test-results/client-x64
+python scripts/test-client.py --build build/client/x86 --package dist/BulijieVPN-0.5.0-windows-x86.zip --output test-results/client-x86
+~~~
+
+测试子进程的 PATH 仅保留 Windows 系统目录。认证测试运行真实 OpenConnect/GnuTLS 回调和临时回环 HTTPS 服务；界面测试只操作自己的窗口并导出截图。包内实际 EXE 分别以中文、英文启动和退出。基础回归不创建网卡或修改主机路由。
+
+PE 审计要求正确架构、子系统 6.1、允许的系统 DLL，拒绝已知的 Win7 后新增 API、非系统运行库及未经审计的延迟导入。Wintun 是显式加载的驱动，另外与官方归档核对哈希。
 
 ## 发布
 
-GitHub 手动构建完成后，客户端发布任务等待 x86、x64 和对应源码三个任务全部成功；服务端发布任务等待25.12 SDK 的构建任务全部成功。发布任务从本次运行下载产物，汇总 `SHA256SUMS.txt`，重新核验全部 ZIP，再通过运行器自带的 GitHub CLI 上传。
+客户端等待 windows-tests 和 source 全部成功后发布；服务端等待其构建校验完成。任务下载同次运行的产物，检查 ZIP 和 SHA256SUMS，先建草稿，全部上传成功后公开为 Pre-release。仅发布任务获得 contents: write，使用自动提供的 GitHub token。
 
-每次发布先创建草稿，全部附件上传成功后才公开为 **Pre-release**。自动标签为 `client-运行ID-尝试次数` 或 `server-运行ID-尝试次数`，指向实际构建的提交；客户端和服务端分别发布，不覆盖已有发行版。重跑会使用新的尝试次数创建新条目；上传失败会使任务失败，仅留下未公开的草稿。发布成功后的下载链接见任务 Summary。
+标签为 client-运行ID-尝试次数 或 server-运行ID-尝试次数，指向实际提交。重跑创建新条目，不覆盖已有附件。Release 附件长期保留，地址写入工作流 Summary。
 
-客户端 Release 附带两种架构的便携 ZIP、对应源码 ZIP 和统一校验文件。服务端 Release 附带所选 SDK 的 ZIP 套装及统一校验文件；套装保留顶层版本目录，内含两个安装包、源码、管理工具、说明、构建元数据和逐文件 `SHA256SUMS`。ZIP 名称及 BUILDINFO 均记录管理页版本。
-
-本地打包 Windows 客户端：
-
-```powershell
-.\scripts\package.ps1 -BuildRoot build/verified
-```
-
-发布脚本仅 strip 本项目 EXE，保持 Wintun DLL 原样，附带许可证、用户说明和源码说明。源码包中包含本项目源码、构建脚本及第三方源代码压缩包，可重建和重新链接。
+客户端附件包含 x64/x86 便携 ZIP、对应源码 ZIP 和校验文件。打包只 strip 本项目 EXE，Wintun 保持原样；附带许可证、使用说明和 BUILDINFO。源码包包含项目源码、配方、补丁及全部锁定第三方归档，排除本机工具、测试数据和旧代码。
 
 ## N1 服务端
 
-使用匹配实际固件的 Linux OpenWrt SDK。客户端的 Windows 工具链不能构建或代替 N1 的 Linux `.apk` 包：
+使用匹配固件的 OpenWrt 25.12.x / armsr/armv8 / aarch64_generic / APK SDK：
 
-```sh
-bash server/tools/build-ocserv.sh /path/to/matching-sdk
-```
+~~~sh
+python3 scripts/fetch-sdk.py --version 25.12.5 --output /tmp/sdk-25.12
+bash server/tools/build-ocserv.sh /tmp/sdk-25.12
+python3 scripts/package-server.py /tmp/sdk-25.12
+~~~
 
-配方和架构检查不等于已验证 OPL 定制固件 ABI。参阅 N1 文档后再选择 SDK。不要安装这次编译产生的官方内核模块到 Flippy 内核。
+服务端 ZIP 包含 ocserv 源码、配方、LuCI feed 源码、BUILDINFO、安装工具和逐文件校验。包审计读取 SDK 清理后保留的 .pkgdir；管理页保留原始 CSS，附带 validation/ui 供复核。
 
-服务端事务验证另运行 `python tests/guard_integration.py`。网络隔离验证使用打包的 `guard.nft.in` 模板，在 Linux 网络命名空间运行 `sudo python3 tests/vpn_guard_tests.py`。
+事务回归运行 python tests/guard_integration.py；网络隔离验证在 Linux 网络命名空间运行 sudo python3 tests/vpn_guard_tests.py。SDK/架构检查不替代 OPL 定制固件验收，不用官方模块替换 Flippy 内核模块。
