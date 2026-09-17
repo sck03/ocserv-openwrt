@@ -138,10 +138,14 @@ jobs:
           retention-days: 7
 
   windows-tests:
-    name: Windows 原生运行回归（x64 和 x86）
+    name: Windows ${{ matrix.arch }} 原生运行回归
     needs: client
     runs-on: windows-2022
     timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [x64, x86]
     defaults:
       run:
         shell: pwsh
@@ -154,24 +158,26 @@ jobs:
           python-version: '3.14'
       - uses: actions/download-artifact@v8.0.1
         with:
-          pattern: windows-*
+          name: windows-${{ matrix.arch }}
           path: dist
-          merge-multiple: true
       - name: Install test-only certificate tools
         run: python -m pip install --disable-pip-version-check -r client/tests/requirements.txt
       - name: Run UI, profiles and loopback authentication tests
+        env:
+          TARGET_ARCH: ${{ matrix.arch }}
         run: |
-          foreach ($arch in @('x64', 'x86')) {
-            $packages = @(Get-ChildItem -Path "dist/BulijieVPN-*-windows-$arch.zip")
-            if ($packages.Count -ne 1) { throw "Expected one $arch package" }
-            $network = if ($arch -eq 'x64') { @('--network') } else { @() }
-            python scripts/test-client.py --build "dist/validation-$arch" --package $packages[0].FullName --output "test-results/client-$arch" @network
-            if ($LASTEXITCODE) { throw "Client regressions failed: $arch" }
-          }
+          $arch = $env:TARGET_ARCH
+          $packages = @(Get-ChildItem -Path "dist/BulijieVPN-*-windows-$arch.zip")
+          if ($packages.Count -ne 1) { throw "Expected one $arch package" }
+          $testArguments = @('--build', "dist/validation-$arch", '--package', $packages[0].FullName,
+                             '--output', "test-results/client-$arch")
+          if ($arch -eq 'x64') { $testArguments += '--network' }
+          python scripts/test-client.py @testArguments
+          if ($LASTEXITCODE) { throw "Client regressions failed: $arch" }
       - uses: actions/upload-artifact@v7.0.1
         if: always()
         with:
-          name: client-windows-regressions
+          name: client-windows-regressions-${{ matrix.arch }}
           path: test-results/client-*/
           if-no-files-found: error
           retention-days: 7
