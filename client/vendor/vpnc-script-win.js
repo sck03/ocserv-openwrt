@@ -20,6 +20,10 @@
 // Initial setup
 // --------------------------------------------------------------
 
+// WSH can exit with status 0 after an unhandled JScript exception.
+// Keep the upstream helper inside an explicit failure boundary.
+var failureLog = null;
+function configureNetwork() {
 var accumulatedExitCode = 0;
 var ws = WScript.CreateObject("WScript.Shell");
 var env = ws.Environment("Process");
@@ -143,6 +147,7 @@ if (logToFile) {
 	var fs = WScript.CreateObject("Scripting.FileSystemObject");
 	var tmpdir = fs.GetSpecialFolder(2)+"\\";
 	var log = fs.OpenTextFile(applicationLogPath || tmpdir + "vpnc.log", 8, true, applicationLogPath ? -1 : 0);
+	failureLog = log;
 }
 
 switch (env("reason")) {
@@ -357,6 +362,23 @@ case "disconnect":
 
 if (logToFile) {
 	log.Close();
+	failureLog = null;
 }
 
 WScript.Quit(accumulatedExitCode);
+
+}
+try {
+    configureNetwork();
+} catch (error) {
+    var message = "VPN network script failed: " + (error.message || error.description || error);
+    try {
+        if (failureLog) {
+            failureLog.WriteLine(message);
+            failureLog.Close();
+        } else {
+            WScript.echo(message);
+        }
+    } catch (ignored) {}
+    WScript.Quit(1);
+}

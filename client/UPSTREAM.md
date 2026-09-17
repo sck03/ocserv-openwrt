@@ -10,6 +10,8 @@ The port includes Main / VPN Info tabs, quick and advanced profiles, text/passwo
 - vendor/vpnc-script-win.js: [vpnc-scripts commit ce9e961bd0f6b867e1c7c35f78f6fb973f6ff101](https://gitlab.com/openconnect/vpnc-scripts/-/tree/ce9e961bd0f6b867e1c7c35f78f6fb973f6ff101). Local changes select a per-session UTF-16 log, wait for command completion, keep failures sticky, tolerate empty DNS/WINS cleanup and unavailable IPv6 discovery, honor log level zero, and skip unnecessary loopback gateway routes.
 - GUI and vpnc-script licenses accompany source and binary packages.
 
+The Windows helper explicitly catches JScript exceptions and exits nonzero: WSH itself can report an unhandled runtime error yet return status 0. Native tests execute the shipped helper with an invalid log path to verify this failure boundary.
+
 Library source URLs, versions and SHA-256 values live in scripts/sources.json. Extraction is unmodified; patches apply with zero fuzz to a build-local copy.
 
 ## OpenConnect patch

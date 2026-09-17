@@ -100,4 +100,9 @@ test('error-only logging stays at level zero', () => {
     const result = execute({ LOG_LEVEL: '0' });
     assert.equal(result.logs.length, 0);
 });
+test('a Windows Script Host exception is explicitly reported as failure', () => {
+    const result = execute({}, () => { throw new Error('Synthetic WSH error'); });
+    assert.equal(result.exitCode, 1);
+    assert(result.logs.some(line => line.includes('Synthetic WSH error')));
+});
 console.log(JSON.stringify({ passed, boundary: 'Shipped JScript with mocked Windows commands; no host network changes' }));
