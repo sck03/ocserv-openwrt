@@ -216,11 +216,20 @@ int wmain(int argc, wchar_t **argv) {
                         u_long nonblocking = 1;
                         if (probe.socket == INVALID_SOCKET ||
                             bind(probe.socket, reinterpret_cast<sockaddr *>(&local), sizeof(local)) ||
-                            ioctlsocket(probe.socket, FIONBIO, &nonblocking))
-                            throw std::runtime_error("Could not bind UDP probe to the VPN address");
+                            ioctlsocket(probe.socket, FIONBIO, &nonblocking)) {
+                            int code = WSAGetLastError();
+                            if (probe.socket != INVALID_SOCKET)
+                                closesocket(probe.socket);
+                            probe.socket = INVALID_SOCKET;
+                            std::lock_guard<std::mutex> guard(lock);
+                            output["probe_bind_error"] = code;
+                        } else {
+                            std::lock_guard<std::mutex> guard(lock);
+                            output.erase("probe_bind_error");
+                        }
                     }
                     constexpr char payload[] = "bulijie-loopback-tunnel";
-                    if (elapsed - probe_sent_at >= 250) {
+                    if (probe.socket != INVALID_SOCKET && elapsed - probe_sent_at >= 250) {
                         sockaddr_in peer{};
                         peer.sin_family = AF_INET;
                         peer.sin_addr.s_addr = inet_addr("198.18.0.1");
@@ -230,7 +239,7 @@ int wmain(int argc, wchar_t **argv) {
                         probe_sent_at = elapsed;
                     }
                     char response[128]{};
-                    int size = recv(probe.socket, response, sizeof(response), 0);
+                    int size = probe.socket == INVALID_SOCKET ? -1 : recv(probe.socket, response, sizeof(response), 0);
                     if (size == static_cast<int>(sizeof(payload) - 1) &&
                         memcmp(response, payload, sizeof(payload) - 1) == 0)
                         probe_answered = true;

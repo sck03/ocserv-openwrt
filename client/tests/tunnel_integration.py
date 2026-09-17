@@ -141,7 +141,8 @@ def fixture_case(client, output, credentials, mode):
     config = {
         "gateway": f"https://127.0.0.1:{server.server_port}", "directory": str(directory / "data"),
         "pin": credentials[2], "password": PASSWORD, "tunnel": True, "disable_udp": True,
-        "udp_probe": mode != "connect_failure", "tunnel_duration_ms": 3000 if mode == "normal" else 8000,
+        # Windows initially marks a newly assigned address tentative while DAD completes.
+        "udp_probe": mode != "connect_failure", "tunnel_duration_ms": 6000 if mode == "normal" else 12000,
     }
     if mode != "normal":
         script = directory / "failure.js"
@@ -158,7 +159,11 @@ def fixture_case(client, output, credentials, mode):
         result = subprocess.run([str(client), str(fixture)], capture_output=True, timeout=100)
         (directory / "stdout.log").write_bytes(result.stdout)
         (directory / "stderr.log").write_bytes(result.stderr)
-        report = json.loads(result.stdout.decode("utf-8"))
+        try:
+            report = json.loads(result.stdout.decode("utf-8"))
+        except (ValueError, UnicodeError) as error:
+            raise RuntimeError(f"Native tunnel driver exited with {result.returncode}: "
+                               + result.stderr.decode("utf-8", "replace")) from error
         (directory / "result.json").write_text(json.dumps(report, indent=2), encoding="utf-8")
         passed = (result.returncode == 0 and not report["timeout"] and report["adapter_removed"]
                   and counts["credentials"] == 1)
