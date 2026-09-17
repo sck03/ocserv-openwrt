@@ -1,0 +1,11 @@
+--- a/lib/includes/gnutls/gnutls.h.in
++++ b/lib/includes/gnutls/gnutls.h.in
+@@ -63,7 +63,7 @@
+ #define GNUTLS_CIPHER_RIJNDAEL_CBC GNUTLS_CIPHER_AES_128_CBC
+ #define GNUTLS_CIPHER_ARCFOUR GNUTLS_CIPHER_ARCFOUR_128
+ 
+-#if !defined(GNUTLS_INTERNAL_BUILD) && defined(_WIN32)
++#if !defined(GNUTLS_INTERNAL_BUILD) && !defined(GNUTLS_STATIC) && defined(_WIN32)
+ #define _SYM_EXPORT __declspec(dllimport)
+ #else
+ #define _SYM_EXPORT

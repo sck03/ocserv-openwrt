@@ -11,8 +11,8 @@ target_link_libraries(client_model PUBLIC ws2_32 winhttp crypt32 bcrypt advapi32
 add_library(client_session STATIC session.cpp certificates.cpp)
 target_include_directories(client_session PUBLIC "${BRIDGE_DEPS}/include")
 target_compile_options(client_session PRIVATE -Wall -Wextra -Wpedantic)
-target_link_libraries(client_session PUBLIC client_model
-    -Wl,--start-group
+target_link_libraries(client_session PUBLIC
+    -Wl,--start-group client_model
     "${BRIDGE_DEPS}/lib/libopenconnect.a"
     "${BRIDGE_DEPS}/lib/libstoken.a"
     "${BRIDGE_DEPS}/lib/libgnutls.a"

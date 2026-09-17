@@ -89,11 +89,32 @@ jobs:
         with:
           path: .tools/downloads
           key: client-sources-${{ hashFiles('scripts/sources.json') }}
-      - name: Cache static dependencies
-        uses: actions/cache@v6.1.0
+      - name: Identify the compiler
+        id: toolchain
+        env:
+          TARGET_ARCH: ${{ matrix.arch }}
+        run: |
+          host=x86_64-w64-mingw32
+          if [[ "$TARGET_ARCH" == x86 ]]; then host=i686-w64-mingw32; fi
+          echo "fingerprint=$($host-gcc-posix --version | sha256sum | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
+      - name: Restore static dependencies
+        id: dependencies
+        uses: actions/cache/restore@v6.1.0
         with:
           path: .deps/${{ matrix.arch }}
-          key: client-static-v1-${{ runner.os }}-${{ matrix.arch }}-${{ hashFiles('scripts/sources.json', 'scripts/build-dependencies.sh', 'scripts/build_common.py', 'scripts/fetch-sources.py', 'scripts/source-directory.py', 'client/patches/**/*.patch') }}
+          key: client-static-v2-${{ runner.os }}-${{ matrix.arch }}-${{ steps.toolchain.outputs.fingerprint }}-${{ hashFiles('scripts/sources.json', 'scripts/build-dependencies.sh', 'scripts/build_common.py', 'scripts/fetch-sources.py', 'scripts/source-directory.py', 'client/patches/**/*.patch') }}
+      - name: Build verified static dependencies
+        env:
+          TARGET_ARCH: ${{ matrix.arch }}
+        run: |
+          mkdir -p test-results
+          bash scripts/build-dependencies.sh "$TARGET_ARCH" 2>&1 | tee "test-results/dependencies-$TARGET_ARCH.log"
+      - name: Save verified dependencies before building the application
+        if: steps.dependencies.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v6.1.0
+        with:
+          path: .deps/${{ matrix.arch }}
+          key: ${{ steps.dependencies.outputs.cache-primary-key }}
       - name: Build and audit portable client
         env:
           TARGET_ARCH: ${{ matrix.arch }}

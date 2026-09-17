@@ -20,10 +20,7 @@ HWND find_window(const wchar_t *type) {
     struct Search {
         const wchar_t *type;
         HWND window = nullptr;
-    } search{type};
-    EnumThreadWindows(
-        ui_thread,
-        [](HWND window, LPARAM parameter) -> BOOL {
+        static BOOL CALLBACK visit(HWND window, LPARAM parameter) {
             auto *search = reinterpret_cast<Search *>(parameter);
             wchar_t type[128]{};
             GetClassNameW(window, type, 128);
@@ -32,8 +29,9 @@ HWND find_window(const wchar_t *type) {
                 return FALSE;
             }
             return TRUE;
-        },
-        reinterpret_cast<LPARAM>(&search));
+        }
+    } search{type};
+    EnumThreadWindows(ui_thread, Search::visit, reinterpret_cast<LPARAM>(&search));
     return search.window;
 }
 template <class Predicate> void wait_for(Predicate predicate, const char *description) {
@@ -105,10 +103,7 @@ void controls_fit(HWND window) {
         HWND parent;
         RECT bounds;
         bool fits = true;
-    } state{window, bounds};
-    EnumChildWindows(
-        window,
-        [](HWND child, LPARAM parameter) -> BOOL {
+        static BOOL CALLBACK visit(HWND child, LPARAM parameter) {
             auto *state = reinterpret_cast<Check *>(parameter);
             if (GetParent(child) != state->parent || !IsWindowVisible(child))
                 return TRUE;
@@ -119,8 +114,9 @@ void controls_fit(HWND window) {
                 rect.bottom > state->bounds.bottom + 1)
                 state->fits = false;
             return TRUE;
-        },
-        reinterpret_cast<LPARAM>(&state));
+        }
+    } state{window, bounds};
+    EnumChildWindows(window, Check::visit, reinterpret_cast<LPARAM>(&state));
     check(state.fits, "A visible control falls outside its window");
 }
 } // namespace

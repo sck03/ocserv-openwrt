@@ -23,6 +23,8 @@ patches/openconnect/0001-windows-script-errors.patch fixes the official 9.21 cor
 
 patches/stoken/0001-static-linking.patch adds a STOKEN_STATIC switch to stoken 0.92's public header. Both the library and OpenConnect use it to avoid DLL imports in a static build. The recipe only builds/installs libstoken and its headers/pkg-config file, not the unused CLI or GUI.
 
+patches/gnutls/0001-static-linking.patch makes GNUTLS_STATIC suppress DLL imports for GnuTLS's allocator variables. This keeps both the client and OpenConnect linked to the actual static library.
+
 Script regressions execute the shipped JScript with mocked Windows commands. Authentication regressions execute real OpenConnect/GnuTLS callbacks against loopback HTTPS fixtures. UI tests operate only their own windows. The isolated x64 Windows CI runner additionally checks real Wintun/CSTP UDP traffic, script failure and adapter cleanup. See [validation boundaries](../docs/VALIDATION.md) for hardware acceptance.
 
 ## Source layout and migration

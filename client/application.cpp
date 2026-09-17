@@ -44,17 +44,16 @@ bool Application::claim_instance() {
     struct Search {
         const wchar_t *property;
         HWND window = nullptr;
-    } search{instance_name_.c_str()};
-    EnumWindows(
-        [](HWND window, LPARAM data) -> BOOL {
+        static BOOL CALLBACK visit(HWND window, LPARAM data) {
             auto *search = reinterpret_cast<Search *>(data);
             if (GetPropW(window, search->property)) {
                 search->window = window;
                 return FALSE;
             }
             return TRUE;
-        },
-        reinterpret_cast<LPARAM>(&search));
+        }
+    } search{instance_name_.c_str()};
+    EnumWindows(Search::visit, reinterpret_cast<LPARAM>(&search));
     if (search.window) {
         ShowWindow(search.window, SW_RESTORE);
         SetForegroundWindow(GetLastActivePopup(search.window));
