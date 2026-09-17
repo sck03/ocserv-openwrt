@@ -4,10 +4,40 @@
 #include <chrono>
 #include <iostream>
 #include <mutex>
+#include <cstring>
+#include <iphlpapi.h>
 
 using namespace bulijie;
 using Json = nlohmann::json;
 namespace {
+bool adapter_present(const std::wstring &name) {
+    ULONG size = 16384;
+    std::vector<unsigned char> storage(size);
+    auto *adapters = reinterpret_cast<IP_ADAPTER_ADDRESSES *>(storage.data());
+    ULONG status = GetAdaptersAddresses(AF_UNSPEC, 0, nullptr, adapters, &size);
+    if (status == ERROR_BUFFER_OVERFLOW) {
+        storage.resize(size);
+        adapters = reinterpret_cast<IP_ADAPTER_ADDRESSES *>(storage.data());
+        status = GetAdaptersAddresses(AF_UNSPEC, 0, nullptr, adapters, &size);
+    }
+    if (status == ERROR_NO_DATA)
+        return false;
+    if (status != NO_ERROR)
+        throw std::runtime_error("Could not enumerate test adapters");
+    for (auto *adapter = adapters; adapter; adapter = adapter->Next)
+        if (adapter->FriendlyName && name == adapter->FriendlyName)
+            return true;
+    return false;
+}
+
+struct Probe {
+    SOCKET socket = INVALID_SOCKET;
+    ~Probe() {
+        if (socket != INVALID_SOCKET)
+            closesocket(socket);
+    }
+};
+
 const char *state_name(State state) {
     switch (state) {
     case State::Idle:
@@ -91,6 +121,7 @@ int wmain(int argc, wchar_t **argv) {
             profile.certificate_file = wide(input.value("certificate_file", std::string()));
             profile.key_file = wide(input.value("key_file", std::string()));
             profile.disable_udp = input.value("disable_udp", false);
+            profile.script = wide(input.value("script", std::string()));
             profile.reconnect_timeout = 5;
             if (!store.save(profile, error))
                 throw std::runtime_error("Cannot save test profile");
@@ -161,7 +192,9 @@ int wmain(int argc, wchar_t **argv) {
         session.set_log_level(3);
         if (!session.start())
             throw std::runtime_error("Cannot start session");
-        bool timeout = false, cancel_sent = false;
+        bool timeout = false, cancel_sent = false, probe_answered = false;
+        long long connected_at = -1, probe_sent_at = -1000;
+        Probe probe;
         while (!session.finished()) {
             auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
                                std::chrono::steady_clock::now() - started)
@@ -171,8 +204,40 @@ int wmain(int argc, wchar_t **argv) {
                 std::lock_guard<std::mutex> guard(lock);
                 is_connected = connected;
             }
-            if (tunnel && is_connected && elapsed > input.value("tunnel_duration_ms", 1800))
-                session.cancel();
+            if (tunnel && is_connected) {
+                if (connected_at < 0)
+                    connected_at = elapsed;
+                if (input.value("udp_probe", false) && !probe_answered) {
+                    if (probe.socket == INVALID_SOCKET) {
+                        probe.socket = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
+                        sockaddr_in local{};
+                        local.sin_family = AF_INET;
+                        local.sin_addr.s_addr = inet_addr("198.18.0.2");
+                        u_long nonblocking = 1;
+                        if (probe.socket == INVALID_SOCKET ||
+                            bind(probe.socket, reinterpret_cast<sockaddr *>(&local), sizeof(local)) ||
+                            ioctlsocket(probe.socket, FIONBIO, &nonblocking))
+                            throw std::runtime_error("Could not bind UDP probe to the VPN address");
+                    }
+                    constexpr char payload[] = "bulijie-loopback-tunnel";
+                    if (elapsed - probe_sent_at >= 250) {
+                        sockaddr_in peer{};
+                        peer.sin_family = AF_INET;
+                        peer.sin_addr.s_addr = inet_addr("198.18.0.1");
+                        peer.sin_port = htons(37001);
+                        sendto(probe.socket, payload, sizeof(payload) - 1, 0,
+                               reinterpret_cast<sockaddr *>(&peer), sizeof(peer));
+                        probe_sent_at = elapsed;
+                    }
+                    char response[128]{};
+                    int size = recv(probe.socket, response, sizeof(response), 0);
+                    if (size == static_cast<int>(sizeof(payload) - 1) &&
+                        memcmp(response, payload, sizeof(payload) - 1) == 0)
+                        probe_answered = true;
+                }
+                if (elapsed - connected_at > input.value("tunnel_duration_ms", 1800))
+                    session.cancel();
+            }
             if (input.contains("cancel_after_ms") && !cancel_sent &&
                 elapsed > input["cancel_after_ms"].get<int>()) {
                 cancel_sent = true;
@@ -188,6 +253,17 @@ int wmain(int argc, wchar_t **argv) {
             Sleep(30);
         }
         output["timeout"] = timeout;
+        if (tunnel) {
+            if (probe.socket != INVALID_SOCKET) {
+                closesocket(probe.socket);
+                probe.socket = INVALID_SOCKET;
+            }
+            output["udp_probe"] = probe_answered;
+            auto name = L"BulijieVPN-" + wide(profile.id.substr(0, 12));
+            for (unsigned attempt = 0; attempt < 100 && adapter_present(name); ++attempt)
+                Sleep(100);
+            output["adapter_removed"] = !adapter_present(name);
+        }
         output["elapsed_ms"] =
             std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - started)
                 .count();

@@ -1,0 +1,13 @@
+--- a/src/stoken.h
++++ b/src/stoken.h
+@@ -47,7 +47,9 @@
+ 
+ #define STOKEN_MAX_TOKENCODE	8
+ 
+-#if defined(_WIN32) && defined(LIBSTOKEN_BUILD)
++#if defined(STOKEN_STATIC)
++#define STOKEN_EXPORT
++#elif defined(_WIN32) && defined(LIBSTOKEN_BUILD)
+ #define STOKEN_EXPORT		__declspec(dllexport)
+ #elif defined(_WIN32)
+ #define STOKEN_EXPORT		__declspec(dllimport)

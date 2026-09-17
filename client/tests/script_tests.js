@@ -54,6 +54,15 @@ test('connect configures address, routes and DNS without changing the default ro
 test('empty DNS and WINS cleanup is nonfatal', () => {
     assert.equal(execute({}, c => /delete (dnsservers|winsservers)/.test(c) ? 1 : 0).exitCode, 0);
 });
+test('an unavailable IPv6 stack does not break an IPv4 connection', () => {
+    assert.equal(execute({}, c => c.includes('ipv6 show route') ? 1 : 0).exitCode, 0);
+});
+test('loopback gateways never change a host route', () => {
+    for (const reason of ['connect', 'disconnect']) {
+        const result = execute({ reason, VPNGATEWAY: '127.0.0.1' });
+        assert(!result.commands.some(c => /route (add|delete) 127\./.test(c)));
+    }
+});
 for (const [name, failedCommand] of [
     ['address', 'set address'], ['DNS', 'add dnsservers'], ['MTU', 'set subinterface'],
     ['route', 'route add 198.18.0.0']

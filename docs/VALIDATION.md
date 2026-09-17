@@ -21,10 +21,11 @@
 | 原生窗口 | 中英文主窗口、配置编辑、VPN 信息页、日志、托盘、保存/取消与控件边界 |
 | Windows Script Host | 真实执行失败的 pre-init 脚本，检查普通错误、退出码 259 和脚本异常传播 |
 | 网络脚本 | 执行随包 JScript，模拟 netsh/route；必要操作失败、空 DNS/WINS 清理、UTF-16 日志 |
+| x64 隔离隧道 | GitHub Windows 运行器上的真实 Wintun、回环 CSTP、198.18.0.0/24 路由和 UDP 往返；脚本失败后的状态及网卡清理 |
 | 便携 EXE | 清空开发工具 PATH 后，解压包内实际 EXE 以中英文启动并退出 |
 | PE 与打包 | x86/x64、子系统 6.1、系统 DLL、已知 Win7 后新增 API、Wintun 哈希、源码归档校验及本机数据排除 |
 
-认证回归使用真实 OpenConnect/GnuTLS 和临时回环 HTTPS 服务，取消或拒绝证书时密码提交次数必须为 0。Windows Script Host 测试在创建网卡前故意退出；以上基础回归不创建 VPN 网卡、不修改本机路由，也不接入真实 N1。
+认证回归使用真实 OpenConnect/GnuTLS 和临时回环 HTTPS 服务，取消或拒绝证书时密码提交次数必须为 0。Windows Script Host 测试在创建网卡前故意退出。普通本地回归不创建网卡；只有显式启用 --network 的独立 Windows 测试机执行隧道检查，且不改默认路由、不接入真实 N1。
 
 Wintun 是显式加载的独立驱动组件，不属于“静态导入表仅含系统 DLL”这一结论。它与官方对应架构的 DLL 单独核对，不会被 strip 或修改。
 

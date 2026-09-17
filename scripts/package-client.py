@@ -93,7 +93,8 @@ def main():
                 "components": {name: source_directory(name) for name in ("openconnect", "gnutls", "gmp", "nettle", "stoken", "libxml2", "zlib")},
                 "wintun_sha256": sha256(source_dll),
                 "vpnc_script_sha256": sha256(folder / "vpnc-script-win.js"),
-                "patches": {p.name: sha256(p) for p in sorted((ROOT / "client/patches").glob("*.patch"))},
+                "patches": {p.relative_to(ROOT / "client/patches").as_posix(): sha256(p)
+                            for p in sorted((ROOT / "client/patches").rglob("*.patch"))},
                 "validation": "Compile and PE audit; Windows runtime reports accompany the workflow. Real VPN/Win7 acceptance is separate."}
         (folder / "BUILDINFO.json").write_text(json.dumps(info, indent=2) + "\n", encoding="utf-8")
         archive = dist / (name + ".zip")
@@ -101,7 +102,8 @@ def main():
             for file in sorted(folder.rglob("*")):
                 if file.is_file():
                     output.write(file, name + "/" + file.relative_to(folder).as_posix())
-    for filename in ("native_model_tests.exe", "native_session_tests.exe", "native_ui_tests.exe", "native_script_tests.exe"):
+    for filename in ("native_model_tests.exe", "native_session_tests.exe", "native_ui_tests.exe", "native_script_tests.exe",
+                     "wintun.dll", "vpnc-script-win.js"):
         shutil.copyfile(build / filename, validation / filename)
     (dist / f"SHA256SUMS-windows-{args.arch}.txt").write_text(f"{sha256(archive)}  {archive.name}\n", encoding="ascii")
     print(f"Created {archive} ({archive.stat().st_size} bytes)")

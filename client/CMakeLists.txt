@@ -33,9 +33,9 @@ target_compile_options(BridgeVPN PRIVATE -Wall -Wextra -Wpedantic)
 target_link_options(BridgeVPN PRIVATE -municode)
 target_link_libraries(BridgeVPN PRIVATE client_ui)
 set_target_properties(BridgeVPN PROPERTIES OUTPUT_NAME "布利杰VPN" RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}")
-add_custom_command(TARGET BridgeVPN POST_BUILD
-    COMMAND ${CMAKE_COMMAND} -E copy_if_different "${PROJECT_SOURCE_DIR}/.deps/sources/wintun/bin/${WINTUN_ARCH}/wintun.dll" "$<TARGET_FILE_DIR:BridgeVPN>/wintun.dll"
-    COMMAND ${CMAKE_COMMAND} -E copy_if_different "${CMAKE_CURRENT_SOURCE_DIR}/vendor/vpnc-script-win.js" "$<TARGET_FILE_DIR:BridgeVPN>/vpnc-script-win.js")
+configure_file("${PROJECT_SOURCE_DIR}/.deps/sources/wintun/bin/${WINTUN_ARCH}/wintun.dll"
+               "${CMAKE_BINARY_DIR}/wintun.dll" COPYONLY)
+configure_file(vendor/vpnc-script-win.js "${CMAKE_BINARY_DIR}/vpnc-script-win.js" COPYONLY)
 if(BUILD_TESTING)
     add_executable(native_model_tests tests/profile_tests.cpp)
     target_link_libraries(native_model_tests PRIVATE client_model)

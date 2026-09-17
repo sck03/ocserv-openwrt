@@ -44,7 +44,7 @@ fingerprint=$({
     printf '%s\n' "$arch" "$prefix_native"
     "$CC" --version
     cat "$root/scripts/sources.json" "$0" "$root/scripts/build_common.py" \
-        "$root/scripts/fetch-sources.py" "$root/scripts/source-directory.py" "$root"/client/patches/*.patch
+        "$root/scripts/fetch-sources.py" "$root/scripts/source-directory.py" "$root"/client/patches/*/*.patch
 } | sha256sum | cut -d' ' -f1)
 work="$root/build/dependencies-$arch/$fingerprint"
 stamp="$prefix/.native-dependencies.sha256"
@@ -60,7 +60,7 @@ fi
 mkdir -p "$prefix/lib" "$prefix/include" "$work"
 export CFLAGS='-O2 -D_WIN32_WINNT=0x0601 -DWINVER=0x0601 -ffunction-sections -fdata-sections'
 export CXXFLAGS="$CFLAGS"
-export CPPFLAGS="-I$prefix_native/include -DGNUTLS_STATIC -DLIBXML_STATIC"
+export CPPFLAGS="-I$prefix_native/include -DGNUTLS_STATIC -DLIBXML_STATIC -DSTOKEN_STATIC"
 export LDFLAGS="-L$prefix_native/lib -static -static-libgcc"
 export PKG_CONFIG_LIBDIR="$prefix/lib/pkgconfig:$prefix/share/pkgconfig"
 export PKG_CONFIG_PATH="$PKG_CONFIG_LIBDIR"
@@ -77,18 +77,43 @@ set(CMAKE_FIND_ROOT_PATH_MODE_LIBRARY ONLY)
 set(CMAKE_FIND_ROOT_PATH_MODE_INCLUDE ONLY)
 set(CMAKE_FIND_ROOT_PATH_MODE_PACKAGE ONLY)
 EOF
-source_for() { printf '%s/%s' "$sources" "$(python3 "$root/scripts/source-directory.py" "$1")"; }
+source_for() {
+    local directory
+    directory=$(python3 "$root/scripts/source-directory.py" "$1") || return
+    printf '%s/%s' "$sources" "$directory"
+}
+patched_source_for() {
+    local name=$1 source destination stage patchfile
+    source=$(source_for "$name") || return
+    if [[ ! -d "$root/client/patches/$name" ]]; then printf '%s' "$source"; return; fi
+    destination="$work/$name-source"
+    if [[ ! -d "$destination" ]]; then
+        stage=$(mktemp -d "$work/$name-source.XXXXXX") || return
+        cp -a "$source/." "$stage/" || return
+        for patchfile in "$root/client/patches/$name/"*.patch; do
+            patch --batch --forward --fuzz=0 -d "$stage" -p1 < "$patchfile" >&2 || return
+        done
+        mv "$stage" "$destination" || return
+    fi
+    printf '%s' "$destination"
+}
+
 autobuild() {
     local name=$1; shift
     local source
-    source=$(source_for "$name")
+    source=$(patched_source_for "$name")
     mkdir -p "$work/$name"
     (
         cd "$work/$name"
         "$CONFIG_SHELL" "$source/configure" --host="$host" --prefix="$prefix_native" \
             --disable-shared --enable-static --disable-dependency-tracking "$@"
-        make -j"$jobs"
-        make install
+        if [[ "$name" == stoken ]]; then
+            make -j"$jobs" libstoken.la
+            make install-libLTLIBRARIES install-includeHEADERS install-pkgconfigDATA
+        else
+            make -j"$jobs"
+            make install
+        fi
     )
 }
 echo "Building $arch dependencies with $jobs parallel jobs."
@@ -113,17 +138,11 @@ autobuild gnutls --disable-cxx --disable-doc --disable-tools --disable-tests --d
     --with-included-libtasn1 --with-included-unistring --without-brotli --without-zstd
 autobuild stoken --without-gtk --without-tomcrypt --with-nettle
 original=$(source_for openconnect)
-# Apply the small, documented Windows error-propagation fixes to a build-local copy.
-if [[ ! -d "$work/openconnect-source" ]]; then
-    cp -a "$original" "$work/openconnect-source"
-    for patchfile in "$root"/client/patches/*.patch; do
-        patch --batch --forward --fuzz=0 -d "$work/openconnect-source" -p1 < "$patchfile"
-    done
-fi
+patched=$(patched_source_for openconnect)
 mkdir -p "$work/openconnect"
 (
     cd "$work/openconnect"
-    "$CONFIG_SHELL" "$work/openconnect-source/configure" --host="$host" --prefix="$prefix_native" \
+    "$CONFIG_SHELL" "$patched/configure" --host="$host" --prefix="$prefix_native" \
         --disable-shared --enable-static --disable-nls --disable-nsis-installer \
         --disable-dependency-tracking --disable-maintainer-mode \
         --with-gnutls --without-openssl --without-libproxy --with-stoken \

@@ -90,6 +90,7 @@ function run(cmd, optional)
     oExec.StdIn.Close();
 
     var s = oExec.StdOut.ReadAll();
+    while (oExec.Status === 0) WScript.Sleep(10);
 
     var exitCode = oExec.ExitCode;
     if (exitCode != 0) {
@@ -113,10 +114,15 @@ function getDefaultGateway4()
 
 function getDefaultGateway6()
 {
-    if (run("netsh interface ipv6 show route").match(/::\/0 *([0-9]+ *[0-9a-f:]+)/)) {
+    if (run("netsh interface ipv6 show route", true).match(/::\/0 *([0-9]+ *[0-9a-f:]+)/)) {
         return (RegExp.$1);
     }
     return ("");
+}
+
+function isLoopback(address)
+{
+    return /^127\./.test(address) || address === "::1";
 }
 
 if (!String.prototype.trim) {
@@ -182,7 +188,9 @@ case "connect":
 
     // Add explicit route for the VPN gateway to avoid routing loops
     var vpngw = env("VPNGATEWAY");
-    if (vpngw.match(/:/g)) {
+    if (isLoopback(vpngw)) {
+        echo(DEBUG, "Loopback VPN gateway needs no bypass route.");
+    } else if (vpngw.match(/:/g)) {
 	    echo(INFO, "Configuring explicit route to IPv6 VPN gateway " + vpngw);
 	    run("netsh interface ipv6 add route " + vpngw + "/128 " + gw6);
     } else {
@@ -307,7 +315,9 @@ case "disconnect":
 
     // Delete explicit route for the VPN gateway
     var vpngw = env("VPNGATEWAY");
-    if (vpngw.match(/:/g)) {
+    if (isLoopback(vpngw)) {
+        echo(DEBUG, "Loopback VPN gateway has no bypass route to remove.");
+    } else if (vpngw.match(/:/g)) {
         echo(INFO, "Removing explicit route to IPv6 VPN gateway " + vpngw);
         run("netsh interface ipv6 delete route " + vpngw + "/128 " + getDefaultGateway6());
     } else {

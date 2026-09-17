@@ -119,6 +119,7 @@ def main():
     parser.add_argument("--build", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--package", type=Path)
+    parser.add_argument("--network", action="store_true", help="Run Wintun tests on an isolated administrator test machine")
     args = parser.parse_args()
     if os.name != "nt":
         parser.error("Run native regressions on Windows; Linux is used for cross compilation.")
@@ -136,8 +137,14 @@ def main():
     report["tests"]["authentication"] = run(
         [sys.executable, ROOT / "client/tests/auth_integration.py", "--client", build / "native_session_tests.exe",
          "--output", output / "authentication"], ROOT, environment, output, "authentication", timeout=300)
+    if args.network:
+        report["tests"]["tunnel"] = run(
+            [sys.executable, ROOT / "client/tests/tunnel_integration.py", "--client", build / "native_session_tests.exe",
+             "--output", output / "tunnel", "--allow-network-changes"],
+            ROOT, environment, output, "tunnel", timeout=360)
     report["passed"] = True
-    report["boundary"] = "Native Windows UI, DPAPI and loopback TLS; no adapter or routes were created."
+    report["boundary"] = ("Isolated Windows Wintun/CSTP and 198.18.0.0/24 route tests; no real VPN server."
+                          if args.network else "Native Windows UI, DPAPI and loopback TLS; no adapter or routes were created.")
     (output / "results.json").write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     print(json.dumps(report, ensure_ascii=False))
 
