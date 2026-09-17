@@ -6,6 +6,8 @@
 
 Actions 使用已核实的官方稳定版：`checkout@v7.0.1`、`upload-artifact@v7.0.1`、`download-artifact@v8.0.1`、`setup-python@v7.0.0`、`setup-node@v7.0.0`，它们的执行运行时均为 Node.js 24。管理页 JavaScript 检查显式使用 Node.js 24 LTS 的最新补丁版，Lua 回归使用 Python 3.14 和 Lupa 2.8。Ubuntu 26.04 的托管镜像目前仍为预览版，构建主机继续使用稳定的 24.04（核实日期：2026-09-14）。
 
+服务端的 `build_jobs` 默认 `auto`，通过 `nproc` 使用运行器全部可用 CPU，GNU Make 和 SDK 内的 Ninja 共用并行任务额度。也可填写正整数指定任务数；构建日志会打印实际选择值和可用 CPU 数。本地 Linux 构建同样默认自动选择，可用 `BUILD_JOBS=4 bash server/tools/build-ocserv.sh /path/to/sdk` 覆盖。线程数设置不会增加运行器本身的 CPU 资源。
+
 - 客户端：`scripts/build-client-linux.sh x64|x86` 使用 Ubuntu 的 MinGW MSVCRT 交叉工具链，静态合并协议与运行库，审计导入表，再打包原样 Wintun DLL。
 - 服务端：`scripts/fetch-sdk.py --version 具体版本或auto --output /tmp/sdk` 校验并解压 SDK；SDK 放在源码 Git 仓库之外。`server/tools/build-ocserv.sh` 构建所选 ocserv 和独立中文管理页，共两个 APK；不再编译有重复表单和密码保存缺陷的上游界面。
 - 源码：客户端 artifact `corresponding-source` 包含第三方源压缩包；服务端 ZIP 套装的 `source` 目录包含 ocserv 源码、配方及此次 LuCI feed 源码。

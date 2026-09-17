@@ -15,6 +15,10 @@ on:
         description: OpenWrt 25.12.x SDK 版本；填 auto 选择 25.12 系列最新稳定版
         type: string
         default: "25.12.5"
+      build_jobs:
+        description: 并行编译任务数；auto 使用运行器全部可用 CPU，也可填写正整数
+        type: string
+        default: "auto"
 
 permissions:
   contents: read
@@ -25,7 +29,7 @@ concurrency:
   group: server-${{ github.ref }}-${{ github.sha }}
   cancel-in-progress: false
 env:
-  BUILD_JOBS: "2"
+  BUILD_JOBS: ${{ inputs.build_jobs || 'auto' }}
   PYTHONUTF8: "1"
 
 jobs:

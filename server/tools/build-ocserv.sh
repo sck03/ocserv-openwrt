@@ -3,6 +3,11 @@
 set -euo pipefail
 sdk=${1:?Usage: build-ocserv.sh /absolute/path/to/matching-openwrt-sdk}
 [[ $(uname -s) == Linux ]] || { printf '%s\n' 'An OpenWrt SDK requires a Linux build host.' >&2; exit 1; }
+available_cpus=$(nproc)
+build_jobs=${BUILD_JOBS:-auto}
+if [[ "$build_jobs" == auto ]]; then build_jobs=$available_cpus; fi
+[[ "$build_jobs" =~ ^[1-9][0-9]*$ ]] || { printf '%s\n' 'BUILD_JOBS must be auto or a positive integer.' >&2; exit 1; }
+printf 'Build parallelism: %s jobs; available runner CPUs: %s\n' "$build_jobs" "$available_cpus"
 sdk=$(realpath "$sdk")
 feed=$(cd "$(dirname "$0")/../openwrt" && pwd)
 [[ -f "$sdk/include/toplevel.mk" && -x "$sdk/scripts/feeds" ]] || { printf '%s\n' 'Not an OpenWrt SDK directory.' >&2; exit 1; }
@@ -49,7 +54,7 @@ if ! grep -q '^CONFIG_TARGET_armsr_armv8=y' .config; then
     exit 1
 fi
 make package/bulijie/ocserv/download V=s
-make -j"${BUILD_JOBS:-2}" package/bulijie/ocserv/compile V=s
-make -j"${BUILD_JOBS:-2}" package/bulijie/luci-app-ocserv-easy/compile V=s
+make -j"$build_jobs" package/bulijie/ocserv/compile V=s
+make -j"$build_jobs" package/bulijie/luci-app-ocserv-easy/compile V=s
 printf '%s\n' 'ocserv and LuCI output packages (match firmware ABI before installation):'
 find bin -type f \( -name 'ocserv-*.apk' -o -name 'luci-*ocserv*.apk' \) -print
