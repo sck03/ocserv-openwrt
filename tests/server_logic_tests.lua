@@ -216,7 +216,10 @@ local function cursor()
 end
 local function run(argv)
     local command=table.concat(argv," ");S.commands[#S.commands+1]=command
-    if command=="/usr/sbin/ocserv --version"then return 0,(S.legacy_banner and "ocserv " or "OpenConnect VPN Server ")..S.version.."\n"end
+    if command=="/usr/sbin/ocserv --version"then
+        if S.version_timeout then return 124,"" end
+        return 0,(S.legacy_banner and "ocserv " or "OpenConnect VPN Server ")..S.version.."\n"
+    end
     if command:find("--test-config",1,true)then S.candidate=S.files[argv[4]];return S.bad_config and 1 or 0,""end
     if command:find("occtl --help",1,true)or command:find("occtl help",1,true)then return 0,"terminate user\nshow sessions all"end
     if command:find("occtl -j show users",1,true)then return 0,"ONLINE"end
@@ -243,6 +246,11 @@ local function contains_command(part)for _,cmd in ipairs(S.commands)do if cmd:fi
 test("both actual and legacy ocserv version banners enable the page",function()
     reset();check(backend.data().supported and backend.data().version=="1.5.0")
     S.legacy_banner=true;check(backend.data().supported)
+end)
+test("a failed version query is not misreported as an outdated server",function()
+    reset();S.version_timeout=true
+    check(backend.data().version=="unknown" and not backend.data().supported)
+    expect("version_unavailable",function()request(edit("FixturePassword"))end)
 end)
 test("account repair converts old plaintext and syncs the live file",function()
     reset();local c=cursor();c:set("ocserv","employee","password","test");c:set("ocserv","employee","group","");c:commit("ocserv")

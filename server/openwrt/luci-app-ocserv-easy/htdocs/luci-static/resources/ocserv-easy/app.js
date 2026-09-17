@@ -59,6 +59,7 @@
         pending_changes:t('其他页面有尚未提交的 ocserv 修改，请先应用或撤销。','Another editor has pending ocserv changes. Apply or discard them first.'),
         busy:t('另一个操作正在进行，请稍后重试。','Another operation is in progress. Try again shortly.'),
         upgrade_required:t('请先升级到 ocserv 1.5.0 或后续版本。','Upgrade to ocserv 1.5.0 or later first.'),
+        version_unavailable:t('暂时无法读取 ocserv 版本。请稍后刷新重试，或运行诊断脚本检查服务。','The ocserv version could not be read. Refresh and retry, or run the diagnostic script.'),
         plain_auth_required:t('账号管理需要使用 plain 用户名密码认证。','Account management requires plain username/password authentication.'),
         custom_auth_file:t('正在使用自定义认证文件；请先恢复标准 UCI 账号配置。','A custom authentication file is active. Restore standard UCI account management first.'),
         proxy_arp_managed:t('当前启用了代理 ARP。使用本页管理网络前，请先将 VPN 改为独立地址池。','Proxy ARP is enabled. Configure a separate VPN pool before managing networking here.'),
@@ -306,7 +307,7 @@
         root.appendChild(element('div',{className:'easy-heading'},[element('div',{},[element('h2',{text:'布利杰VPN'}),element('span',{className:'easy-muted',text:t('管理页 ','UI ')+(state.ui_version || '0.4.1')+' · ocserv '+state.version})]),actions]));
         messageBox=element('div',{className:'easy-notice',hidden:true});root.appendChild(messageBox);
         statusBox=element('div',{className:'easy-summary'});root.appendChild(statusBox);renderStatus();
-        if(!state.supported)notice(errors.upgrade_required,true);
+        if(!state.supported)notice(state.version==='unknown'?errors.version_unavailable:errors.upgrade_required,true);
         else if(!options.writable)notice(errors.forbidden);
         var tabs=element('div',{className:'easy-tabs',role:'tablist'});
         [['users',t('账号与在线用户','Accounts and connections')],['settings',t('服务设置','Service settings')],['guard',t('VPN 专用上网','VPN-only access')],['export',t('客户端配置','Client profiles')]].forEach(function(item){var b=button(item[1],function(){activeTab=item[0];renderTab();});b.dataset.tab=item[0];b.setAttribute('role','tab');tabs.appendChild(b);});

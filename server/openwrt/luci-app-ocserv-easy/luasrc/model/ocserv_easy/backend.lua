@@ -50,7 +50,7 @@ local function atomic(path,data)
 end
 
 local function version()
-    local code,output=run({"/usr/sbin/ocserv","--version"},3)
+    local code,output=run({"/usr/sbin/ocserv","--version"},10)
     return code==0 and (output:match("OpenConnect VPN Server%s+([^%s]+)") or output:match("ocserv%s+([^%s]+)")) or "unknown"
 end
 local function running()
@@ -271,7 +271,9 @@ function M.action(request,admin)
     local ok,result=pcall(function()
         local s=snapshot()
         logic.require(request.revision==s.revision,"stale_revision")
-        logic.require(logic.supported_version(version()),"upgrade_required")
+        local current_version=version()
+        logic.require(current_version~="unknown","version_unavailable")
+        logic.require(logic.supported_version(current_version),"upgrade_required")
         -- Pending UCI deltas from another editor must be reviewed there first.
         local changes=s.cursor:changes("ocserv")
         logic.require(not changes or not next(changes.ocserv or changes),"pending_changes")
