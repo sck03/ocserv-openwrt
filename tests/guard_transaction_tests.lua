@@ -21,7 +21,7 @@ local function encode(v) serial=serial+1; local key="JSON-"..serial; objects[key
 local function decode(v) return clone(objects[v]) end
 local function row(kind,values) values=values or {}; values[".type"]=kind; return values end
 local function reset()
-    S={files={},dirs={},commands={},now=1000,auto_confirm=true,nft=false,counter=0,running=true}
+    S={files={},dirs={},commands={},now=1000,auto_confirm=true,nft=false,counter=0,running=true,openclash_process="clash"}
     S.cfg={
         network={lan=row("interface",{proto="static",device="br-lan",ipaddr="192.168.19.253",netmask="255.255.255.0"})},
         firewall={defaults=row("defaults",{flow_offloading="1",flow_offloading_hw="1"}),lan=row("zone",{name="lan",device={"br-lan","vpns+"},input="ACCEPT",output="ACCEPT",forward="ACCEPT"})},
@@ -116,6 +116,9 @@ end
 local function run(args)
     local command=table.concat(args," "); S.commands[#S.commands+1]=command
     if command==S.fail_command then S.fail_command=nil; return 1,"failure" end
+    if args[1]=="/bin/pidof" then
+        return S.openclash_process==args[2] and 0 or 1,""
+    end
     if args[1]=="/bin/ubus" then
         if args[3]=="network.interface.lan" then return 0,encode({up=true,l3_device="br-lan",["ipv4-address"]={{address="192.168.19.253",mask=24}}}) end
         return 0,encode({up=S.wan or false})
@@ -137,15 +140,38 @@ local function disable() guard.begin("disable",admin); guard.work(false); check(
 test("default is off and detection writes no router configuration",function()
     reset(); local before=clone(S.cfg); check(guard.status(admin).phase=="disabled" and guard.status(admin).available); check(equal(before,S.cfg) and not S.nft)
 end)
+test("Meta/Mihomo OpenClash core is accepted",function()
+    reset(); S.openclash_process="mihomo"; local before=clone(S.cfg)
+    check(guard.status(admin).phase=="disabled" and guard.status(admin).available)
+    check(equal(before,S.cfg) and not S.nft); enable(); check(S.nft); disable()
+end)
+test("legacy host-form VPN pool is normalized for guard rules",function()
+    reset(); S.cfg.ocserv.config.ipaddr="192.168.100.1"; local before=clone(S.cfg)
+    check(guard.status(admin).phase=="disabled" and guard.status(admin).available)
+    enable()
+    check(S.cfg.ocserv.config.ipaddr=="192.168.100.1")
+    check(equal(S.cfg.openclash.config.lan_ac_white_ips,{"192.168.100.0/24"}))
+    check(S.files[root.."guard.nft"]:find("192.168.100.0/24",1,true))
+    disable(); check(equal(before,S.cfg))
+end)
 test("enable queues work without blocking the LuCI request",function()
     reset(); local before=clone(S.cfg); guard.begin("enable",admin); check(guard.status(admin).phase=="queued" and equal(before,S.cfg) and not S.nft)
 end)
 test("enabling configures real interface guard and VPN-only proxy whitelist",function()
-    reset(); enable(); check(S.nft and S.cfg.openclash.config.lan_ac_mode=="1")
+    reset(); S.cfg.openclash.config.enable_redirect_dns="1"; local before=clone(S.cfg)
+    enable(); check(S.nft and S.cfg.openclash.config.lan_ac_mode=="1")
+    check(equal(S.cfg.dhcp,before.dhcp))
     check(equal(S.cfg.openclash.config.lan_ac_white_ips,{"10.77.0.0/24"}) and not S.cfg.openclash.config.lan_ac_white_macs)
+    check(S.cfg.openclash.config.enable_redirect_dns=="2")
     check(S.cfg.firewall.defaults.flow_offloading=="0" and S.cfg.firewall.defaults.flow_offloading_hw=="0")
     check(equal(S.cfg.firewall.lan.device,{"br-lan"}) and S.cfg.ocserv.bulijie_guard_dns.ip=="10.77.0.1" and not S.cfg.ocserv.route1)
     check(S.files[root.."guard.nft"]:find("192.168.19.253",1,true) and S.files[root.."guard.nft"]:find("2222, 8443",1,true))
+    disable(); check(equal(before,S.cfg))
+end)
+test("disabled OpenClash DNS hijack is restored after VPN-only use",function()
+    reset(); S.cfg.openclash.config.enable_redirect_dns="0"; local before=clone(S.cfg)
+    enable(); check(S.cfg.openclash.config.enable_redirect_dns=="2")
+    disable(); check(equal(before,S.cfg))
 end)
 test("disable restores original settings, lists and local file",function()
     reset(); local before=clone(S.cfg); local extra=S.files["/etc/ocserv/ocserv.conf.local"]
@@ -174,7 +200,7 @@ test("fw4 validation failure restores before activation",function()
     guard.begin("enable",admin); guard.work(false); check(equal(before,S.cfg) and not S.nft)
 end)
 test("partial UCI commit failure restores committed packages",function()
-    reset(); local before=clone(S.cfg); S.fail_commit="dhcp"
+    reset(); local before=clone(S.cfg); S.fail_commit="firewall"
     guard.begin("enable",admin); guard.work(false); check(equal(before,S.cfg) and not S.nft)
 end)
 test("power loss with unconfirmed settings restores before firewall boot",function()

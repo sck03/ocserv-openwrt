@@ -257,7 +257,7 @@
         var switching=['queued','applying','pending','restoring'].includes(g.phase);
         var toggle=mutationButton(g.enabled?t('关闭并恢复','Disable and restore'):t('开启','Enable'),function(){
             if(g.enabled)complete({action:'guard',command:'disable'}).catch(function(e){notice(errorText(e),true);});
-            else confirm(t('开启仅 VPN 上网','Enable VPN-only access'),t('此功能适用于 N1 旁路由。将自动设置防火墙、VPN DNS 和 OpenClash 访问控制，并短暂重启相关服务。保留当前电脑的管理访问；关闭时恢复启用前的设置。','For an N1 side router. Sets firewall, VPN DNS and OpenClash access controls, briefly restarting related services. Management access from this computer is retained; disabling restores the previous settings.'),{action:'guard',command:'enable'});
+            else confirm(t('开启仅 VPN 上网','Enable VPN-only access'),t('此功能适用于 N1 旁路由。将自动设置防火墙、VPN DNS、OpenClash 防火墙 DNS 重定向和访问控制，不改写 dnsmasq 的监听及上游配置，并短暂重启相关服务。保留当前电脑的管理访问；关闭时恢复启用前的设置。','For an N1 side router. Sets the firewall, VPN DNS and OpenClash firewall DNS redirect and access controls without rewriting dnsmasq listeners or upstream servers, then briefly restarts related services. Management access from this computer is retained; disabling restores the previous settings.'),{action:'guard',command:'enable'});
         },g.enabled?'cbi-button-reset':'cbi-button-apply');
         toggle.disabled=!writable() || switching || (!g.enabled && !g.available);
         var children=[element('div',{className:'easy-heading'},[element('h3',{text:t('仅 VPN 用户可使用 OpenClash','Only VPN clients may use OpenClash')}),element('strong',{className:g.phase==='enabled'?'easy-good':'easy-muted',text:labels[g.phase] || g.phase})]),

@@ -24,8 +24,8 @@
 
 - 在 OpenClash 接管前，对真实 LAN 和 `vpns*` 入接口应用独立 nftables 表；授权依据为 VPN 接口，不只是源地址白名单。
 - 设置 ocvpn 防火墙区域和到 LAN 上游的转发，按当前 VPN 地址池配置源 NAT。
-- 推送全部流量路由，DNS 指向隧道服务端地址；允许 dnsmasq 接收该隧道的 DNS 请求。
-- 将 OpenClash LAN 访问控制设为 VPN 地址池白名单，移除 MAC 白名单限制，保留订阅、节点、代理模式和分流规则。
+- 推送全部流量路由，DNS 指向隧道服务端地址；由 OpenClash 的防火墙 DNS 重定向将 VPN 查询送入核心，不改写 dnsmasq 的监听和上游配置。
+- 将 OpenClash LAN 访问控制设为 VPN 地址池白名单，移除 MAC 白名单限制；Fake-IP 模式会使用 OpenClash 要求的防火墙 DNS 重定向（`enable_redirect_dns=2`），关闭时恢复原值。订阅、节点、代理模式和分流规则保持不变。
 - 暂时关闭 fw4 的软件/硬件流量卸载。若检测到额外 SFE/快捷转发内核模块，会在修改前停止并提示关闭该加速。
 
 此模式提供 IPv4 VPN，阻止通过 N1 的 IPv6 绕过。它不限制电脑直接使用主路由或其他独立代理服务。
@@ -46,6 +46,6 @@
 
 ## 适用范围
 
-需要 fw4、dnsmasq、工作中的 ocserv 和已经配置好的 OpenClash。从同一 LAN 的 IPv4 管理地址开启；检测到活跃 WAN 的主路由不应用此旁路由规则。若之前部署过旧的手动 `bulijie_guard` 规则，先停用那套规则，避免两套规则同时管理同名对象。
+需要 fw4、dnsmasq、工作中的 ocserv 和已经配置好的 OpenClash（兼容 Clash 与 Meta/Mihomo 内核）。从同一 LAN 的 IPv4 管理地址开启；检测到活跃 WAN 的主路由不应用此旁路由规则。旧配置若把 `ipaddr` 填成地址池中的主机地址，开关会按掩码归一化隔离规则，同时保留原值以便关闭时恢复。若之前部署过旧的手动 `bulijie_guard` 规则，先停用那套规则，避免两套规则同时管理同名对象。
 
 实际 N1/OPL 固件仍需验证端口、DNS、TCP/UDP、OpenClash 模式和重启后的持久化。本功能的隔离网络测试不代表已经连接过用户的 N1。

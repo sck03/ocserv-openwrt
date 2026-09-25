@@ -91,9 +91,20 @@ local function address(n)
     return table.concat(parts,".")
 end
 local function list(value) return type(value)=="table" and value or value and {value} or {} end
+-- OpenClash can run different core implementations.  The legacy Clash core
+-- uses a `clash` process name, while the Meta/Mihomo core shown in current
+-- OpenClash releases is commonly exposed as `mihomo` (some releases keep a
+-- `clash_meta`/`clash-meta` name).  Treat any of the supported core names as
+-- proof that the enabled OpenClash service is actually running.
+local function openclash_running()
+    for _,name in ipairs({"clash","mihomo","clash_meta","clash-meta","mihomo-alpha"}) do
+        if run({"/bin/pidof",name},3)==0 then return true end
+    end
+    return false
+end
 local function detect(c,admin)
     logic.require(fs.access("/sbin/fw4") and fs.access("/usr/sbin/nft"),"guard_requires_fw4")
-    logic.require(c:get("openclash","config","enable")=="1" and fs.access("/etc/init.d/openclash") and run({"/bin/pidof","clash"},3)==0,"guard_requires_openclash")
+    logic.require(c:get("openclash","config","enable")=="1" and fs.access("/etc/init.d/openclash") and openclash_running(),"guard_requires_openclash")
     logic.require((c:get("ocserv","config","auth") or "plain")=="plain" and c:get("ocserv","config","proxy_arp")~="1","guard_requires_routed_vpn")
     local code,out=run({"/bin/ubus","call","network.interface.lan","status"},4)
     local lan=code==0 and json.parse(out) or nil
@@ -116,8 +127,14 @@ local function detect(c,admin)
     if pool=="" then pool="10.77.0.0" end
     local bits=logic.prefix(c:get("ocserv","config","netmask") or "255.255.255.0")
     local poolnum=logic.ipv4(pool)
-    logic.require(poolnum and bits and bits>=8 and bits<=30 and poolnum%2^(32-bits)==0,"invalid_pool")
-    logic.require(poolnum+2^(32-bits)-1<network or poolnum>network+size-1,"guard_pool_overlap")
+    logic.require(poolnum and bits and bits>=8 and bits<=30,"invalid_pool")
+    -- Older ocserv configurations in the wild use the first assigned VPN
+    -- address (for example 10.77.0.1) in `ipaddr` instead of the network
+    -- address.  Keep that value for ocserv and rollback, but normalize it for
+    -- overlap checks and the nft/OpenClash source-range rules.
+    local pool_size=2^(32-bits)
+    local pool_network=math.floor(poolnum/pool_size)*pool_size
+    logic.require(pool_network+pool_size-1<network or pool_network>network+size-1,"guard_pool_overlap")
     local port=tonumber(c:get("ocserv","config","port") or "4443")
     -- The LuCI UCI bridge returns false, error for an absent option. Do not
     -- pass the error string as tonumber()'s optional numeric-base argument.
@@ -133,7 +150,7 @@ local function detect(c,admin)
     local management={}; for p in pairs(ports) do management[#management+1]=p end; table.sort(management)
     logic.require(not ports[port],"guard_port_conflict")
     return {lan=value.address,device=device,admin=admin,lan_network=address(network),lan_mask=logic.mask(prefix),
-        pool=pool,prefix=bits,dns=address(poolnum+1),port=port,udp_port=udp,management=management}
+        pool=pool,pool_network=address(pool_network),prefix=bits,dns=address(pool_network+1),port=port,udp_port=udp,management=management}
 end
 local function running()
     local pid=(read("/var/run/ocserv.pid") or ""):match("^%s*(%d+)%s*$")
@@ -200,16 +217,18 @@ local function plan(c,info)
     c:foreach("ocserv","routes",function(s) whole("ocserv",s[".name"],false) end)
     logic.require(not c:get("ocserv","bulijie_guard_dns"),"guard_section_conflict")
     whole("ocserv","bulijie_guard_dns",{[".type"]="dns",ip=info.dns})
-    local dns=c:get_first("dhcp","dnsmasq"); logic.require(dns,"guard_requires_dnsmasq")
-    option("dhcp",dns,"localservice","0")
-    option("dhcp",dns,"nonwildcard","0")
-    option("dhcp",dns,"interface",false)
-    option("dhcp",dns,"notinterface",false)
+    -- OpenClash's firewall redirect (mode 2) catches VPN DNS traffic before
+    -- it reaches dnsmasq.  Do not broaden dnsmasq's listeners or rewrite its
+    -- upstream servers; keeping that package untouched makes this high-risk
+    -- switch safe for the rest of the OpenWrt network.
+    logic.require(c:get_first("dhcp","dnsmasq"),"guard_requires_dnsmasq")
     option("openclash","config","lan_ac_mode","1")
-    option("openclash","config","lan_ac_white_ips",{info.pool.."/"..info.prefix})
+    option("openclash","config","lan_ac_white_ips",{info.pool_network.."/"..info.prefix})
     option("openclash","config","lan_ac_white_macs",false)
-    option("openclash","config","intranet_allowed","0")
-    option("openclash","config","enable_redirect_dns","1")
+    -- OpenClash requires firewall DNS redirection for LAN access control in
+    -- Fake-IP mode.  Dnsmasq redirection (1) cannot reliably associate a
+    -- query with the VPN source address, so the white-list would be bypassed.
+    option("openclash","config","enable_redirect_dns","2")
     local extra=read("/etc/ocserv/ocserv.conf.local")
     local lines={}
     local managed={["listen-host"]=true,dns=true,route=true,["tunnel-all-dns"]=true,device=true,["ipv4-network"]=true,["ipv4-netmask"]=true,["ipv6-network"]=true}
@@ -224,7 +243,7 @@ local function plan(c,info)
     state.files[1]={path="/etc/ocserv/ocserv.conf.local",before=extra or false,after=table.concat(lines,"\n").."\n"}
     local template=read("/usr/share/ocserv-easy/guard.nft.in")
     logic.require(template and not fs.stat(rulefile),"guard_section_conflict")
-    local substitutions={LAN_DEVICE=info.device,LAN_ADDRESS=info.lan,ADMIN_ADDRESS=info.admin,VPN_POOL=info.pool.."/"..info.prefix,VPN_DNS=info.dns,
+    local substitutions={LAN_DEVICE=info.device,LAN_ADDRESS=info.lan,ADMIN_ADDRESS=info.admin,VPN_POOL=info.pool_network.."/"..info.prefix,VPN_DNS=info.dns,
         VPN_TCP_PORT=tostring(info.port),VPN_UDP_PORT=tostring(info.udp_port),ADMIN_PORTS=table.concat(info.management,", ")}
     local rules=template:gsub("@([A-Z_]+)@",function(key) return logic.require(substitutions[key],"guard_state_invalid") end)
     state.files[2]={path=rulefile,before=false,after=rules}
@@ -270,17 +289,23 @@ function M.begin(command,admin,token)
     end
     return {effect=command=="enable" and "guard_queued" or "guard_restoring"}
 end
-local function commit(c)
-    for _,package in ipairs(configs) do logic.require(c:commit(package),"write_failed") end
+local function touched(state,package)
+    for _,op in ipairs(state.ops) do if op.package==package then return true end end
+    return false
+end
+local function commit(c,state)
+    for _,package in ipairs(configs) do
+        if touched(state,package) then logic.require(c:commit(package),"write_failed") end
+    end
 end
 local function reload(state,boot)
     if boot then return end
     logic.require(run({"/etc/init.d/firewall","reload"},20)==0,"guard_firewall_failed")
-    logic.require(run({"/etc/init.d/dnsmasq","restart"},20)==0,"guard_dns_failed")
+    if touched(state,"dhcp") then logic.require(run({"/etc/init.d/dnsmasq","restart"},20)==0,"guard_dns_failed") end
     logic.require(run({"/etc/init.d/openclash","restart"},90)==0,"guard_openclash_failed")
     local ready=false
     for _=1,30 do
-        if run({"/bin/pidof","clash"},3)==0 then ready=true; break end
+        if openclash_running() then ready=true; break end
         nixio.poll({},1000)
     end
     logic.require(ready,"guard_openclash_failed")
@@ -304,7 +329,7 @@ local function restore(state,boot)
         if value==file.after then if file.before==false then fs.remove(file.path) else atomic(file.path,file.before) end
         elseif value~=file.before then preserved=preserved+1 end
     end
-    commit(c)
+    commit(c,state)
     run({"/usr/sbin/nft","delete","table","inet","bulijie_guard"},5)
     if not boot then logic.require(run({"/sbin/fw4","check"},10)==0,"guard_firewall_failed") end
     reload(state,boot)
@@ -330,7 +355,7 @@ local function apply(state)
     fs.remove(passwd); fs.remove(config)
     logic.require(valid,"config_check_failed")
     logic.require(run({"/usr/sbin/nft","-c","-f",rulefile},10)==0,"guard_firewall_failed")
-    commit(c)
+    commit(c,state)
     logic.require(run({"/sbin/fw4","check"},10)==0,"guard_firewall_failed")
     logic.require(run({"/usr/sbin/nft","-f",rulefile},10)==0,"guard_firewall_failed")
     reload(state,false)

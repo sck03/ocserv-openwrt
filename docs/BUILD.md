@@ -74,6 +74,19 @@ python -m pip install -r client/tests/requirements.txt
 
 -Jobs 0 默认使用可用 CPU。后续构建检查并复用匹配的依赖。Windows 与 Linux 调用同一打包器，统一文件、架构、许可证和校验规则。
 
+## 清理本地旧缓存
+
+在项目根目录运行以下命令，先预览清单，再删除：
+
+~~~powershell
+.\scripts\clean-workspace.ps1 -RemoveStoppedTestEnvironment
+.\scripts\clean-workspace.ps1 -Apply -RemoveStoppedTestEnvironment
+~~~
+
+清理范围包括本次重构前的依赖缓存、构建产物、旧发行副本、历史测试输出，以及 2026-09-16/17 的临时测试环境。脚本保留当前 `dist/github-client-d9edec6`、`dist/github-server-0af1fdd`、Windows 编译工具和锁定的第三方源码归档；旧 N1 配置备份会先复制并校验到 `artifacts/backups`。
+
+脚本拒绝删除 Git 跟踪的源码、链接到其他目录的路径及运行中进程引用的文件。`-RemoveStoppedTestEnvironment` 要求先正常关闭临时虚拟机；省略该参数时保留虚拟机镜像链和 QEMU。清理 `.deps` 后，下次按上述构建流程重新生成依赖。默认只显示清单，只有 `-Apply` 才执行删除。
+
 ## 验证
 
 ~~~sh
