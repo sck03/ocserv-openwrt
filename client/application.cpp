@@ -419,7 +419,6 @@ void Application::connect() {
             error(window_, system_error(GetLastError()));
         return;
     }
-    active_name_ = profile.name;
     active_gateway_ = profile.gateway;
     active_minimize_ = profile.minimize_on_connect;
     if (profile.secret_unavailable)

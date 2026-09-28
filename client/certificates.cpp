@@ -231,8 +231,7 @@ std::vector<Protocol> supported_protocols() {
             if (protocols[i].name)
                 result.push_back(
                     {protocols[i].name,
-                     wide(protocols[i].pretty_name ? protocols[i].pretty_name : protocols[i].name),
-                     wide(protocols[i].description ? protocols[i].description : "")});
+                     wide(protocols[i].pretty_name ? protocols[i].pretty_name : protocols[i].name)});
     if (protocols)
         openconnect_free_supported_protocols(protocols);
     return result;

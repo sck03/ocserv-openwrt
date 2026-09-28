@@ -82,7 +82,7 @@ private:
         auto selected = std::find_if(protocols_.begin(), protocols_.end(),
                                      [&](const auto &p) { return p.name == result.protocol; });
         if (selected == protocols_.end()) {
-            protocols_.push_back({result.protocol, wide(result.protocol), L""});
+            protocols_.push_back({result.protocol, wide(result.protocol)});
             add_choice(protocol, wide(result.protocol), static_cast<LPARAM>(protocols_.size() - 1));
             select_choice(protocol, static_cast<LPARAM>(protocols_.size() - 1));
         } else

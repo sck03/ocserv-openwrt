@@ -79,13 +79,13 @@ python -m pip install -r client/tests/requirements.txt
 在项目根目录运行以下命令，先预览清单，再删除：
 
 ~~~powershell
-.\scripts\clean-workspace.ps1 -RemoveStoppedTestEnvironment
-.\scripts\clean-workspace.ps1 -Apply -RemoveStoppedTestEnvironment
+.\scripts\clean-workspace.ps1
+.\scripts\clean-workspace.ps1 -Apply
 ~~~
 
-清理范围包括本次重构前的依赖缓存、构建产物、旧发行副本、历史测试输出，以及 2026-09-16/17 的临时测试环境。脚本保留当前 `dist/github-client-d9edec6`、`dist/github-server-0af1fdd`、Windows 编译工具和锁定的第三方源码归档；旧 N1 配置备份会先复制并校验到 `artifacts/backups`。
+默认清理 `build/` 和项目 Python 字节码缓存。添加 `-IncludeDependencies` 可清理 `.deps/`；添加 `-IncludeTestResults` 可清理 `test-results/`。发行包、备份、临时虚拟机、工具链和锁定的第三方源码归档保留，不再按某次开发日期或提交号选择文件。
 
-脚本拒绝删除 Git 跟踪的源码、链接到其他目录的路径及运行中进程引用的文件。`-RemoveStoppedTestEnvironment` 要求先正常关闭临时虚拟机；省略该参数时保留虚拟机镜像链和 QEMU。清理 `.deps` 后，下次按上述构建流程重新生成依赖。默认只显示清单，只有 `-Apply` 才执行删除。
+脚本拒绝删除 Git 跟踪的源码、链接到其他目录的路径及运行中进程引用的文件。清理 `.deps` 后，下次按上述构建流程重新生成依赖。默认只显示清单，只有 `-Apply` 才执行删除。
 
 ## 验证
 
@@ -99,6 +99,7 @@ node client/tests/script_tests.js
 Windows 原生回归：
 
 ~~~powershell
+python tests/cleanup_tests.py
 python scripts/test-client.py --build build/client/x64 --package dist/BulijieVPN-0.5.0-windows-x64.zip --output test-results/client-x64
 python scripts/test-client.py --build build/client/x86 --package dist/BulijieVPN-0.5.0-windows-x86.zip --output test-results/client-x86
 ~~~
@@ -129,4 +130,4 @@ python3 scripts/package-server.py /tmp/sdk-25.12
 
 服务端 ZIP 包含 ocserv 源码、配方、LuCI feed 源码、BUILDINFO、安装工具和逐文件校验。包审计读取 SDK 清理后保留的 .pkgdir；管理页保留原始 CSS，附带 validation/ui 供复核。
 
-事务回归运行 python tests/guard_integration.py；网络隔离验证在 Linux 网络命名空间运行 sudo python3 tests/vpn_guard_tests.py。SDK/架构检查不替代 OPL 定制固件验收，不用官方模块替换 Flippy 内核模块。
+安装 `lupa==2.8` 后，事务回归运行 `python tests/guard_integration.py`，命令执行边界回归运行 `python tests/process_tests.py`；网络隔离验证在 Linux 网络命名空间运行 sudo python3 tests/vpn_guard_tests.py。SDK/架构检查不替代 OPL 定制固件验收，不用官方模块替换 Flippy 内核模块。

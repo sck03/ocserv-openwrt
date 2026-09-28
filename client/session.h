@@ -56,14 +56,13 @@ struct Event {
     Kind kind = Kind::State;
     State state = State::Idle;
     bool terminal = false;
-    int level = 1;
     std::wstring text;
     Statistics statistics;
     std::shared_ptr<Prompt> prompt;
 };
 struct Protocol {
     std::string name;
-    std::wstring label, description;
+    std::wstring label;
 };
 struct SystemCertificate {
     std::wstring label, certificate, key;

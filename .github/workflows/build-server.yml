@@ -61,6 +61,7 @@ jobs:
           python scripts/prepare-build.py server --version "$OCSERV_VERSION" --sha256 "$OCSERV_SHA256"
           python tests/server_integration.py
           python tests/guard_integration.py
+          python tests/process_tests.py
           python tests/server_install_tests.py
           python tests/server_userfile_tests.py
           node --check server/openwrt/luci-app-ocserv-easy/htdocs/luci-static/resources/ocserv-easy/app.js

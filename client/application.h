@@ -49,7 +49,7 @@ private:
     Handle instance_;
     std::wstring instance_name_;
     std::string auto_connect_;
-    std::wstring active_name_, active_gateway_;
+    std::wstring active_gateway_;
     bool active_minimize_ = false;
     bool closing_ = false, tray_added_ = false;
     UINT taskbar_created_ = 0;

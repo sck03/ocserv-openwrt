@@ -162,6 +162,9 @@ jobs:
           path: dist
       - name: Install test-only certificate tools
         run: python -m pip install --disable-pip-version-check -r client/tests/requirements.txt
+      - name: Verify workspace cleanup boundaries
+        if: matrix.arch == 'x64'
+        run: python tests/cleanup_tests.py
       - name: Run UI, profiles and loopback authentication tests
         env:
           TARGET_ARCH: ${{ matrix.arch }}

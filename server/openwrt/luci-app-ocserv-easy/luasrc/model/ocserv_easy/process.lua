@@ -22,25 +22,29 @@ function M.run(argv,timeout)
     local chunks,size={},0
     local start=nixio.gettimeofday()
     local code=124
-    while true do
+    local function drain()
         while true do
+            if nixio.gettimeofday()-start>=(timeout or 5) then return false end
             local chunk=input:read(4096)
-            if not chunk or chunk=="" then break end
+            if not chunk or chunk=="" then return true end
+            local remaining=131072-size
+            chunks[#chunks+1]=chunk:sub(1,remaining)
             size=size+#chunk
-            if size<=131072 then chunks[#chunks+1]=chunk end
+            if size>131072 then return false end
+        end
+    end
+    while true do
+        if not drain() then
+            nixio.kill(-pid,9); nixio.kill(pid,9); nixio.waitpid(pid); break
         end
         local child,state,status=nixio.waitpid(pid,"nohang")
         if child then
             code=state=="exited" and status or 128
-            while true do
-                local tail=input:read(4096)
-                if not tail or tail=="" then break end
-                size=size+#tail; if size<=131072 then chunks[#chunks+1]=tail end
+            if not drain() then
+                code=124
+                nixio.kill(-pid,9)
             end
             break
-        end
-        if size>131072 or nixio.gettimeofday()-start>=(timeout or 5) then
-            nixio.kill(-pid,9); nixio.kill(pid,9); nixio.waitpid(pid); break
         end
         nixio.poll({{fd=input,events=nixio.poll_flags("in","hup","err")}},100)
     end

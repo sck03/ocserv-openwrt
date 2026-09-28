@@ -139,7 +139,6 @@ void Session::log(int level, std::wstring message) {
         return;
     Event event;
     event.kind = Event::Kind::Log;
-    event.level = level;
     event.text = wide(redact(utf8(message)));
     sink_(std::move(event));
 }
