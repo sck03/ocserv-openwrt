@@ -38,7 +38,7 @@ targets:
         CODE_SIGN_ENTITLEMENTS: Tunnel/Tunnel.entitlements
         HEADER_SEARCH_PATHS: $(SRCROOT)/../../build/mobile/ios/prefix/include
         LIBRARY_SEARCH_PATHS: $(SRCROOT)/../../build/mobile/ios/prefix/lib
-        OTHER_LDFLAGS: '-lopenconnect -lssl -lcrypto -lxml2 -lz'
+        OTHER_LDFLAGS: '-lopenconnect -lssl -lcrypto -lxml2 -lz -liconv'
         CLANG_ENABLE_OBJC_ARC: YES
     info:
       path: Tunnel/Info.plist
