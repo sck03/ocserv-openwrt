@@ -20,13 +20,18 @@ function M.run(argv,timeout)
     end
     output:close(); input:setblocking(false)
     local chunks,size={},0
-    local start=nixio.gettimeofday()
+    -- Router wall time can jump when NTP synchronizes. Uptime keeps command
+    -- deadlines bounded even after a backwards clock correction.
+    local start=nixio.sysinfo().uptime
+    local eof=false
     local code=124
     local function drain()
         while true do
-            if nixio.gettimeofday()-start>=(timeout or 5) then return false end
+            if nixio.sysinfo().uptime-start>=(timeout or 5) then return false end
+            if eof then return true end
             local chunk=input:read(4096)
-            if not chunk or chunk=="" then return true end
+            if chunk=="" then eof=true; return true end
+            if not chunk then return true end
             local remaining=131072-size
             chunks[#chunks+1]=chunk:sub(1,remaining)
             size=size+#chunk
@@ -46,7 +51,9 @@ function M.run(argv,timeout)
             end
             break
         end
-        nixio.poll({{fd=input,events=nixio.poll_flags("in","hup","err")}},100)
+        -- A pipe at EOF is always readable/HUP. Waiting on it would spin at
+        -- full CPU if a service closed stdout but had not exited yet.
+        nixio.poll(eof and {} or {{fd=input,events=nixio.poll_flags("in","hup","err")}},100)
     end
     input:close()
     return code,table.concat(chunks)

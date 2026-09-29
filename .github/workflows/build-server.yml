@@ -98,6 +98,18 @@ jobs:
           sudo apt-get install -y --no-install-recommends nftables iproute2 gnutls-bin openssl
           python3 tests/server_certificate_tests.py
           sudo python3 tests/vpn_guard_tests.py 2>&1 | tee test-results/vpn-guard-tests.log
+      - name: Validate management page and stalled requests
+        run: |
+          python -m pip install playwright==1.58.0
+          python tests/server_preview.py > test-results/server-preview.log 2>&1 &
+          preview_pid=$!
+          trap 'kill "$preview_pid" 2>/dev/null || true' EXIT
+          for attempt in $(seq 1 50); do
+            if curl -fsS http://127.0.0.1:22981/ >/dev/null; then break; fi
+            sleep 0.2
+          done
+          python tests/server_ui_tests.py
+          python tests/server_polling_tests.py
       - uses: actions/upload-artifact@v7.0.1
         if: always()
         with:
@@ -109,6 +121,9 @@ jobs:
             test-results/server-install.json
             test-results/server-userfile.json
             test-results/vpn-guard-tests.log
+            test-results/server-ui-v041/
+            test-results/server-polling.json
+            test-results/server-preview.log
           if-no-files-found: error
           retention-days: 7
 

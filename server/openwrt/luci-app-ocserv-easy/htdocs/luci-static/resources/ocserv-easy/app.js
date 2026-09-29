@@ -71,6 +71,8 @@
         disconnect_failed:t('该连接可能已经断开，请刷新在线列表。','The connection may already be closed. Refresh the online list.'),
         forbidden:t('当前登录只有查看权限。','Your login has read-only access.'),
         session_expired:t('管理登录可能已过期，请刷新页面重新登录。','Your administration login may have expired. Refresh and sign in again.'),
+        request_timeout:t('请求超时，请检查网络后刷新。','Request timed out. Check the network and refresh.'),
+        action_timeout:t('等待操作结果超时，服务端可能仍在执行。请刷新确认状态后再操作。','Timed out waiting for the result; the server may still be working. Refresh to check its state before another action.'),
         internal_error:t('管理页读取或应用失败。请运行套装中的 diagnose-n1.sh，查看故障位置后重试。','The administration page could not read or apply settings. Run diagnose-n1.sh from the bundle to locate the failure.'),
         invalid_pool:t('请填写有效 IPv4 网段，掩码范围为 /8 至 /30。','Enter a valid IPv4 network with a /8 to /30 mask.'),
         pool_not_network:t('地址池应填写网段地址，例如 10.77.0.0，不能填写 10.77.0.1。','Use a network address such as 10.77.0.0, not 10.77.0.1.'),
@@ -92,16 +94,23 @@
     function errorText(error) { return errors[error.code] || t('操作失败，请检查输入或刷新后重试。','Operation failed. Check the input or refresh and retry.') + ' (' + String(error.code || 'network_error') + ')'; }
     function notice(text, isError) { messageBox.textContent=text; messageBox.className='easy-notice'+(isError?' error':''); messageBox.hidden=!text; }
     async function request(path, payload) {
-        var settings={credentials:'same-origin',cache:'no-store'};
-        if (payload) {
-            settings.method='POST'; settings.headers={'Content-Type':'application/x-www-form-urlencoded;charset=UTF-8'};
-            settings.body='token='+encodeURIComponent(options.token)+'&payload='+encodeURIComponent(JSON.stringify(payload));
-        }
-        var response=await fetch(options.base+'/'+path,settings);
-        var data;
-        try { data=await response.json(); } catch (_) { throw {code:'session_expired'}; }
-        if (!response.ok || data.ok!==true) throw {code:data.error || 'network_error'};
-        return data.data;
+        var controller=new AbortController();
+        var timer=setTimeout(function(){controller.abort();},payload?120000:15000);
+        var settings={credentials:'same-origin',cache:'no-store',signal:controller.signal};
+        try {
+            if (payload) {
+                settings.method='POST'; settings.headers={'Content-Type':'application/x-www-form-urlencoded;charset=UTF-8'};
+                settings.body='token='+encodeURIComponent(options.token)+'&payload='+encodeURIComponent(JSON.stringify(payload));
+            }
+            var response=await fetch(options.base+'/'+path,settings);
+            var data;
+            try { data=await response.json(); } catch (_) { throw {code:'session_expired'}; }
+            if (!response.ok || data.ok!==true) throw {code:data.error || 'network_error'};
+            return data.data;
+        } catch(error) {
+            if(controller.signal.aborted)throw {code:payload?'action_timeout':'request_timeout'};
+            throw error;
+        } finally { clearTimeout(timer); }
     }
     async function mutate(payload) {
         if (busy) throw {code:'busy'};
@@ -337,14 +346,26 @@
         [['users',t('账号与在线用户','Accounts and connections')],['settings',t('服务设置','Service settings')],['guard',t('VPN 专用上网','VPN-only access')],['export',t('客户端配置','Client profiles')]].forEach(function(item){var b=button(item[1],function(){activeTab=item[0];renderTab();});b.dataset.tab=item[0];b.setAttribute('role','tab');tabs.appendChild(b);});
         root.appendChild(tabs);content=element('div',{});root.appendChild(content);renderTab();
     }
-    async function load() { state=await request('data'); render(); }
+    var loadPending=null;
+    function load() {
+        if(!loadPending)loadPending=request('data').then(function(data){state=data;render();}).finally(function(){loadPending=null;});
+        return loadPending;
+    }
     var statusPending=false;
     setInterval(async function(){
-        if(!state || busy || (modal && !guardLogOpen) || document.hidden || statusPending)return;
+        if(!state || busy || loadPending || (modal && !guardLogOpen) || document.hidden || statusPending)return;
         statusPending=true;
         try {
-            var current=await request('status');state.running=current.running;state.online=current.online;state.online_error=current.online_error;
-            var previous=state.guard && state.guard.phase;state.guard=current.guard;renderStatus();
+            var snapshot=state;
+            var current=await request('status');
+            if(busy || loadPending || state!==snapshot || (modal && !guardLogOpen))return;
+            state.running=current.running;state.online=current.online;state.online_error=current.online_error;
+            var previous=state.guard && state.guard.phase;
+            // Lightweight disabled status omits topology. Retain the last full
+            // probe until refresh; enabling always validates it again on the router.
+            state.guard=previous==='disabled' && current.guard && current.guard.phase==='disabled'
+                ? Object.assign({},state.guard,current.guard) : current.guard;
+            renderStatus();
             if(state.guard && state.guard.phase==='pending' && state.guard.token && writable()) {
                 // A successful authenticated request from the retained management IP
                 // confirms connectivity. No confirmation is sent after a failed request.

@@ -7,7 +7,7 @@ const vm = require('node:vm');
 
 const source = fs.readFileSync(path.join(__dirname, '../vendor/vpnc-script-win.js'), 'utf8');
 let passed = 0;
-function execute(overrides = {}, failure = () => 0) {
+function execute(overrides = {}, failure = () => 0, storage = { text: '' }) {
     const environment = {
         reason: 'connect', TUNIDX: '42', TUNDEV: 'Synthetic VPN', VPNGATEWAY: '203.0.113.7',
         INTERNAL_IP4_ADDRESS: '198.18.0.2', INTERNAL_IP4_NETMASK: '255.255.255.0',
@@ -32,7 +32,12 @@ function execute(overrides = {}, failure = () => 0) {
     };
     const fileSystem = {
         GetSpecialFolder: () => 'C:\\Temp',
-        OpenTextFile(...args) { files.push(args); return { WriteLine: text => logs.push(text), Close() {} }; }
+        FileExists: () => true,
+        GetFile: () => ({ Size: storage.text.length * 2 }),
+        OpenTextFile(...args) {
+            files.push(args);
+            return { WriteLine(text) { logs.push(text); storage.text += text + '\r\n'; }, Close() {} };
+        }
     };
     vm.runInNewContext(source, { WScript: {
         CreateObject: name => name === 'WScript.Shell' ? shell : fileSystem,
@@ -99,6 +104,25 @@ test('session logs use UTF-16 and the application-selected path', () => {
 test('error-only logging stays at level zero', () => {
     const result = execute({ LOG_LEVEL: '0' });
     assert.equal(result.logs.length, 0);
+});
+test('repeated script invocations share one bounded log budget', () => {
+    const storage = { text: 'x'.repeat(1024 * 1024 - 256) };
+    for (let i = 0; i < 1000; ++i) {
+        const result = execute({ BULIJIE_SCRIPT_LOG: 'C:\\Temp\\session.log' }, () => 0, storage);
+        assert.equal(result.exitCode, 0);
+        assert(storage.text.length <= 1024 * 1024);
+    }
+    // The client's drain resets the budget; new diagnostics must be retained.
+    storage.text = '';
+    execute({ BULIJIE_SCRIPT_LOG: 'C:\\Temp\\session.log' }, () => 0, storage);
+    assert(storage.text.length > 0);
+});
+test('huge banner and script exception cannot exceed the log budget', () => {
+    const storage = { text: '' };
+    const result = execute({ BULIJIE_SCRIPT_LOG: 'C:\\Temp\\session.log', CISCO_BANNER: 'x'.repeat(2 * 1024 * 1024) },
+        command => { if (command.includes('route print')) throw new Error('fixture'); return 0; }, storage);
+    assert.equal(result.exitCode, 1);
+    assert(storage.text.length <= 1024 * 1024);
 });
 test('a Windows Script Host exception is explicitly reported as failure', () => {
     const result = execute({}, () => { throw new Error('Synthetic WSH error'); });

@@ -24,6 +24,7 @@ class ProcessTests(unittest.TestCase):
                     if mode=="slow" then now=now+1; return "x" end
                     if mode=="tail_flood" and reaped then return string.rep("x",4096) end
                     if mode=="exact" and reads<=32 then return string.rep("x",4096) end
+                    if mode=="eof" then return "" end
                     if mode=="normal" and reads==1 then return "hello" end
                     if mode=="normal" and reaped and reads==3 then return " tail" end
                     return nil
@@ -32,14 +33,19 @@ class ProcessTests(unittest.TestCase):
             package.preload.nixio=function() return {
                 pipe=function() return input,{close=function() end} end,
                 fork=function() return 42 end,
-                gettimeofday=function() return now end,
+                gettimeofday=function() error("wall clock must not control deadlines") end,
+                sysinfo=function() return {uptime=now} end,
                 waitpid=function(pid,flag)
-                    if flag and (mode=="idle" or mode=="flood" or mode=="slow") then return nil end
+                    if flag and (mode=="idle" or mode=="flood" or mode=="slow" or mode=="eof") then return nil end
                     reaped=true
                     return pid,mode=="signal" and "signaled" or "exited",mode=="failure" and 7 or 0
                 end,
                 kill=function(pid) killed[#killed+1]=pid end,
-                poll=function() polls=polls+1; now=now+1; assert(polls<100,"unbounded wait") end,
+                poll=function(fds)
+                    polls=polls+1
+                    if mode=="eof" then assert(#fds==0,"EOF pipe causes a busy loop") end
+                    now=now+1; assert(polls<100,"unbounded wait")
+                end,
                 poll_flags=function() return 1 end
             } end
         ''')
@@ -77,6 +83,13 @@ class ProcessTests(unittest.TestCase):
     def test_silent_child_obeys_deadline(self):
         code, output, state = self.run_case("idle")
         self.assertEqual((code, output), (124, ""))
+        self.assertTrue(state.reaped)
+
+    def test_closed_stdout_waits_without_spinning(self):
+        code, output, state = self.run_case("eof")
+        self.assertEqual((code, output), (124, ""))
+        self.assertEqual(state.reads, 1)
+        self.assertEqual(state.polls, 5)
         self.assertTrue(state.reaped)
 
     def test_descendant_output_after_parent_exit_is_bounded(self):

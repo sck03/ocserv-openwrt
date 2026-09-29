@@ -147,6 +147,17 @@ guard=require "luci.model.ocserv_easy.guard"
 local function enable() guard.begin("enable",admin); guard.work(false); check(guard.status(admin).phase=="enabled",decode(S.files[root.."result.json"]) and decode(S.files[root.."result.json"]).failure) end
 local function disable() guard.begin("disable",admin); guard.work(false); check(guard.status(admin).phase=="disabled") end
 
+test("frequent disabled status spawns no detection commands",function()
+    reset()
+    local count=#S.commands
+    for _=1,10000 do
+        local status=guard.status(admin,false)
+        check(status.phase=="disabled" and not status.enabled and status.available==nil)
+    end
+    check(#S.commands==count)
+    check(guard.status(admin).available)
+    check(#S.commands>count)
+end)
 test("default is off and detection writes no router configuration",function()
     reset(); local before=clone(S.cfg); check(guard.status(admin).phase=="disabled" and guard.status(admin).available); check(equal(before,S.cfg) and not S.nft)
 end)

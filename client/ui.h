@@ -167,5 +167,6 @@ private:
     std::wstring content_;
     Language language_ = Language::Chinese;
     bool auto_scroll_ = true;
+    bool dirty_ = false;
 };
 } // namespace bulijie::ui

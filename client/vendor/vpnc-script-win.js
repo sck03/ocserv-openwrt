@@ -71,9 +71,12 @@ function echo(level, msg)
         msg_write = msg;
 
     if (logToFile) {
-        var remaining = 1024 * 1024 - loggedCharacters;
-        if (remaining > 0) log.WriteLine(msg_write.substring(0, remaining));
-        loggedCharacters += msg_write.length + 2;
+        var remaining = 1024 * 1024 - loggedCharacters - 2;
+        if (remaining >= 0) {
+            var written = msg_write.substring(0, remaining);
+            log.WriteLine(written);
+            loggedCharacters += written.length + 2;
+        }
     } else {
         WScript.echo(msg_write);
     }
@@ -146,8 +149,13 @@ run_silent("chcp 65001");
 if (logToFile) {
 	var fs = WScript.CreateObject("Scripting.FileSystemObject");
 	var tmpdir = fs.GetSpecialFolder(2)+"\\";
+	// Include earlier reconnect attempts in the limit. The client drains this
+	// file after setup/reconnect/cleanup; failed attempts can run in between.
+	if (applicationLogPath && fs.FileExists(applicationLogPath))
+		loggedCharacters = Math.max(1, Math.ceil(fs.GetFile(applicationLogPath).Size / 2));
+	else if (applicationLogPath) loggedCharacters = 1; // UTF-16 BOM
 	var log = fs.OpenTextFile(applicationLogPath || tmpdir + "vpnc.log", 8, true, applicationLogPath ? -1 : 0);
-	failureLog = log;
+	failureLog = { WriteLine: function(message) { echo(ERROR, message); }, Close: function() { log.Close(); } };
 }
 
 switch (env("reason")) {

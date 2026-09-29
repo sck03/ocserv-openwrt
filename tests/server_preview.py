@@ -53,7 +53,7 @@ def to_python(value):
 resources=ROOT/'server/openwrt/luci-app-ocserv-easy/htdocs/luci-static/resources/ocserv-easy'
 def data(status=False):
     value=to_python(backend.status() if status else backend.data())
-    value['guard']=to_python(guard.status('192.168.19.2'))
+    value['guard']=to_python(guard.status('192.168.19.2',not status))
     if not status:value['revision']+='-guard-'+str(guard_revision)
     return value
 

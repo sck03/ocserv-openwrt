@@ -55,6 +55,7 @@ sh install.sh
 - [构建说明](docs/BUILD.md)
 - [上游版本更新](docs/UPSTREAM-UPDATES.md)
 - [验证记录与实机边界](docs/VALIDATION.md)
+- [长期运行与资源稳定性](docs/LONG-RUNNING.md)
 - [第三方组件与许可证](THIRD-PARTY-NOTICES.md)
 
 项目采用 GPL-3.0-or-later；第三方组件遵守各自许可证。编译、模拟事务和回环 TLS 测试不替代 N1/Win7 实机验收。

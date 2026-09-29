@@ -132,7 +132,7 @@ def main():
     if args.package:
         report["package"] = inspect_package(args.package, output, environment)
     for name, executable in (("profiles", "native_model_tests.exe"), ("ui", "native_ui_tests.exe"),
-                             ("script_runner", "native_script_tests.exe")):
+                             ("script_runner", "native_script_tests.exe"), ("resources", "native_resource_tests.exe")):
         report["tests"][name] = run([build / executable, output / name], build, environment, output, name)
     report["tests"]["authentication"] = run(
         [sys.executable, ROOT / "client/tests/auth_integration.py", "--client", build / "native_session_tests.exe",

@@ -253,6 +253,8 @@ void LogWindow::show(HWND owner, Language value) {
     if (!window_)
         create(owner, L"BulijieVPN.Log", L"", 740, 430, WS_OVERLAPPEDWINDOW, WS_EX_CONTROLPARENT);
     language(value);
+    if (dirty_)
+        update_text();
     ShowWindow(window_, SW_RESTORE);
     SetForegroundWindow(window_);
 }
@@ -264,6 +266,7 @@ void LogWindow::update_text() {
     DWORD begin = 0, end = 0;
     SendMessageW(text, EM_GETSEL, reinterpret_cast<WPARAM>(&begin), reinterpret_cast<LPARAM>(&end));
     SetWindowTextW(text, content_.c_str());
+    dirty_ = false;
     if (auto_scroll_) {
         SendMessageW(text, EM_SETSEL, static_cast<WPARAM>(-1), -1);
         SendMessageW(text, EM_SCROLLCARET, 0, 0);
@@ -292,7 +295,7 @@ void LogWindow::append(const std::wstring &line) {
         size_t cut = content_.find(L'\n', content_.size() - 384 * 1024);
         content_.erase(0, cut == std::wstring::npos ? content_.size() / 2 : cut + 1);
     }
-    update_text();
+    dirty_ = true;
 }
 LRESULT LogWindow::message(UINT message, WPARAM wparam, LPARAM lparam) {
     if (message == WM_CREATE) {
@@ -307,6 +310,12 @@ LRESULT LogWindow::message(UINT message, WPARAM wparam, LPARAM lparam) {
         button(L"", IDCANCEL, 644, 392, 84);
         language(language_);
         update_text();
+        SetTimer(window_, 1, 250, nullptr);
+        return 0;
+    }
+    if (message == WM_TIMER && wparam == 1) {
+        if (dirty_ && IsWindowVisible(window_) && !IsIconic(window_))
+            update_text();
         return 0;
     }
     if (message == WM_SIZE) {

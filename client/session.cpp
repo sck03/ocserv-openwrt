@@ -137,10 +137,15 @@ void Session::state(State value, bool terminal, std::wstring message) {
 void Session::log(int level, std::wstring message) {
     if (level > log_level_.load())
         return;
-    Event event;
-    event.kind = Event::Kind::Log;
-    event.text = wide(redact(utf8(message)));
-    sink_(std::move(event));
+    // Redact the complete message before splitting, including secrets that
+    // cross a chunk boundary. Queue entries have a fixed maximum size.
+    auto text = wide(redact(utf8(message)));
+    for (size_t begin = 0; begin < text.size(); begin += 8192) {
+        Event event;
+        event.kind = Event::Kind::Log;
+        event.text = text.substr(begin, 8192);
+        sink_(std::move(event));
+    }
 }
 std::string Session::redact(std::string message) const {
     std::string lower = message;
@@ -576,6 +581,12 @@ void Session::read_script_log() {
     if (offset >= script_log_read_) return;
     std::wstring text((script_log_read_ - offset) / 2, L'\0');
     memcpy(text.data(), raw.data() + offset, script_log_read_ - offset);
+    // Each callback runs after the script has exited. Drain instead of
+    // rereading an ever-growing session file on every reconnect.
+    Handle file(CreateFileW(script_log_.c_str(), GENERIC_WRITE, FILE_SHARE_READ, nullptr,
+                            TRUNCATE_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr));
+    if (file)
+        script_log_read_ = 0;
     log(PRG_INFO, text);
 }
 void Session::cleanup() {

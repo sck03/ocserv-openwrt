@@ -1,6 +1,6 @@
 #pragma once
 #include "ui.h"
-#include <deque>
+#include "event_queue.h"
 
 namespace bulijie {
 class Application final : public ui::Window {
@@ -44,8 +44,7 @@ private:
     std::unique_ptr<Session> session_;
     ui::LogWindow log_;
     State state_ = State::Idle;
-    std::mutex queue_mutex_;
-    std::deque<Event> events_;
+    EventQueue events_;
     Handle instance_;
     std::wstring instance_name_;
     std::string auto_connect_;

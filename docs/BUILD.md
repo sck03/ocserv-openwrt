@@ -98,6 +98,7 @@ python tests/release_tests.py
 python tests/release_metadata_tests.py
 python tests/client_build_tests.py
 python tests/server_package_tests.py
+python tests/process_tests.py
 node client/tests/script_tests.js
 ~~~
 

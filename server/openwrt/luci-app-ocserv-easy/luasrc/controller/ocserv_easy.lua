@@ -51,7 +51,7 @@ function data() response(function() return require("luci.model.ocserv_easy.backe
 function guard_log() response(function() return require("luci.model.ocserv_easy.guard_log").read() end) end
 function status() response(function()
     local result=require("luci.model.ocserv_easy.backend").status()
-    result.guard=require("luci.model.ocserv_easy.guard").status(require("luci.http").getenv("REMOTE_ADDR"))
+    result.guard=require("luci.model.ocserv_easy.guard").status(require("luci.http").getenv("REMOTE_ADDR"),false)
     return result
 end) end
 function action()

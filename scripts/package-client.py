@@ -106,7 +106,7 @@ def main():
                 if file.is_file():
                     output.write(file, name + "/" + file.relative_to(folder).as_posix())
         staged_archive.replace(archive)
-    for filename in ("native_model_tests.exe", "native_session_tests.exe", "native_ui_tests.exe", "native_script_tests.exe",
+    for filename in ("native_model_tests.exe", "native_session_tests.exe", "native_ui_tests.exe", "native_script_tests.exe", "native_resource_tests.exe",
                      "wintun.dll", "vpnc-script-win.js"):
         shutil.copyfile(build / filename, validation / filename)
     (dist / f"SHA256SUMS-windows-{args.arch}.txt").write_text(f"{sha256(archive)}  {archive.name}\n", encoding="ascii")

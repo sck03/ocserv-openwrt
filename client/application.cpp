@@ -517,13 +517,8 @@ void Application::tray_menu() {
         command(id);
 }
 void Application::receive(Event event) {
-    {
-        std::lock_guard<std::mutex> lock(queue_mutex_);
-        if (events_.size() >= 4096 && event.kind == Event::Kind::Log)
-            return;
-        events_.push_back(std::move(event));
-    }
-    PostMessageW(window_, SessionMessage, 0, 0);
+    if (events_.push(std::move(event)))
+        PostMessageW(window_, SessionMessage, 0, 0);
 }
 void Application::show_statistics(const Statistics &stats) {
     const std::wstring values[] = {stats.ipv4,           stats.ipv6,        stats.dns,
@@ -533,11 +528,7 @@ void Application::show_statistics(const Statistics &stats) {
         label(InfoValue + i, values[i].empty() ? L"—" : values[i]);
 }
 void Application::drain_events() {
-    std::deque<Event> events;
-    {
-        std::lock_guard<std::mutex> lock(queue_mutex_);
-        events.swap(events_);
-    }
+    auto events = events_.take();
     for (auto &event : events) {
         if (event.kind == Event::Kind::Log)
             log_.append(event.text);
@@ -592,7 +583,11 @@ LRESULT Application::message(UINT message, WPARAM wparam, LPARAM lparam) {
         return 0;
     }
     if (message == WM_TIMER) {
+        // Also recovers a failed PostMessage when the Windows queue was full.
+        drain_events();
         if (session_ && session_->finished()) {
+            // The worker can publish its terminal event between the first drain
+            // and finished(). Consume it before allowing a new session.
             drain_events();
             session_.reset();
             update_controls();
@@ -602,7 +597,7 @@ LRESULT Application::message(UINT message, WPARAM wparam, LPARAM lparam) {
             }
         }
         static unsigned tick = 0;
-        if (++tick % 4 == 0 && session_)
+        if (++tick % 4 == 0 && session_ && state_ == State::Connected)
             session_->request_statistics();
         return 0;
     }

@@ -256,13 +256,16 @@ local function plan(c,info)
     state.files[2]={path=rulefile,before=false,after=rules}
     return state
 end
-function M.status(admin)
+function M.status(admin,probe)
     local ok,state=pcall(saved)
     if not ok then return {phase="recovery_failed",enabled=true,reason="guard_state_invalid"} end
     if state then
         return {phase=state.phase,enabled=true,lan=state.info.lan,admin=state.info.admin,pool=state.info.pool.."/"..state.info.prefix,
             deadline=state.deadline,token=state.phase=="pending" and state.info.admin==admin and state.token or nil,reason=state.failure}
     end
+    -- The frequent status endpoint only needs transaction state. Full page
+    -- loads and enable requests perform the live topology/service checks.
+    if probe==false then return {phase="disabled",enabled=false} end
     local success,info=pcall(function() return detect(uci.cursor(),admin) end)
     local result={phase="disabled",enabled=false,available=success and running()}
     if success then result.lan=info.lan; result.admin=info.admin; result.pool=info.pool.."/"..info.prefix; if not result.available then result.reason="guard_requires_ocserv" end
