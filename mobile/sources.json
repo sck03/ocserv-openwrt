@@ -1,0 +1,32 @@
+{
+  "opentunnel": {
+    "url": "https://codeload.github.com/AlieShayan/OpenTunnel/tar.gz/0535533dfb7d3a656bfdb880d51f731c109135c1",
+    "filename": "opentunnel-0535533.tar.gz",
+    "directory": "OpenTunnel-0535533dfb7d3a656bfdb880d51f731c109135c1",
+    "sha256": "92b2f8c90aef3809aacca1cd602cb6cf75cc7dfec870dd0224889530f0eb2324"
+  },
+  "openconnect": {
+    "url": "https://www.infradead.org/openconnect/download/openconnect-9.21.tar.gz",
+    "filename": "openconnect-9.21.tar.gz",
+    "directory": "openconnect-9.21",
+    "sha256": "5b32369467db6e5f317aa1ed12cfcbb81ed00bdbc765450b6bfcbdc300944a58"
+  },
+  "openssl": {
+    "url": "https://github.com/openssl/openssl/releases/download/openssl-3.5.8/openssl-3.5.8.tar.gz",
+    "filename": "openssl-3.5.8.tar.gz",
+    "directory": "openssl-3.5.8",
+    "sha256": "a8f84a39918ec6415ce765d9b429d313ba97b8143169c172e734b9514464f5b2"
+  },
+  "libxml2": {
+    "url": "https://distfiles.macports.org/libxml2/libxml2-2.15.3.tar.xz",
+    "filename": "libxml2-2.15.3.tar.xz",
+    "directory": "libxml2-2.15.3",
+    "sha256": "78262a6e7ac170d6528ebfe2efccdf220191a5af6a6cd61ea4a9a9a5042c7a07"
+  },
+  "lz4": {
+    "url": "https://github.com/lz4/lz4/releases/download/v1.10.0/lz4-1.10.0.tar.gz",
+    "filename": "lz4-1.10.0.tar.gz",
+    "directory": "lz4-1.10.0",
+    "sha256": "537512904744b35e232912055ccf8ec66d768639ff3abe5788d90d792ec5f48b"
+  }
+}

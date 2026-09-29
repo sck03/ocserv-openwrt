@@ -20,6 +20,11 @@ The application is GPL-3.0-or-later. Static linking does not remove third-party 
 | OpenWrt ocserv recipe | c7a47d583127961590dfd832c424441c6810952c | GPL-2.0-or-later | SDK recipe and procd/UCI integration |
 | ocserv | 1.5.0 | GPL-2.0-or-later | Server; source included in server artifacts |
 | LuCI reference source | SDK-selected feed revision in BUILDINFO.json | Upstream LuCI notices | Feed source bundled; the shipped page is luci-app-ocserv-easy |
+| OpenTunnel | 0535533dfb7d3a656bfdb880d51f731c109135c1 | LGPL-2.1; upstream LICENSE and individual notices | Android app and native build recipe; separate application ID and Chinese launcher name |
+| OpenSSL (mobile) | 3.5.8 | Apache-2.0 | Static mobile TLS library |
+| LZ4 (Android) | 1.10.0 | BSD-2-Clause for library; accompanying source notices | Android OpenConnect compression |
+
+Mobile native inputs are pinned in `mobile/sources.json` and shipped in each mobile artifact's `corresponding-source.zip`, including upstream licenses and the local build recipes. Android's Jetpack/Kotlin libraries and bundled fonts retain their upstream notices. The new iOS application and packet-flow integration are GPL-3.0-or-later. iOS uses system zlib; mobile builds do not ship the Windows GnuTLS, Wintun or vpnc script. See [mobile documentation](docs/MOBILE.md) for the integration and signing limits.
 
 The UI uses the Windows API in C++17. Qt is not linked or distributed. The OpenConnect library owns VPN protocol and tunnel behavior; the upstream Windows vpnc script configures addresses, routes and DNS. See [client/UPSTREAM.md](client/UPSTREAM.md) for references and local adaptations.
 

@@ -1,0 +1,57 @@
+name: BulijieVPN
+options:
+  deploymentTarget:
+    iOS: '15.0'
+settings:
+  base:
+    SWIFT_VERSION: '5.0'
+    MARKETING_VERSION: '0.1.0'
+    CURRENT_PROJECT_VERSION: '1'
+    TARGETED_DEVICE_FAMILY: '1,2'
+    CODE_SIGN_STYLE: Manual
+targets:
+  BulijieVPN:
+    type: application
+    platform: iOS
+    sources: [App]
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: $(BVPN_BUNDLE_ID)
+        PROVISIONING_PROFILE_SPECIFIER: $(BVPN_APP_PROFILE)
+        CODE_SIGN_ENTITLEMENTS: App/App.entitlements
+    info:
+      path: App/Info.plist
+      properties:
+        CFBundleDisplayName: 布利杰VPN
+        UILaunchScreen: {}
+        UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait, UIInterfaceOrientationLandscapeLeft, UIInterfaceOrientationLandscapeRight]
+    dependencies:
+      - target: PacketTunnel
+  PacketTunnel:
+    type: app-extension
+    platform: iOS
+    sources: [Tunnel]
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: $(BVPN_BUNDLE_ID).tunnel
+        PROVISIONING_PROFILE_SPECIFIER: $(BVPN_TUNNEL_PROFILE)
+        CODE_SIGN_ENTITLEMENTS: Tunnel/Tunnel.entitlements
+        HEADER_SEARCH_PATHS: $(SRCROOT)/../../build/mobile/ios/prefix/include
+        LIBRARY_SEARCH_PATHS: $(SRCROOT)/../../build/mobile/ios/prefix/lib
+        OTHER_LDFLAGS: '-lopenconnect -lssl -lcrypto -lxml2 -lz'
+        CLANG_ENABLE_OBJC_ARC: YES
+    info:
+      path: Tunnel/Info.plist
+      properties:
+        CFBundleDisplayName: 布利杰VPN隧道
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.networkextension.packet-tunnel
+          NSExtensionPrincipalClass: PacketTunnelProvider
+    dependencies:
+      - sdk: NetworkExtension.framework
+      - sdk: Security.framework
+schemes:
+  BulijieVPN:
+    build:
+      targets:
+        BulijieVPN: all

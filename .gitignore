@@ -10,3 +10,10 @@ __pycache__/
 *.py[cod]
 .venv/
 artifacts/
+mobile/ios/*.xcodeproj/
+mobile/ios/App/Info.plist
+mobile/ios/Tunnel/Info.plist
+*.jks
+*.keystore
+*.p12
+*.mobileprovision

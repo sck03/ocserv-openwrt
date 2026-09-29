@@ -42,9 +42,11 @@ sh install.sh
 
 - [Windows 客户端工作流](https://github.com/sck03/ocserv-openwrt/actions/workflows/build-client.yml)：Linux 并行构建 x86/x64，Windows 运行界面、配置、认证及便携 EXE 启动回归，再生成发行版。`build_jobs=auto` 使用可用 CPU，`publish_release=false` 可只验证构建。
 - [N1 服务端工作流](https://github.com/sck03/ocserv-openwrt/actions/workflows/build-server.yml)：通过 `sdk_version` 指定具体 `25.12.x` 或 `auto`。默认 25.12.5，`auto` 只选择 25.12 系列稳定版。`build_jobs` 默认 `auto`，使用运行器全部可用 CPU 并行编译，也可手动填写任务数。
-- 标准运行器为 `ubuntu-24.04`，Actions/管理页脚本检查使用 Node.js 24。运行器系统版本与 N1 固件版本是不同概念。
-- 两个工作流均可填写 `release_version` 设置发行套装版本，留空使用北京时间日期和时分秒；标题始终显示真实构建时间。`publish_release=false` 可只构建，两端仅允许 main 发布。
-- 手动工作流全部检查成功后发布独立 Pre-release；[Releases](https://github.com/sck03/ocserv-openwrt/releases) 附件长期保留，Actions artifacts 保留 7 天。
+- [Android 客户端工作流](https://github.com/sck03/ocserv-openwrt/actions/workflows/build-android.yml)：基于固定版本 OpenTunnel，编译三个架构的 OpenConnect 核心和 APK；默认 debug，配置签名 Secrets 后可构建 release。
+- [iOS 客户端工作流](https://github.com/sck03/ocserv-openwrt/actions/workflows/build-ios.yml)：原生应用与 Packet Tunnel 扩展，默认未签名编译归档，配置 Apple 证书和两个 Ad Hoc 描述文件后导出 IPA。使用及签名见[移动客户端说明](docs/MOBILE.md)。
+- Windows 交叉编译、服务端和 Android 使用 `ubuntu-24.04`，iOS 使用 `macos-15`。Actions/管理页脚本检查使用 Node.js 24。运行器系统版本与 N1 固件版本是不同概念。
+- Windows 和服务端工作流均可填写 `release_version` 设置发行套装版本，留空使用北京时间日期和时分秒；标题始终显示真实构建时间。`publish_release=false` 可只构建，两端仅允许 main 发布。
+- Windows 和服务端手动工作流全部检查成功后发布独立 Pre-release；[Releases](https://github.com/sck03/ocserv-openwrt/releases) 附件长期保留，Actions artifacts 保留 7 天。移动端工作流目前仅上传 artifacts。
 - 服务端 artifact 为 `openwrt-25.12-aarch64_generic`，内含两个 APK、安装工具、源码、BUILDINFO 和 SHA256SUMS；ZIP 名称带管理页版本，便于区分修复版。
 
 ## 资料
@@ -52,6 +54,7 @@ sh install.sh
 - [N1 安装与首次配置](docs/OPENWRT-N1.md)
 - [中文管理页](docs/SERVER-UI.md)
 - [客户端证书与密码保存](docs/CLIENT.md)
+- [Android / iOS 构建、连接和签名](docs/MOBILE.md)
 - [构建说明](docs/BUILD.md)
 - [上游版本更新](docs/UPSTREAM-UPDATES.md)
 - [验证记录与实机边界](docs/VALIDATION.md)
