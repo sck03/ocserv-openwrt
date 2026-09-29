@@ -68,6 +68,16 @@ Windows x64/x86 原生资源回归各 8 组通过：60 万事件、1,000 轮队�
 
 Lua 管理逻辑 43 项、开关事务 35 项、命令执行器 9 项、JScript 17 项、浏览器完整操作 13 组及请求生命周期 5 组通过。构建参数 8 项、版本元数据 6 项、客户端打包边界 9 项、服务端合成打包 4 项通过。Linux 专属测试在本地 Windows 上跳过，需以 GitHub 构建结果为准。模拟压力测试不等价于 N1 连续运行多天，详见 [长期运行说明](LONG-RUNNING.md)。
 
+提交 `32c4161` 的 [GitHub 客户端构建](https://github.com/sck03/ocserv-openwrt/actions/runs/36540838944) 已通过 x86/x64 编译、PE 审计、便携包启动、原生配置/界面/资源回归及 21 项回环认证。x64 另外通过 3 项真实 Wintun/CSTP 隧道检查，覆盖正常转发、配置失败、重连失败及网卡清理。此后至 `249dbba` 仅修正服务端浏览器测试环境和文档，客户端实现未改变；构建设为 `publish_release=false`。
+
+提交 `249dbba` 的 [GitHub 服务端构建](https://github.com/sck03/ocserv-openwrt/actions/runs/36542001573) 已通过服务端逻辑、证书、防火墙、浏览器操作及请求生命周期回归，并完成 OpenWrt 25.12 AArch64 APK 编译打包。构建设为 `publish_release=false`，发布任务按预期跳过。
+
+## 2026-09-29 清理收尾
+
+移除无引用的 `ProfilePassword` 控件编号，以及未被程序、文档或打包流程使用的 `resources/app.png`，图标生成脚本不再输出这份副本。保留实际使用的 ICO、SVG 原稿、认证回归所需字段及第三方许可证。
+
+清理后 Windows x86/x64 客户端与测试入口均通过 `-Wall -Wextra -Wpedantic -Werror` 编译语法检查，重新编译运行资源回归各 8 组通过，句柄分别保持 174/153 个。清理脚本 4 项回归通过；本地执行默认清理释放 0.746 GiB 构建临时文件和 Python 缓存，保留工具链、源码归档、配置备份及有效测试结果。本次收尾未重新执行完整 VPN 认证、隧道或服务端 APK 构建，以上 GitHub 结果对应各自注明的提交。
+
 ## 仍需实机验收
 
 - Windows 7 SP1 x86/x64 启动、凭据存储、SHA-2 驱动安装与网络通信。

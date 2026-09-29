@@ -46,6 +46,5 @@ draw.polygon(path([('M',111,86),('L',111,117),('L',130,117),('C',145,117,153,111
 draw.polygon(path([('M',111,138),('L',111,176),('L',131,176),('C',148,176,157,169,157,157),('C',157,145,148,138,131,138)]),fill=0)
 base.paste((255,255,255,255),(0,0,size,size),letter)
 base=base.resize((256,256),Image.Resampling.LANCZOS)
-base.save(ROOT/'resources'/'app.png')
 base.save(ROOT/'resources'/'app.ico',sizes=[(s,s) for s in (16,20,24,32,40,48,64,96,128,256)])
-print('Generated app.ico at 16-256 px and app.png from the original SVG design.')
+print('Generated app.ico at 16-256 px from the original SVG design.')

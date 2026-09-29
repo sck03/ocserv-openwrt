@@ -45,7 +45,6 @@ enum Control : int {
     DisableUDP,
     UseProxy,
     Customize,
-    ProfilePassword,
     PromptText = 300,
     PromptShowPassword,
     PromptDetails,
