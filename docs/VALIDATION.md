@@ -58,6 +58,8 @@ Wintun 是显式加载的独立驱动组件，不属于“静态导入表仅含�
 
 清理项目 Python 字节码缓存及过期的本地客户端重构进度文件。未修改 N1，也未在本机创建 VPN 网卡。
 
+提交 `f04eb3e` 的 GitHub 实际构建均通过：[客户端](https://github.com/sck03/ocserv-openwrt/actions/runs/36515946175) 完成 x86/x64 编译、原生回归及 x64 真实 Wintun/CSTP 隧道测试；[服务端](https://github.com/sck03/ocserv-openwrt/actions/runs/36515949264) 完成 Linux 证书、防火墙回归和 OpenWrt 25.12.5 AArch64 APK 编译打包。两次均设置 `publish_release=false`，发布任务按预期跳过。客户端实际 ZIP 名称使用 `20260929-111019`，x86/x64 BUILDINFO 的 UTC 时间及北京时间完全一致。
+
 ## 仍需实机验收
 
 - Windows 7 SP1 x86/x64 启动、凭据存储、SHA-2 驱动安装与网络通信。
