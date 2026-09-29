@@ -80,4 +80,9 @@ bash scripts/build-ios.sh unsigned
 
 `python3 tests/mobile_build_tests.py` 在 Windows/Linux/macOS 检查下载完整性、缓存篡改、解包路径、ELF 架构/页对齐和 Apple 描述文件校验。Android 工作流另外执行上游及本地证书策略单元测试、APK 架构/16 KB 对齐和签名验证；iOS 工作流运行 `tests/mobile_protocol_tests.c`，再编译并归档两个 target。
 
-当前新增代码未在本地 Windows 环境进行 Android NDK / Xcode 完整编译，也未进行手机实机验收。首次 GitHub 构建和实机验收仍必须确认：证书错误时拒绝认证、正确连接、DNS/IPv4/IPv6 路由、Wi-Fi/蜂窝切换、锁屏、断开恢复、错误密码和签名安装。不能将源码/脚本检查等同于已验证的手机连接结果。
+2026-09-29 已完成 GitHub 全流程构建验证：
+
+- [Android debug 构建成功](https://github.com/sck03/ocserv-openwrt/actions/runs/36556596555)，提交 `60d0d2e`：三个架构的 VPN 核心、上游及新增证书策略单元测试、APK 签名与 16 KB 对齐检查通过。下载的 artifact 及其内部 `SHA256SUMS.txt` 已再次校验。其后提交未改变 Android 源码和构建脚本。
+- [iOS unsigned 构建成功](https://github.com/sck03/ocserv-openwrt/actions/runs/36558263182)，提交 `b469017`：Xcode 16.4 / iPhoneOS 18.5 SDK，最低目标 iOS 15；C 数据包校验测试、arm64 静态库检查、应用和 Packet Tunnel 扩展编译及 archive 打包通过。构建使用 OpenConnect 自带的 `strchrnul` 兼容实现，避免依赖 iOS 18.4 新增函数。
+
+尚未进行手机实机验收，也未使用真实发布密钥验证 Android release 或 iOS Ad Hoc 签名导出。实机仍须确认：证书错误时拒绝认证、正确连接、DNS/IPv4/IPv6 路由、Wi-Fi/蜂窝切换、锁屏、断开恢复、错误密码和签名安装。编译及脚本检查不等同于已验证的手机连接结果。
