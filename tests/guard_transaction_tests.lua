@@ -107,6 +107,9 @@ function nixio.open(path,flags,permissions)
 end
 function nixio.poll(_,ms)
     S.now=S.now+ms/1000
+    if S.ocserv_ready_at and S.now>=S.ocserv_ready_at then
+        S.running=true; S.files["/var/run/ocserv.pid"]="101\n"; S.ocserv_ready_at=nil
+    end
     local state=decode(S.files[root.."state.json"])
     if S.preview and state and state.phase=="pending" then coroutine.yield(); return end
     if S.auto_confirm and state and state.phase=="pending" then
@@ -116,6 +119,13 @@ end
 local function run(args)
     local command=table.concat(args," "); S.commands[#S.commands+1]=command
     if command==S.fail_command then S.fail_command=nil; return 1,"failure" end
+    if command=="/etc/init.d/ocserv restart" then
+        S.running=false; S.files["/var/run/ocserv.pid"]=nil; S.ocserv_ready_at=nil
+        if not S.ocserv_never_ready then
+            if S.ocserv_delay then S.ocserv_ready_at=S.now+S.ocserv_delay
+            else S.running=true; S.files["/var/run/ocserv.pid"]="101\n" end
+        end
+    end
     if args[1]=="/bin/pidof" then
         return S.openclash_process==args[2] and 0 or 1,""
     end
@@ -195,6 +205,28 @@ test("OpenClash restart failure rolls back configuration and guard",function()
     reset(); local before=clone(S.cfg); S.fail_command="/etc/init.d/openclash restart"
     guard.begin("enable",admin); guard.work(false); check(equal(before,S.cfg) and not S.nft and guard.status(admin).last.failure=="guard_openclash_failed")
 end)
+
+test("asynchronous ocserv startup succeeds on enable and restore",function()
+    reset(); local before=clone(S.cfg); S.ocserv_delay=3
+    enable(); check(S.running and S.nft)
+    disable(); check(S.running and equal(before,S.cfg) and not guard.active())
+end)
+
+test("ocserv restart command failure still rolls back",function()
+    reset(); local before=clone(S.cfg); S.fail_command="/etc/init.d/ocserv restart"; S.ocserv_delay=1
+    guard.begin("enable",admin); guard.work(false)
+    check(equal(before,S.cfg) and not S.nft and not guard.active())
+    check(guard.status(admin).last.failure=="restart_failed")
+end)
+
+test("ocserv never starting times out and retains recovery for retry",function()
+    reset(); local before=clone(S.cfg); S.ocserv_never_ready=true; local started=S.now
+    guard.begin("enable",admin); guard.work(false)
+    check(S.now-started>=20 and S.now-started<30)
+    check(equal(before,S.cfg) and not S.nft and guard.status(admin).phase=="recovery_failed")
+    check(guard.status(admin).reason=="restart_failed")
+    S.ocserv_never_ready=false; S.ocserv_delay=1; disable(); check(S.running and not guard.active())
+end)
 test("fw4 validation failure restores before activation",function()
     reset(); local before=clone(S.cfg); S.fail_command="/sbin/fw4 check"
     guard.begin("enable",admin); guard.work(false); check(equal(before,S.cfg) and not S.nft)
@@ -260,6 +292,42 @@ test("confirmation tokens are bound to the management address",function()
 end)
 test("corrupt recovery records are reported instead of treated as disabled",function()
     reset(); S.files[root.."state.json"]="invalid"; check(guard.status(admin).phase=="recovery_failed" and guard.status(admin).reason=="guard_state_invalid")
+end)
+local log=require "luci.model.ocserv_easy.guard_log"
+test("failed restart and restoration remain visible in structured logs",function()
+    reset(); S.ocserv_never_ready=true; guard.begin("enable",admin); guard.work(false)
+    local failed,timeout,restored=false,false,false
+    for _,entry in ipairs(log.read().entries) do
+        if entry.step=="operation_failed" and entry.code=="restart_failed" then failed=true end
+        if entry.step=="ocserv_ready" and entry.code=="timeout" then timeout=true end
+        if entry.step=="restore_failed" and entry.code=="restart_failed" then restored=true end
+    end
+    check(failed and timeout and restored)
+end)
+test("logs expire individually at 24 hours and the empty file is deleted",function()
+    reset(); log.add("apply","start"); S.now=S.now+10; log.add("restore","completed")
+    S.now=1000+86400; check(#log.read().entries==1)
+    S.now=S.now+10; check(#log.read().entries==0 and not S.files["/var/run/ocserv-easy/guard-log.json"])
+end)
+test("background cleanup deletes expired logs without a browser request",function()
+    reset(); log.add("apply","start"); S.now=1000+86399
+    local original=nixio.poll; local polls=0
+    nixio.poll=function(_,ms)
+        polls=polls+1
+        if polls==1 then check(ms==1000); S.now=S.now+1
+        else error("test cleaner stop") end
+    end
+    local ok=pcall(log.clean_loop); nixio.poll=original
+    check(not ok and polls==2 and not S.files["/var/run/ocserv-easy/guard-log.json"])
+end)
+test("logs are capped and raw command secrets are never retained",function()
+    reset(); for i=1,300 do log.add("apply","start") end
+    check(#log.read().entries==256)
+    check(log.diagnostic("secret-password subscription=https://secret.invalid Address already in use")=="address already in use")
+    check(log.diagnostic("password=do-not-store")==nil)
+end)
+test("log write failure cannot prevent configuration recovery",function()
+    reset(); enable(); S.fail_write="/var/run/ocserv-easy/guard-log.json"; disable(); check(not guard.active())
 end)
 TEST_GUARD_PREVIEW={reset=reset,guard=guard,state=function()return S end}
 return results

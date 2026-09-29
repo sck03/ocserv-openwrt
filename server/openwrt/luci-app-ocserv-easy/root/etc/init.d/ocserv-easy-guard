@@ -4,8 +4,16 @@ STOP=89
 USE_PROCD=1
 
 start_service() {
+    # Independent of the transaction: expiry continues after disable/failure
+    # and does not depend on a browser or on cron being enabled.
+    procd_open_instance logs
+    procd_set_param command /usr/bin/lua /usr/libexec/ocserv-easy-guard logs
+    procd_set_param respawn 3600 5 0
+    procd_set_param stdout 0
+    procd_set_param stderr 0
+    procd_close_instance
     [ -f /etc/ocserv/easy-guard/state.json ] || return 0
-    procd_open_instance
+    procd_open_instance worker
     procd_set_param command /usr/bin/lua /usr/libexec/ocserv-easy-guard
     procd_set_param term_timeout 150
     procd_set_param stdout 0
@@ -16,4 +24,5 @@ start_service() {
 boot() {
     # A pending transaction is restored before fw4 starts after a power failure.
     /usr/bin/lua /usr/libexec/ocserv-easy-guard boot
+    start
 }

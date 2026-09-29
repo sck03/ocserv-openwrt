@@ -67,6 +67,9 @@ class Handler(BaseHTTPRequestHandler):
             self.send((resources/parts.path[1:]).read_bytes(),'text/javascript; charset=utf-8' if parts.path.endswith('.js') else 'text/css; charset=utf-8');return
         if parts.path in ('/easy/data','/easy/status'):
             self.send(json.dumps({'ok':True,'data':data(status=parts.path.endswith('/status'))}));return
+        if parts.path=='/easy/guard-log':
+            logs=guard_lua.eval('require("luci.model.ocserv_easy.guard_log").read')()
+            self.send(json.dumps({'ok':True,'data':to_python(logs)}));return
         if parts.path!='/':self.send('{}',status=404);return
         lang=parse_qs(parts.query).get('lang',['zh-cn'])[0]
         opts=json.dumps({'base':'/easy','token':'local-preview-only','language':lang,'writable':True})

@@ -4,7 +4,7 @@
     var options = JSON.parse(document.getElementById('ocserv-easy-options').textContent);
     var root = document.getElementById('ocserv-easy');
     var chinese = /^zh/i.test(options.language || '');
-    var state, activeTab = 'users', busy = false, modal = null, messageBox, content, statusBox;
+    var state, activeTab = 'users', busy = false, modal = null, guardLogOpen = false, messageBox, content, statusBox;
     function t(zh, en) { return chinese ? zh : en; }
     function array(value) { return Array.isArray(value) ? value : []; }
     function element(tag, attrs, children) {
@@ -121,7 +121,7 @@
         if(payload.action==='guard' && state.guard && state.guard.phase==='disabled' && payload.command==='disable')result.effect='guard_disabled';
         notice(effects[result.effect] || t('操作完成。','Done.'));
     }
-    function closeModal() { if (modal && !busy) { modal.remove(); modal=null; } }
+    function closeModal() { if (modal && !busy) { modal.remove(); modal=null; if(guardLogOpen){guardLogOpen=false;renderTab();} } }
     function showModal(title, children, submit, label) {
         closeModal();
         var errorBox=element('div',{className:'easy-notice error',hidden:true});
@@ -252,6 +252,30 @@
         if(!state.settings_supported)content.appendChild(element('p',{className:'easy-notice error',text:t('当前使用自定义认证或代理 ARP。请先恢复普通账号认证和独立 VPN 地址池，再使用本页管理网络。','Custom authentication or proxy ARP is configured. Restore password authentication and a separate VPN pool before managing networking here.')}));
         if(state.guard && state.guard.enabled)content.appendChild(element('p',{className:'easy-muted',text:errors.guard_settings_locked}));
     }
+    function showGuardLog() {
+        var output=element('pre',{className:'easy-guard-log',tabindex:'0',text:t('正在读取日志…','Loading log…')});
+        var loading=false;
+        var steps={request:t('操作请求','Request'),confirmation:t('管理连接确认','Management confirmation'),apply:t('启用配置','Apply'),restore:t('恢复配置','Restore'),operation_failed:t('操作失败','Operation failed'),restore_failed:t('恢复失败','Restore failed'),firewall_reload:t('重载防火墙','Reload firewall'),firewall_check:t('检查防火墙','Check firewall'),dns_restart:t('重启 DNS','Restart DNS'),openclash_restart:t('重启 OpenClash','Restart OpenClash'),openclash_ready:t('等待 OpenClash','Wait for OpenClash'),ocserv_restart:t('重启 VPN 服务','Restart VPN'),ocserv_ready:t('等待 VPN 服务','Wait for VPN'),ocserv_config_check:t('检查 VPN 配置','Check VPN configuration'),nft_check:t('检查隔离规则','Check isolation rules'),nft_apply:t('应用隔离规则','Apply isolation rules')};
+        var codes={start:t('开始','Started'),completed:t('完成','Completed'),running:t('已运行','Running'),timeout:t('等待超时','Timed out'),pending:t('等待管理连接确认','Awaiting management confirmation'),enabled:t('已开启','Enabled'),enable:t('开启','Enable'),disable:t('关闭并恢复','Disable and restore'),confirm:t('确认','Confirm'),boot:t('开机恢复','Boot recovery')};
+        async function refresh() {
+            if(loading)return; loading=true;
+            try {
+                var log=await request('guard-log');
+                output.textContent=array(log.entries).map(function(row){
+                    var code=codes[row.code] || errors[row.code] || row.code;
+                    if(/^exit_/.test(row.code))code=t('退出码 ','Exit code ')+row.code.slice(5)+(row.code==='exit_124'?t('（超时或输出超限）',' (timeout or output limit)'):'');
+                    return new Date(row.time*1000).toLocaleString()+'  '+(steps[row.step] || row.step)+'：'+code+(row.detail?' — '+row.detail:'');
+                }).join('\n') || t('最近 24 小时暂无日志。','No logs in the last 24 hours.');
+                output.scrollTop=output.scrollHeight;
+            } catch(error) { output.textContent=errorText(error); }
+            finally {loading=false;}
+        }
+        showModal(t('VPN 专用上网服务日志','VPN-only service log'),[
+            element('p',{className:'easy-muted',text:t('仅保留最近 24 小时、最多 256 条日志；自动删除过期记录，设备重启后清空。记录操作步骤、退出码和常见错误类型，不保存账号、密码或订阅内容。','Keeps up to 256 entries for 24 hours, automatically expires them, and clears on router reboot. Records steps, exit codes and common error categories without accounts, passwords or subscriptions.')}),
+            button(t('刷新日志','Refresh log'),refresh),output
+        ],async function(){},t('关闭','Close'));
+        guardLogOpen=true; refresh();
+    }
     function renderGuard() {
         var g=state.guard || {phase:'disabled'}, labels={disabled:t('已关闭','Disabled'),queued:t('等待应用…','Queued…'),applying:t('正在应用…','Applying…'),pending:t('正在确认管理连接…','Checking management connectivity…'),enabled:t('已开启','Enabled'),restoring:t('正在恢复…','Restoring…'),recovery_failed:t('恢复需要重试','Restoration needs a retry')};
         var switching=['queued','applying','pending','restoring'].includes(g.phase);
@@ -267,7 +291,7 @@
         if(g.reason)children.push(element('p',{className:'easy-notice error',text:errorText({code:g.reason})}));
         if(g.phase==='disabled' && g.last && g.last.failure)children.push(element('p',{className:'easy-notice error',text:t('上次应用已恢复：','Previous apply restored: ')+errorText({code:g.last.failure})}));
         if(g.phase==='disabled' && g.last && g.last.preserved)children.push(element('p',{className:'easy-muted',text:t('已保留启用期间由其他页面修改的设置。','Settings changed in other pages while enabled were preserved.')}));
-        children.push(element('div',{className:'easy-buttons'},[toggle]));
+        children.push(element('div',{className:'easy-buttons'},[toggle,button(t('查看日志','View log'),showGuardLog)]));
         content.appendChild(element('section',{className:'easy-card'},children));
     }
     function download(kind,server) {
@@ -296,7 +320,7 @@
         root.querySelectorAll('[role="tab"]').forEach(function(b){b.setAttribute('aria-selected',String(b.dataset.tab===activeTab));});
     }
     function render() {
-        if(modal)modal.remove(); modal=null; root.replaceChildren();
+        if(modal)modal.remove(); modal=null; guardLogOpen=false; root.replaceChildren();
         var actions=element('div',{className:'easy-buttons'},[
             button(t('刷新','Refresh'),function(){load().catch(function(e){notice(errorText(e),true);});}),
             mutationButton(state.running?t('停止服务','Stop service'):t('启动服务','Start service'),function(){
@@ -316,7 +340,7 @@
     async function load() { state=await request('data'); render(); }
     var statusPending=false;
     setInterval(async function(){
-        if(!state || busy || modal || document.hidden || statusPending)return;
+        if(!state || busy || (modal && !guardLogOpen) || document.hidden || statusPending)return;
         statusPending=true;
         try {
             var current=await request('status');state.running=current.running;state.online=current.online;state.online_error=current.online_error;
@@ -324,9 +348,13 @@
             if(state.guard && state.guard.phase==='pending' && state.guard.token && writable()) {
                 // A successful authenticated request from the retained management IP
                 // confirms connectivity. No confirmation is sent after a failed request.
-                state=await request('data'); render();
-                if(state.guard && state.guard.phase==='pending' && state.guard.token)
-                    await complete({action:'guard',command:'confirm',token:state.guard.token});
+                state=await request('data');
+                if(!guardLogOpen)render();
+                if(state.guard && state.guard.phase==='pending' && state.guard.token) {
+                    var confirmation={action:'guard',command:'confirm',token:state.guard.token};
+                    if(guardLogOpen){await mutate(confirmation);state=await request('data');renderStatus();renderTab();}
+                    else await complete(confirmation);
+                }
             } else if(previous!== (state.guard && state.guard.phase) && !modal) {
                 if(activeTab==='guard')renderTab();
                 if(state.guard && state.guard.phase==='disabled')await load();

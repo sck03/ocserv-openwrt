@@ -46,3 +46,4 @@
   #ocserv-easy .easy-summary .easy-card { margin:5px 0; }
   #ocserv-easy .easy-summary strong { font-size:21px; }
 }
+.easy-guard-log { max-height: 55vh; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12px; line-height: 1.6; padding: 12px; background: #f4f6f8; }

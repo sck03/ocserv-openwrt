@@ -6,6 +6,13 @@ local uci=require "luci.model.uci"
 local json=require "luci.jsonc"
 local logic=require "luci.model.ocserv_easy.logic"
 local run=require("luci.model.ocserv_easy.process").run
+local log=require "luci.model.ocserv_easy.guard_log"
+local function command(step,args,timeout)
+    log.add(step,"start")
+    local code,output=run(args,timeout)
+    log.add(step,"exit_"..tostring(code),log.diagnostic(output))
+    return code,output
+end
 local M={}
 local root="/etc/ocserv/easy-guard"
 local statefile=root.."/state.json"
@@ -270,6 +277,7 @@ function M.begin(command,admin,token)
     if command=="confirm" then
         logic.require(state and state.phase=="pending" and state.token==token and state.info.admin==admin and os.time()<state.deadline,"guard_confirmation_expired")
         state.phase="enabled"; state.token=nil; save(state)
+        log.add("confirmation","enabled")
         return {effect="guard_enabled"}
     end
     logic.require(command=="enable" or command=="disable","bad_action")
@@ -284,6 +292,7 @@ function M.begin(command,admin,token)
         logic.require(state.phase=="enabled" or state.phase=="pending" or state.phase=="queued" or state.phase=="recovery_failed","busy")
         state.phase="restoring"; state.deadline=os.time()+240; save(state)
     end
+    log.add("request",command)
     if run({"/etc/init.d/ocserv-easy-guard","restart"},5)~=0 then
         state.failure="guard_worker_failed"; save(state); logic.fail("guard_worker_failed")
     end
@@ -300,21 +309,34 @@ local function commit(c,state)
 end
 local function reload(state,boot)
     if boot then return end
-    logic.require(run({"/etc/init.d/firewall","reload"},20)==0,"guard_firewall_failed")
-    if touched(state,"dhcp") then logic.require(run({"/etc/init.d/dnsmasq","restart"},20)==0,"guard_dns_failed") end
-    logic.require(run({"/etc/init.d/openclash","restart"},90)==0,"guard_openclash_failed")
+    logic.require(command("firewall_reload",{"/etc/init.d/firewall","reload"},20)==0,"guard_firewall_failed")
+    if touched(state,"dhcp") then logic.require(command("dns_restart",{"/etc/init.d/dnsmasq","restart"},20)==0,"guard_dns_failed") end
+    logic.require(command("openclash_restart",{"/etc/init.d/openclash","restart"},90)==0,"guard_openclash_failed")
     local ready=false
     for _=1,30 do
         if openclash_running() then ready=true; break end
         nixio.poll({},1000)
     end
+    log.add("openclash_ready",ready and "running" or "timeout")
     logic.require(ready,"guard_openclash_failed")
-    if state.was_running then logic.require(run({"/etc/init.d/ocserv","restart"},20)==0 and running(),"restart_failed") end
+    if state.was_running then
+        logic.require(command("ocserv_restart",{"/etc/init.d/ocserv","restart"},20)==0,"restart_failed")
+        -- procd returns before ocserv creates its pidfile. Both activation
+        -- and restoration must wait for the daemon before declaring failure.
+        for _=1,100 do
+            if running() then log.add("ocserv_ready","running"); return end
+            nixio.poll({},100)
+        end
+        local ready=running()
+        log.add("ocserv_ready",ready and "running" or "timeout")
+        logic.require(ready,"restart_failed")
+    end
 end
 local function restore(state,boot)
+    log.add("restore",boot and "boot" or "start")
     if not state.started then
         atomic(root.."/result.json",json.stringify({restored=true,preserved=0,failure=state.failure,time=os.time()}))
-        logic.require(fs.remove(statefile),"write_failed"); return
+        logic.require(fs.remove(statefile),"write_failed"); log.add("restore","completed"); return
     end
     local c=uci.cursor(); local preserved=0
     pending(c)
@@ -331,13 +353,15 @@ local function restore(state,boot)
     end
     commit(c,state)
     run({"/usr/sbin/nft","delete","table","inet","bulijie_guard"},5)
-    if not boot then logic.require(run({"/sbin/fw4","check"},10)==0,"guard_firewall_failed") end
+    if not boot then logic.require(command("firewall_check",{"/sbin/fw4","check"},10)==0,"guard_firewall_failed") end
     reload(state,boot)
     atomic(root.."/last-backup.json",json.stringify(state))
     atomic(root.."/result.json",json.stringify({restored=true,preserved=preserved,failure=state.failure,time=os.time()}))
     logic.require(fs.remove(statefile),"write_failed")
+    log.add("restore","completed")
 end
 local function apply(state)
+    log.add("apply","start")
     local c=uci.cursor(); pending(c)
     for _,package in ipairs(configs) do logic.require((read("/etc/config/"..package) or false)==state.before[package],"stale_revision") end
     state.phase="applying"; state.started=true; save(state)
@@ -351,16 +375,17 @@ local function apply(state)
     atomic(passwd,logic.passwd(users))
     local rendered=logic.render(read("/etc/ocserv/ocserv.conf.template") or "",read("/etc/ocserv/ocserv.conf.local") or "",c:get_all("ocserv","config"),dns,routes,{domain=c:get_first("dhcp","dnsmasq","domain","")})
     atomic(config,(rendered:gsub("/var/etc/ocpasswd",passwd)))
-    local valid=run({"/usr/sbin/ocserv","--test-config","--config",config},10)==0
+    local valid=command("ocserv_config_check",{"/usr/sbin/ocserv","--test-config","--config",config},10)==0
     fs.remove(passwd); fs.remove(config)
     logic.require(valid,"config_check_failed")
-    logic.require(run({"/usr/sbin/nft","-c","-f",rulefile},10)==0,"guard_firewall_failed")
+    logic.require(command("nft_check",{"/usr/sbin/nft","-c","-f",rulefile},10)==0,"guard_firewall_failed")
     commit(c,state)
-    logic.require(run({"/sbin/fw4","check"},10)==0,"guard_firewall_failed")
-    logic.require(run({"/usr/sbin/nft","-f",rulefile},10)==0,"guard_firewall_failed")
+    logic.require(command("firewall_check",{"/sbin/fw4","check"},10)==0,"guard_firewall_failed")
+    logic.require(command("nft_apply",{"/usr/sbin/nft","-f",rulefile},10)==0,"guard_firewall_failed")
     reload(state,false)
     logic.require(run({"/usr/sbin/nft","list","table","inet","bulijie_guard"},5)==0,"guard_firewall_failed")
     state.phase="pending"; state.deadline=os.time()+120; save(state)
+    log.add("apply","pending")
 end
 local function locked(operation)
     directory(work)
@@ -382,8 +407,12 @@ function M.work(boot)
         end)
         if not ok then
             state.phase="restoring"; state.failure=type(err)=="table" and err.code or "internal_error"; save(state)
-            local restored=pcall(restore,state,boot)
-            if not restored then state.phase="recovery_failed"; save(state) end
+            log.add("operation_failed",state.failure)
+            local restored,restore_error=pcall(restore,state,boot)
+            if not restored then
+                log.add("restore_failed",type(restore_error)=="table" and restore_error.code or "internal_error")
+                state.phase="recovery_failed"; save(state)
+            end
         end
     end)
     if boot then return end
@@ -395,8 +424,9 @@ function M.work(boot)
                 state=saved()
                 if state and state.phase=="pending" and os.time()>=state.deadline then
                     state.phase="restoring"; state.failure="guard_confirmation_expired"; save(state)
-                    local ok=pcall(restore,state,false)
-                    if not ok then state.phase="recovery_failed"; save(state) end
+                    log.add("operation_failed",state.failure)
+                    local ok,err=pcall(restore,state,false)
+                    if not ok then log.add("restore_failed",type(err)=="table" and err.code or "internal_error"); state.phase="recovery_failed"; save(state) end
                 end
             end)
             return

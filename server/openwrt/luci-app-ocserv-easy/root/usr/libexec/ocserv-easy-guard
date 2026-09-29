@@ -1,6 +1,7 @@
 #!/usr/bin/lua
 local ok=pcall(function()
-    if arg[1]=="disable" then
+    if arg[1]=="logs" then require("luci.model.ocserv_easy.guard_log").clean_loop()
+    elseif arg[1]=="disable" then
         local backend=require "luci.model.ocserv_easy.backend"
         backend.action({action="guard",command="disable",revision=backend.data().revision})
     else require("luci.model.ocserv_easy.guard").work(arg[1]=="boot") end
