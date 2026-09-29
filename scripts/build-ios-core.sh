@@ -13,6 +13,7 @@ export AR="$(xcrun --find ar)"
 export RANLIB="$(xcrun --find ranlib)"
 export CFLAGS="-arch arm64 -isysroot $sdk -miphoneos-version-min=15.0 -O2"
 export LDFLAGS="$CFLAGS"
+export CPP="$CC -E $CFLAGS"
 mkdir -p "$work/openssl-build"
 cd "$work/openssl-build"
 "$work/openssl-3.5.8/Configure" ios64-xcrun no-shared no-tests no-apps no-module no-async \

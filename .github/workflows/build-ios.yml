@@ -63,3 +63,10 @@ jobs:
             dist/ios/*.txt
           if-no-files-found: error
           retention-days: 7
+      - uses: actions/upload-artifact@v7.0.1
+        if: failure()
+        with:
+          name: ios-configure-logs
+          path: build/mobile/ios/oc-build/config.log
+          if-no-files-found: ignore
+          retention-days: 7
