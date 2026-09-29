@@ -10,10 +10,11 @@ from playwright.sync_api import sync_playwright, expect
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--url', default='http://127.0.0.1:22981/')
+parser.add_argument('--browser-channel', default='chrome')
 args = parser.parse_args()
 checks = []
 with sync_playwright() as pw:
-    browser = pw.chromium.launch(channel='chrome', headless=True)
+    browser = pw.chromium.launch(channel=args.browser_channel, headless=True)
     page = browser.new_page()
     errors = []
     page.on('pageerror', lambda error: errors.append(str(error)))

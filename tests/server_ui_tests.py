@@ -11,11 +11,12 @@ from playwright.sync_api import sync_playwright, expect
 parser=argparse.ArgumentParser()
 parser.add_argument('--url',default='http://127.0.0.1:22981/')
 parser.add_argument('--output',type=Path,default=ROOT/'test-results/server-ui-v041')
+parser.add_argument('--browser-channel',default='chrome')
 args=parser.parse_args()
 args.output.mkdir(parents=True,exist_ok=True)
 checks,errors=[],[]
 with sync_playwright() as pw:
-    browser=pw.chromium.launch(channel='chrome',headless=True)
+    browser=pw.chromium.launch(channel=args.browser_channel,headless=True)
     page=browser.new_page(viewport={'width':1280,'height':940})
     page.on('pageerror',lambda e:errors.append(str(e)))
     page.set_default_timeout(12000)
