@@ -41,4 +41,6 @@ cd "$work/oc-build"
 make -j"$jobs" libopenconnect.la
 cp .libs/libopenconnect.a "$prefix/lib/"
 cp "$work/openconnect-9.21/openconnect.h" "$prefix/include/"
-xcrun lipo -verify_arch arm64 "$prefix/lib/libopenconnect.a"
+for library in openconnect ssl crypto xml2; do
+  xcrun lipo "$prefix/lib/lib$library.a" -verify_arch arm64
+done
