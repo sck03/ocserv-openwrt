@@ -19,7 +19,12 @@ esac
 : "${GITHUB_SHA:?}"
 : "${GITHUB_RUN_ID:?}"
 : "${GITHUB_RUN_ATTEMPT:?}"
-tag="${component}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+script_directory=$(cd "$(dirname "$0")" && pwd)
+metadata=$(python3 "$script_directory/release_metadata.py" --publication "$component")
+mapfile -t release_info <<< "$metadata"
+tag=${release_info[0]}
+release_title=${release_info[1]}
+build_time=${release_info[2]}
 server_url="${GITHUB_SERVER_URL:-https://github.com}"
 run_url="$server_url/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/attempts/$GITHUB_RUN_ATTEMPT"
 release_url="$server_url/$GITHUB_REPOSITORY/releases/tag/$tag"
@@ -41,6 +46,10 @@ notes="$(mktemp)"
 trap 'rm -f -- "$notes"' EXIT
 {
   printf '%s\n\n' "$title，由手动构建自动发布。"
+  printf '构建时间（北京时间）：%s\n\n' "$build_time"
+  if [[ -n "${RELEASE_VERSION:-}" ]]; then
+    printf '发布版本：%s\n\n' "$RELEASE_VERSION"
+  fi
   printf '%s\n\n' '下载对应 ZIP 后完整解压，使用 SHA256SUMS.txt 核验下载文件。'
   if [[ "$component" == client ]]; then
     printf '%s\n\n' '包含 Windows x64/x86 便携客户端和对应源码包（含第三方源码）。组件版本见包内 BUILDINFO.json。'
@@ -58,12 +67,12 @@ trap 'rm -f -- "$notes"' EXIT
 # Run ID and attempt isolate independent builds and reruns from existing releases.
 # Never replace published assets; a failed upload leaves this attempt as a draft.
 gh release create "$tag" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
-  --title "$title（构建 ${GITHUB_RUN_NUMBER:-$GITHUB_RUN_ID}.$GITHUB_RUN_ATTEMPT）" \
+  --title "$release_title" \
   --notes-file "$notes" --draft --prerelease --latest=false
 gh release upload "$tag" "${archives[@]}" "$asset_directory/SHA256SUMS.txt" --repo "$GITHUB_REPOSITORY"
 gh release edit "$tag" --repo "$GITHUB_REPOSITORY" --draft=false --latest=false
 
 printf 'Published %s\n' "$release_url"
 if [[ -n "${GITHUB_STEP_SUMMARY:-}" ]]; then
-  printf '### %s\n\n[下载 Release](%s)\n' "$title" "$release_url" >> "$GITHUB_STEP_SUMMARY"
+  printf '### %s\n\n[下载 Release](%s)\n' "$release_title" "$release_url" >> "$GITHUB_STEP_SUMMARY"
 fi

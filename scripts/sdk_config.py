@@ -1,5 +1,8 @@
 """Resolve released OpenWrt 25.12.x SDKs from the official download index."""
+import argparse
 import json
+import os
+from pathlib import Path
 import re
 import urllib.request
 from build_common import ROOT
@@ -37,3 +40,18 @@ def resolve_sdk(requested="", fetch=read_text):
         raise ValueError("SDK has no unique entry in the official SHA256SUMS")
     return {"series": series, "version": requested, "url": base + name, "sha256": checksums[0].lower(),
             "checksum_origin": base + "sha256sums"}
+
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--version", default="")
+    parser.add_argument("--github-output", action="store_true")
+    args = parser.parse_args()
+    try:
+        entry = resolve_sdk(args.version)
+    except ValueError as error:
+        parser.error(str(error))
+    if args.github_output:
+        with Path(os.environ["GITHUB_OUTPUT"]).open("a", encoding="utf-8", newline="\n") as output:
+            output.write(f"version={entry['version']}\n")
+    print(json.dumps(entry, indent=2))

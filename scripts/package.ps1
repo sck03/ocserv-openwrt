@@ -2,20 +2,34 @@
 param(
     [ValidateSet('x64','x86','all')][string]$Architecture = 'all',
     [string]$BuildRoot = 'build/client',
+    [string]$ReleaseVersion = $env:RELEASE_VERSION,
     [switch]$SkipSource
 )
 $ErrorActionPreference = 'Stop'
 $projectRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 $targets = if ($Architecture -eq 'all') { @('x64','x86') } else { @($Architecture) }
-$checksums = @()
-foreach ($target in $targets) {
-    python (Join-Path $PSScriptRoot 'package-client.py') --arch $target --build (Join-Path (Join-Path $projectRoot $BuildRoot) $target) --strip (Join-Path $projectRoot ".tools/$target/w64devkit/bin/strip.exe")
-    if ($LASTEXITCODE) { throw "Client packaging failed: $target" }
-    $checksums += Get-Content -LiteralPath (Join-Path $projectRoot "dist/SHA256SUMS-windows-$target.txt")
+$previousVersion = $env:RELEASE_VERSION
+$previousTimestamp = $env:BUILD_TIMESTAMP
+try {
+    $env:RELEASE_VERSION = $ReleaseVersion
+    $metadataJson = python (Join-Path $PSScriptRoot 'release_metadata.py')
+    if ($LASTEXITCODE) { throw 'Invalid release metadata.' }
+    $metadata = $metadataJson | ConvertFrom-Json
+    $env:RELEASE_VERSION = $metadata.release_version
+    $env:BUILD_TIMESTAMP = $metadata.build_timestamp
+    $checksums = @()
+    foreach ($target in $targets) {
+        python (Join-Path $PSScriptRoot 'package-client.py') --arch $target --build (Join-Path (Join-Path $projectRoot $BuildRoot) $target) --strip (Join-Path $projectRoot ".tools/$target/w64devkit/bin/strip.exe")
+        if ($LASTEXITCODE) { throw "Client packaging failed: $target" }
+        $checksums += Get-Content -LiteralPath (Join-Path $projectRoot "dist/SHA256SUMS-windows-$target.txt")
+    }
+    if (!$SkipSource) {
+        python (Join-Path $PSScriptRoot 'package-source.py')
+        if ($LASTEXITCODE) { throw 'Source packaging failed.' }
+        $checksums += Get-Content -LiteralPath (Join-Path $projectRoot 'dist/SHA256SUMS-source.txt')
+    }
+    [IO.File]::WriteAllLines((Join-Path $projectRoot 'dist/SHA256SUMS.txt'), $checksums, [Text.Encoding]::ASCII)
+} finally {
+    $env:RELEASE_VERSION = $previousVersion
+    $env:BUILD_TIMESTAMP = $previousTimestamp
 }
-if (!$SkipSource) {
-    python (Join-Path $PSScriptRoot 'package-source.py')
-    if ($LASTEXITCODE) { throw 'Source packaging failed.' }
-    $checksums += Get-Content -LiteralPath (Join-Path $projectRoot 'dist/SHA256SUMS-source.txt')
-}
-[IO.File]::WriteAllLines((Join-Path $projectRoot 'dist/SHA256SUMS.txt'), $checksums, [Text.Encoding]::ASCII)

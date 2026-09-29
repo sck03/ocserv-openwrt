@@ -3,6 +3,10 @@ name: 手动构建 ocserv 服务端与中文管理页
 on:
   workflow_dispatch:
     inputs:
+      release_version:
+        description: 发布版本号（如 1.5.0）；留空使用北京时间日期和时分秒
+        type: string
+        default: ""
       ocserv_version:
         description: ocserv 官方源码版本（至少 1.5.0）
         type: string
@@ -19,6 +23,10 @@ on:
         description: 并行编译任务数；auto 使用运行器全部可用 CPU，也可填写正整数
         type: string
         default: "auto"
+      publish_release:
+        description: 全部检查通过后发布到 Releases（仅 main）
+        type: boolean
+        default: true
 
 permissions:
   contents: read
@@ -26,7 +34,7 @@ defaults:
   run:
     shell: bash
 concurrency:
-  group: server-${{ github.ref }}-${{ github.sha }}
+  group: server-${{ github.ref }}
   cancel-in-progress: false
 env:
   BUILD_JOBS: ${{ inputs.build_jobs || 'auto' }}
@@ -37,10 +45,24 @@ jobs:
     name: 服务端与构建参数回归
     runs-on: ubuntu-24.04
     timeout-minutes: 10
+    outputs:
+      release_version: ${{ steps.metadata.outputs.release_version }}
+      build_timestamp: ${{ steps.metadata.outputs.build_timestamp }}
+      sdk_version: ${{ steps.sdk.outputs.version }}
     steps:
       - uses: actions/checkout@v7.0.1
         with:
           persist-credentials: false
+      - name: Resolve release version and build time
+        id: metadata
+        env:
+          RELEASE_VERSION: ${{ inputs.release_version }}
+        run: python3 scripts/release_metadata.py --github-output
+      - name: Resolve and validate SDK before building
+        id: sdk
+        env:
+          SDK_VERSION: ${{ inputs.sdk_version }}
+        run: python3 scripts/sdk_config.py --version "$SDK_VERSION" --github-output
       - uses: actions/setup-python@v7.0.0
         with:
           python-version: "3.14"
@@ -55,9 +77,12 @@ jobs:
           OCSERV_VERSION: ${{ inputs.ocserv_version }}
           OCSERV_SHA256: ${{ inputs.ocserv_sha256 }}
         run: |
+          [[ "$BUILD_JOBS" == auto || "$BUILD_JOBS" =~ ^[1-9][0-9]*$ ]] || { echo 'Invalid build_jobs'; exit 2; }
           python -m compileall -q scripts tests
           python tests/build_config_tests.py
           python tests/release_tests.py
+          python tests/release_metadata_tests.py
+          python tests/server_package_tests.py
           python scripts/prepare-build.py server --version "$OCSERV_VERSION" --sha256 "$OCSERV_SHA256"
           python tests/server_integration.py
           python tests/guard_integration.py
@@ -74,6 +99,7 @@ jobs:
           python3 tests/server_certificate_tests.py
           sudo python3 tests/vpn_guard_tests.py 2>&1 | tee test-results/vpn-guard-tests.log
       - uses: actions/upload-artifact@v7.0.1
+        if: always()
         with:
           name: server-regression-results
           path: |
@@ -91,6 +117,9 @@ jobs:
     needs: validate
     runs-on: ubuntu-24.04
     timeout-minutes: 120
+    env:
+      RELEASE_VERSION: ${{ needs.validate.outputs.release_version }}
+      BUILD_TIMESTAMP: ${{ needs.validate.outputs.build_timestamp }}
     steps:
       - uses: actions/checkout@v7.0.1
         with:
@@ -109,7 +138,7 @@ jobs:
             rsync swig unzip zlib1g-dev file wget curl zstd patch cpio
       - name: Verify and extract the selected SDK
         env:
-          SDK_VERSION: ${{ inputs.sdk_version }}
+          SDK_VERSION: ${{ needs.validate.outputs.sdk_version }}
         run: python3 scripts/fetch-sdk.py --version "$SDK_VERSION" --output "$RUNNER_TEMP/sdk-25.12"
       - name: Build ocserv and Chinese LuCI packages
         run: |
@@ -134,9 +163,13 @@ jobs:
 
   release:
     name: 发布服务端到 Releases
-    needs: server
+    needs: [validate, server]
+    if: ${{ inputs.publish_release && github.ref == 'refs/heads/main' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 15
+    env:
+      RELEASE_VERSION: ${{ needs.validate.outputs.release_version }}
+      BUILD_TIMESTAMP: ${{ needs.validate.outputs.build_timestamp }}
     permissions:
       contents: write
     steps:

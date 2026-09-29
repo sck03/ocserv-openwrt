@@ -6,6 +6,7 @@
 
 | 客户端参数 | 默认值 | 用途 |
 |---|---|---|
+| release_version | 空 | 发行套装版本，例如 0.5.1 或 v0.5.1-rc.1；留空使用北京时间日期和时分秒 |
 | openconnect_version | 9.21 | 官方协议核心版本 |
 | openconnect_sha256 | 空 | 默认使用锁定值，改版本时须提供官方源码 SHA-256 |
 | build_jobs | auto | 使用全部可用 CPU，也可指定正整数 |
@@ -15,7 +16,9 @@
 
 Actions 使用官方 checkout、cache、setup-node、setup-python、upload-artifact 和 download-artifact。JavaScript 检查用 Node.js 24，Windows 测试用 Python 3.14；用户运行客户端无需这些工具。
 
-服务端 build_jobs=auto 通过 nproc 使用可用 CPU，GNU Make 和 SDK 的 Ninja 共用额度。sdk_version 默认 25.12.5，auto 只选稳定的 25.12.x。SDK 放在 Git 仓库之外，仅构建 ocserv 和独立中文管理页两个 APK。详见 [上游更新](UPSTREAM-UPDATES.md)。
+服务端同样提供 `release_version` 和 `publish_release`，关闭后只生成构建附件；发布仅在 main 上执行。`build_jobs=auto` 通过 nproc 使用可用 CPU，GNU Make 和 SDK 的 Ninja 共用额度。`sdk_version` 默认 25.12.5，`auto` 在参数检查阶段解析为具体稳定版，后续使用同一版本。SDK 放在 Git 仓库之外，仅构建 ocserv 和独立中文管理页两个 APK。详见 [上游更新](UPSTREAM-UPDATES.md)。
+
+`release_version` 是发行套装版本，用于 Release 标题、标签、ZIP 名称和 BUILDINFO；不改写源码中的客户端程序版本、ocserv 上游版本或 APK 版本。版本号允许 2–4 段数字、可选 v 前缀及预发布后缀，最长 64 字符。构建时间由参数检查任务生成一次，以 UTC 保存、北京时间显示，x86/x64、源码包和发布页保持一致。
 
 ## 客户端结构
 
@@ -48,7 +51,7 @@ BUILD_JOBS=auto bash scripts/build-client-linux.sh x86
 python3 scripts/package-source.py
 ~~~
 
-CMake 需要 3.24+，Python 需要 3.11+。构建目录为 build/client/<arch>，依赖为 .deps/<arch>，输出在 dist/。Linux 不执行 Windows EXE。
+CMake 需要 3.24+，Python 需要 3.11+。构建目录为 build/client/<arch>，依赖为 .deps/<arch>，输出在 dist/。Linux 不执行 Windows EXE。手动分开打包时可先 `export RELEASE_VERSION=0.5.1 BUILD_TIMESTAMP="$(date -u +%Y-%m-%dT%H:%M:%SZ)"`，让各包使用同一份构建信息。
 
 依赖先校验归档再解压，补丁只应用于构建目录中的源码副本。没有校验标记的旧源码目录会报错，应使用干净工作区，或在确认只是构建缓存后将旧目录移出 .deps/sources/ 再构建。
 
@@ -72,7 +75,7 @@ python -m pip install -r client/tests/requirements.txt
 .\scripts\package.ps1 -Architecture all
 ~~~
 
--Jobs 0 默认使用可用 CPU。后续构建检查并复用匹配的依赖。Windows 与 Linux 调用同一打包器，统一文件、架构、许可证和校验规则。
+-Jobs 0 默认使用可用 CPU。后续构建检查并复用匹配的依赖。Windows 与 Linux 调用同一打包器，统一文件、架构、许可证和校验规则。`package.ps1 -ReleaseVersion 0.5.1` 可设置本地发行套装版本；不填时一次生成日期时间，供全部架构和源码包共用。
 
 ## 清理本地旧缓存
 
@@ -92,11 +95,13 @@ python -m pip install -r client/tests/requirements.txt
 ~~~sh
 python tests/build_config_tests.py
 python tests/release_tests.py
+python tests/release_metadata_tests.py
 python tests/client_build_tests.py
+python tests/server_package_tests.py
 node client/tests/script_tests.js
 ~~~
 
-Windows 原生回归：
+Windows 原生回归（下例使用 `-ReleaseVersion 0.5.0` 的包名；请替换为本次实际 ZIP 路径）：
 
 ~~~powershell
 python tests/cleanup_tests.py
@@ -114,9 +119,9 @@ PE 审计要求正确架构、子系统 6.1、允许的系统 DLL，拒绝已知
 
 客户端等待 windows-tests 和 source 全部成功后发布；服务端等待其构建校验完成。任务下载同次运行的产物，检查 ZIP 和 SHA256SUMS，先建草稿，全部上传成功后公开为 Pre-release。仅发布任务获得 contents: write，使用自动提供的 GitHub token。
 
-标签为 client-运行ID-尝试次数 或 server-运行ID-尝试次数，指向实际提交。重跑创建新条目，不覆盖已有附件。Release 附件长期保留，地址写入工作流 Summary。
+标签为 `client-版本或时间-运行ID-尝试次数` 或 `server-版本或时间-运行ID-尝试次数`，指向实际提交。重跑创建新条目，不覆盖已有附件。Release 标题始终显示北京时间，例如“布利杰VPN Windows 客户端 v0.5.1（构建 2026-09-29 10:20:59 +08:00）”；留空版本号时标题只显示构建时间。原来的“9.1”是运行次数与尝试次数，不是日期。Release 附件长期保留，地址写入工作流 Summary。
 
-客户端附件包含 x64/x86 便携 ZIP、对应源码 ZIP 和校验文件。打包只 strip 本项目 EXE，Wintun 保持原样；附带许可证、使用说明和 BUILDINFO。源码包包含项目源码、配方、补丁及全部锁定第三方归档，排除本机工具、测试数据和旧代码。
+客户端附件包含 x64/x86 便携 ZIP、对应源码 ZIP 和校验文件。打包只 strip 本项目 EXE，Wintun 保持原样；附带许可证、使用说明和 BUILDINFO。源码包包含项目源码、配方、补丁及全部锁定第三方归档；在 Git 工作区中仅收录受版本控制的项目文件，排除未跟踪备份、本机工具、测试数据和旧代码。客户端与服务端均在临时目录生成 ZIP，完成后替换目标文件，失败不会覆盖之前的完整包。
 
 ## N1 服务端
 
@@ -128,6 +133,6 @@ bash server/tools/build-ocserv.sh /tmp/sdk-25.12
 python3 scripts/package-server.py /tmp/sdk-25.12
 ~~~
 
-服务端 ZIP 包含 ocserv 源码、配方、LuCI feed 源码、BUILDINFO、安装工具和逐文件校验。包审计读取 SDK 清理后保留的 .pkgdir；管理页保留原始 CSS，附带 validation/ui 供复核。
+服务端 ZIP 包含 ocserv 源码、配方、LuCI feed 源码、BUILDINFO、安装工具和逐文件校验。文件名包含 ocserv 和管理页的 APK 修订号及发行标识。每次使用全新临时目录打包，避免混入旧文件；包审计读取 SDK 清理后保留的 .pkgdir，管理页保留原始 CSS，附带 validation/ui 供复核。
 
 安装 `lupa==2.8` 后，事务回归运行 `python tests/guard_integration.py`，命令执行边界回归运行 `python tests/process_tests.py`；网络隔离验证在 Linux 网络命名空间运行 sudo python3 tests/vpn_guard_tests.py。SDK/架构检查不替代 OPL 定制固件验收，不用官方模块替换 Flippy 内核模块。

@@ -9,6 +9,7 @@ import subprocess
 import tempfile
 import zipfile
 from build_common import ROOT, sha256, source_directory, version
+from release_metadata import build_metadata
 
 
 def main():
@@ -19,7 +20,8 @@ def main():
     args = parser.parse_args()
     dist = ROOT / "dist"
     dist.mkdir(exist_ok=True)
-    name = f"BulijieVPN-{version()}-windows-{args.arch}"
+    metadata = build_metadata()
+    name = f"BulijieVPN-{metadata['release_label']}-windows-{args.arch}"
     build = args.build.resolve()
     validation = dist / f"validation-{args.arch}"
     validation.mkdir(exist_ok=True)
@@ -89,7 +91,7 @@ def main():
             "Obtain the matching corresponding-source artifact before redistributing. See licenses/.\n",
             encoding="utf-8-sig",
         )
-        info = {"version": version(), "architecture": args.arch, "commit": os.environ.get("GITHUB_SHA", "local"),
+        info = {**metadata, "version": version(), "architecture": args.arch, "commit": os.environ.get("GITHUB_SHA", "local"),
                 "components": {name: source_directory(name) for name in ("openconnect", "gnutls", "gmp", "nettle", "stoken", "libxml2", "zlib")},
                 "wintun_sha256": sha256(source_dll),
                 "vpnc_script_sha256": sha256(folder / "vpnc-script-win.js"),
@@ -98,10 +100,12 @@ def main():
                 "validation": "Compile and PE audit; Windows runtime reports accompany the workflow. Real VPN/Win7 acceptance is separate."}
         (folder / "BUILDINFO.json").write_text(json.dumps(info, indent=2) + "\n", encoding="utf-8")
         archive = dist / (name + ".zip")
-        with zipfile.ZipFile(archive, "w", zipfile.ZIP_DEFLATED, compresslevel=7) as output:
+        staged_archive = Path(temporary) / archive.name
+        with zipfile.ZipFile(staged_archive, "w", zipfile.ZIP_DEFLATED, compresslevel=7) as output:
             for file in sorted(folder.rglob("*")):
                 if file.is_file():
                     output.write(file, name + "/" + file.relative_to(folder).as_posix())
+        staged_archive.replace(archive)
     for filename in ("native_model_tests.exe", "native_session_tests.exe", "native_ui_tests.exe", "native_script_tests.exe",
                      "wintun.dll", "vpnc-script-win.js"):
         shutil.copyfile(build / filename, validation / filename)

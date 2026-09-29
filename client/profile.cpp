@@ -75,8 +75,8 @@ Profile decode_profile(const Json &j, const std::filesystem::path &directory) {
     p.name = text(j, "name", 512);
     p.gateway = text(j, "gateway", 8192);
     p.protocol = j.value("protocol", std::string("anyconnect"));
-    p.username = utf8(text(j, "username", 4096));
-    p.group = utf8(text(j, "group", 4096));
+    p.username = utf8(text(j, "username", 8192));
+    p.group = utf8(text(j, "group", 8192));
     p.ca_file = text(j, "ca_file");
     p.certificate_file = text(j, "certificate_file");
     p.key_file = text(j, "key_file");

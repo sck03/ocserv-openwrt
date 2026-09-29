@@ -1,13 +1,17 @@
 """Bundle corresponding source without private build/test data or retired code."""
 import json
+import os
 from pathlib import Path
+import subprocess
 import tempfile
 import zipfile
 from build_common import ROOT, sha256, version
+from release_metadata import build_metadata
 
 
 def main():
-    destination = ROOT / "dist" / f"BulijieVPN-{version()}-source.zip"
+    metadata = build_metadata()
+    destination = ROOT / "dist" / f"BulijieVPN-{metadata['release_label']}-source.zip"
     destination.parent.mkdir(exist_ok=True)
     directories = ("client", "resources", "scripts", "tests", "docs", "server", ".github")
     files = [ROOT / name for name in (
@@ -18,6 +22,10 @@ def main():
         files.extend(path for path in (ROOT / directory).rglob("*")
                      if path.is_file() and "__pycache__" not in path.parts
                      and path.suffix not in (".pyc", ".pyo"))
+    if (ROOT / ".git").exists():
+        tracked = subprocess.check_output(["git", "-C", str(ROOT), "ls-files", "-z"]).decode("utf-8").split("\0")
+        allowed = set(tracked)
+        files = [path for path in files if path.relative_to(ROOT).as_posix() in allowed]
     for path in files:
         if path.is_symlink() or not path.resolve().is_relative_to(ROOT):
             raise RuntimeError(f"Source file must stay in the workspace: {path}")
@@ -33,6 +41,8 @@ def main():
     with tempfile.TemporaryDirectory(prefix="source-", dir=destination.parent) as temporary:
         staged = Path(temporary) / destination.name
         with zipfile.ZipFile(staged, "w", zipfile.ZIP_DEFLATED, compresslevel=7) as archive:
+            archive.writestr("BulijieVPN/BUILDINFO.json", json.dumps(
+                {**metadata, "version": version(), "commit": os.environ.get("GITHUB_SHA", "local")}, indent=2) + "\n")
             for path in sorted(files):
                 archive.write(path, "BulijieVPN/" + path.relative_to(ROOT).as_posix())
             for path in archives:

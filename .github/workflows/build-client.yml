@@ -3,6 +3,10 @@ name: 手动构建 Windows 客户端
 on:
   workflow_dispatch:
     inputs:
+      release_version:
+        description: 发布版本号（如 0.5.1）；留空使用北京时间日期和时分秒
+        type: string
+        default: ""
       openconnect_version:
         description: OpenConnect 官方协议核心版本
         type: string
@@ -37,6 +41,9 @@ jobs:
     name: 检查构建参数和脚本
     runs-on: ubuntu-24.04
     timeout-minutes: 5
+    outputs:
+      release_version: ${{ steps.metadata.outputs.release_version }}
+      build_timestamp: ${{ steps.metadata.outputs.build_timestamp }}
     steps:
       - uses: actions/checkout@v7.0.1
         with:
@@ -44,6 +51,12 @@ jobs:
       - uses: actions/setup-node@v7.0.0
         with:
           node-version: '24'
+          package-manager-cache: false
+      - name: Resolve release version and build time
+        id: metadata
+        env:
+          RELEASE_VERSION: ${{ inputs.release_version }}
+        run: python3 scripts/release_metadata.py --github-output
       - name: Validate inputs and release scripts
         env:
           CORE_VERSION: ${{ inputs.openconnect_version }}
@@ -53,6 +66,7 @@ jobs:
           python3 -m compileall -q scripts tests client/tests
           python3 tests/build_config_tests.py
           python3 tests/release_tests.py
+          python3 tests/release_metadata_tests.py
           python3 tests/client_build_tests.py
           node client/tests/script_tests.js
           python3 scripts/prepare-build.py client --version "$CORE_VERSION" --sha256 "$CORE_SHA256"
@@ -63,6 +77,9 @@ jobs:
     needs: validate
     runs-on: ubuntu-24.04
     timeout-minutes: 60
+    env:
+      RELEASE_VERSION: ${{ needs.validate.outputs.release_version }}
+      BUILD_TIMESTAMP: ${{ needs.validate.outputs.build_timestamp }}
     strategy:
       fail-fast: false
       matrix:
@@ -130,6 +147,7 @@ jobs:
             dist/validation-*/
           if-no-files-found: error
           retention-days: 7
+          compression-level: 0
       - uses: actions/upload-artifact@v7.0.1
         if: failure()
         with:
@@ -190,6 +208,9 @@ jobs:
     needs: validate
     runs-on: ubuntu-24.04
     timeout-minutes: 15
+    env:
+      RELEASE_VERSION: ${{ needs.validate.outputs.release_version }}
+      BUILD_TIMESTAMP: ${{ needs.validate.outputs.build_timestamp }}
     steps:
       - uses: actions/checkout@v7.0.1
         with:
@@ -214,10 +235,13 @@ jobs:
 
   release:
     name: 发布客户端到 Releases
-    needs: [windows-tests, source]
+    needs: [validate, windows-tests, source]
     if: ${{ inputs.publish_release && github.ref == 'refs/heads/main' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 15
+    env:
+      RELEASE_VERSION: ${{ needs.validate.outputs.release_version }}
+      BUILD_TIMESTAMP: ${{ needs.validate.outputs.build_timestamp }}
     permissions:
       contents: write
     steps:

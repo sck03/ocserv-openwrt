@@ -2,6 +2,7 @@
 import hashlib
 import importlib.util
 import json
+import os
 from pathlib import Path
 import shutil
 import struct
@@ -80,7 +81,7 @@ class SourceBundleTests(unittest.TestCase):
         for name in ("CMakeLists.txt", "README.md", "LICENSE", "THIRD-PARTY-NOTICES.md",
                      ".gitignore", ".gitattributes", ".clang-format"):
             shutil.copyfile(ROOT / name, self.root / name)
-        for name in ("package-source.py", "build_common.py"):
+        for name in ("package-source.py", "build_common.py", "release_metadata.py"):
             shutil.copyfile(ROOT / "scripts" / name, self.root / "scripts" / name)
         (self.root / "client/main.cpp").write_text("// fixture source\n", encoding="utf-8")
         (self.root / "src/main.cpp").write_text("obsolete code", encoding="utf-8")
@@ -97,7 +98,8 @@ class SourceBundleTests(unittest.TestCase):
 
     def bundle(self):
         return subprocess.run([sys.executable, self.root / "scripts/package-source.py"],
-                              capture_output=True, text=True, timeout=30)
+                              capture_output=True, text=True, timeout=30,
+                              env=dict(os.environ, RELEASE_VERSION="", BUILD_TIMESTAMP="2026-09-29T01:02:03Z"))
 
     def test_source_contains_pinned_archives_without_local_or_retired_data(self):
         result = self.bundle()
@@ -106,6 +108,8 @@ class SourceBundleTests(unittest.TestCase):
         with zipfile.ZipFile(package) as source:
             names = source.namelist()
             self.assertIn("BulijieVPN/client/main.cpp", names)
+            metadata = json.loads(source.read("BulijieVPN/BUILDINFO.json"))
+            self.assertEqual(metadata["build_time"], "2026-09-29 09:02:03 +08:00")
             self.assertIn("BulijieVPN/.tools/downloads/fixture-1.0.tar.gz", names)
             self.assertFalse(any("private.key" in name or "/src/" in name or "/config/" in name for name in names))
         checksum = (self.root / "dist/SHA256SUMS-source.txt").read_text()
@@ -123,6 +127,15 @@ class SourceBundleTests(unittest.TestCase):
         self.manifest["../private.key"] = self.manifest.pop(self.archive.name)
         (self.root / "scripts/sources.json").write_text(json.dumps(self.manifest), encoding="utf-8")
         self.assertNotEqual(self.bundle().returncode, 0)
+
+    def test_git_checkout_excludes_untracked_backup_files(self):
+        subprocess.run(["git", "init", "-q", str(self.root)], check=True)
+        subprocess.run(["git", "-C", str(self.root), "add", "."], check=True)
+        (self.root / "client/private.key").write_text("synthetic untracked backup")
+        self.assertEqual(self.bundle().returncode, 0)
+        with zipfile.ZipFile(next((self.root / "dist").glob("*-source.zip"))) as source:
+            self.assertIn("BulijieVPN/client/main.cpp", source.namelist())
+            self.assertNotIn("BulijieVPN/client/private.key", source.namelist())
 
 
 if __name__ == "__main__":

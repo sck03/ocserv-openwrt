@@ -48,6 +48,7 @@ fi
         environment = dict(os.environ, GH_TOKEN="fixture-token", GITHUB_REPOSITORY="fixture/repository",
                            GITHUB_SHA="a" * 40, GITHUB_RUN_ID="12345", GITHUB_RUN_ATTEMPT="1",
                            GITHUB_RUN_NUMBER="7", GITHUB_SERVER_URL="https://github.com",
+                           RELEASE_VERSION="", BUILD_TIMESTAMP="2026-09-29T01:02:03Z",
                            GITHUB_STEP_SUMMARY="summary.md", FAIL_COMMAND="")
         environment.update(overrides)
         return subprocess.run(
@@ -72,7 +73,8 @@ fi
             self.assertIn("assets/" + name, calls[1])
         self.assertIn("--draft=false", calls[2])
         summary = (self.work / "summary.md").read_text(encoding="utf-8")
-        self.assertIn("https://github.com/fixture/repository/releases/tag/client-12345-1", summary)
+        self.assertIn("https://github.com/fixture/repository/releases/tag/client-20260929-090203-12345-1", summary)
+        self.assertIn("构建 2026-09-29 09:02:03 +08:00", summary)
         notes = (self.work / "published-notes.md").read_text(encoding="utf-8")
         self.assertIn("source.zip", notes)
         self.assertIn("/actions/runs/12345/attempts/1", notes)
@@ -80,12 +82,12 @@ fi
     def test_server_uses_its_own_tag(self):
         result = self.publish("server")
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(self.calls()[0][2], "server-12345-1")
+        self.assertEqual(self.calls()[0][2], "server-20260929-090203-12345-1")
 
     def test_rerun_uses_new_tag_without_overwriting_assets(self):
         result = self.publish(GITHUB_RUN_ATTEMPT="2")
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(self.calls()[0][2], "client-12345-2")
+        self.assertEqual(self.calls()[0][2], "client-20260929-090203-12345-2")
         self.assertNotIn("--clobber", self.calls()[1])
 
     def test_corrupt_zip_fails_before_creating_release(self):
@@ -93,6 +95,19 @@ fi
         result = self.publish()
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("do not match", result.stderr)
+        self.assertEqual(self.calls(), [])
+
+    def test_custom_version_is_in_title_and_tag(self):
+        result = self.publish(RELEASE_VERSION="v0.5.1")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        call = self.calls()[0]
+        self.assertEqual(call[2], "client-v0.5.1-12345-1")
+        self.assertEqual(call[call.index("--title") + 1],
+                         "布利杰VPN Windows 客户端 v0.5.1（构建 2026-09-29 09:02:03 +08:00）")
+
+    def test_unsafe_version_is_rejected_before_github_calls(self):
+        result = self.publish(RELEASE_VERSION="../bad;echo unsafe")
+        self.assertNotEqual(result.returncode, 0)
         self.assertEqual(self.calls(), [])
 
     def test_unlisted_zip_fails_before_creating_release(self):

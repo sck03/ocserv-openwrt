@@ -95,6 +95,14 @@ int main(int argc, char **argv) {
                   second.id, second.gateway, [](Profile &p) { p.password = "do-not-recreate"; }, error),
               "late session cannot recreate a removed profile");
         first = profiles.front();
+        first.username = std::string(8192, 'u');
+        first.group = std::string(8192, 'g');
+        check(store.save(first, error) && store.load(profiles, preferences, error) &&
+                  profiles.front().username == first.username && profiles.front().group == first.group,
+              "maximum accepted authentication fields survive reopening the store");
+        first.username.push_back('u');
+        check(!store.save(first, error), "oversized authentication fields cannot corrupt the store");
+        first = profiles.front();
         first.gateway = L"different.example.com";
         check(store.save(first, error) && first.password.empty(), "changed gateway clears saved password");
         auto path = store.directory() / L"profiles.json";
