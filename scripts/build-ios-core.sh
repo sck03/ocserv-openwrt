@@ -37,10 +37,15 @@ cd "$work/oc-build"
   --without-stoken --without-libpcsclite --without-gssapi --without-libproxy \
   --without-libpskc --without-lz4 --without-java --with-vpnc-script=/disabled \
   OPENSSL_CFLAGS="-I$prefix/include" \
-  OPENSSL_LIBS="$prefix/lib/libssl.a $prefix/lib/libcrypto.a" LIBS=-lz
+  OPENSSL_LIBS="-L$prefix/lib -lssl -lcrypto" LIBS=-lz \
+  ac_cv_func_strchrnul=no CFLAGS="$CFLAGS -Werror=unguarded-availability"
 make -j"$jobs" libopenconnect.la
 cp .libs/libopenconnect.a "$prefix/lib/"
 cp "$work/openconnect-9.21/openconnect.h" "$prefix/include/"
 for library in openconnect ssl crypto xml2; do
   xcrun lipo "$prefix/lib/lib$library.a" -verify_arch arm64
+  if xcrun ar -t "$prefix/lib/lib$library.a" | grep '\.a$'; then
+    echo "Unexpected nested archive in lib$library.a" >&2
+    exit 1
+  fi
 done

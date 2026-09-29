@@ -145,11 +145,13 @@ static void Progress(void *data, int level, const char *format, ...) {
         settings.IPv4Settings.includedRoutes = @[[NEIPv4Route defaultRoute]];
         // Capture IPv6 as well. When ocserv supplies none, IPv6 has no usable upstream
         // and is dropped inside the tunnel instead of escaping over the physical link.
-        NSString *v6 = info->addr6 ? @(info->addr6) : @"fd00::2";
         NSArray<NSString *> *parts = info->netmask6 ? [@(info->netmask6) componentsSeparatedByString:@"/"] : @[];
+        // Modern ocserv may send only X-CSTP-Address-IP6 (address/prefix).
+        NSString *v6 = info->addr6 ? @(info->addr6) : (parts.count == 2 ? parts[0] : @"fd00::2");
         if ([v6 containsString:@"/"]) v6 = [v6 componentsSeparatedByString:@"/"][0];
         int prefixLength = parts.count == 2 ? bvpn_prefix6(parts[1].UTF8String) : 128;
-        if (parts.count > 2 || prefixLength < 0) {
+        struct in6_addr parsedV6;
+        if (parts.count > 2 || prefixLength < 0 || inet_pton(AF_INET6, v6.UTF8String, &parsedV6) != 1) {
             failure = VPNError(@"服务器 IPv6 前缀无效"); break;
         }
         NSNumber *prefix = @(prefixLength);
@@ -166,7 +168,13 @@ static void Progress(void *data, int level, const char *format, ...) {
             settingsError = error;
             dispatch_semaphore_signal(ready);
         }];
-        if (dispatch_semaphore_wait(ready, dispatch_time(DISPATCH_TIME_NOW, 30 * NSEC_PER_SEC))) {
+        long waitResult = 1;
+        for (unsigned attempt = 0; attempt < 150 && !self.stopping; ++attempt) {
+            waitResult = dispatch_semaphore_wait(ready, dispatch_time(DISPATCH_TIME_NOW, 200 * NSEC_PER_MSEC));
+            if (!waitResult) break;
+        }
+        if (self.stopping) break;
+        if (waitResult) {
             failure = VPNError(@"应用网络设置超时"); break;
         }
         failure = settingsError;
