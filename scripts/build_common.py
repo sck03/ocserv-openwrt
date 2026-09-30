@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 import re
 import shutil
+import tempfile
 import time
 import urllib.request
 
@@ -38,17 +39,20 @@ def download_verified(destination, url, checksum):
             return
         raise RuntimeError(f"SHA-256 mismatch in cached download: {destination.name}; expected {checksum}, got {actual}")
     destination.parent.mkdir(parents=True, exist_ok=True)
-    temporary = destination.with_suffix(destination.suffix + ".part")
-    for attempt in range(3):
-        try:
-            with urllib.request.urlopen(url, timeout=90) as response, temporary.open("wb") as output:
-                shutil.copyfileobj(response, output)
-            actual = sha256(temporary)
-            if actual != checksum:
-                raise RuntimeError(f"SHA-256 mismatch: {destination.name}; expected {checksum}, got {actual}")
-            temporary.replace(destination)
-            return
-        except (OSError, TimeoutError):
-            if attempt == 2:
-                raise
-            time.sleep(2 * (attempt + 1))
+    # Concurrent builds must not share a partial file. Keep it on the same
+    # filesystem for atomic installation and remove it on every failure path.
+    with tempfile.TemporaryDirectory(prefix="download-", dir=destination.parent) as work:
+        temporary = Path(work) / destination.name
+        for attempt in range(3):
+            try:
+                with urllib.request.urlopen(url, timeout=90) as response, temporary.open("wb") as output:
+                    shutil.copyfileobj(response, output)
+                actual = sha256(temporary)
+                if actual != checksum:
+                    raise RuntimeError(f"SHA-256 mismatch: {destination.name}; expected {checksum}, got {actual}")
+                temporary.replace(destination)
+                return
+            except (OSError, TimeoutError):
+                if attempt == 2:
+                    raise
+                time.sleep(2 * (attempt + 1))

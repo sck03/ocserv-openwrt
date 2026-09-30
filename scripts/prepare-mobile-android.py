@@ -1,5 +1,4 @@
 """Small, fail-closed adaptations to the checksum-pinned Android upstream."""
-from pathlib import Path
 import shutil
 
 

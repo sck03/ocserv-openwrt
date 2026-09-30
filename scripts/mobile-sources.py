@@ -1,35 +1,22 @@
 #!/usr/bin/env python3
 """Fetch and verify every native input before invoking either mobile toolchain."""
 import argparse
-import hashlib
 import json
 from pathlib import Path
 import shutil
 import tarfile
-import urllib.request
 import importlib.util
+from build_common import ROOT, download_verified
 
-ROOT = Path(__file__).resolve().parents[1]
 MANIFEST = ROOT / "mobile/sources.json"
 
 
-def digest(path):
-    with path.open("rb") as stream:
-        return hashlib.file_digest(stream, "sha256").hexdigest()
-
-
 def fetch(entry, downloads):
-    archive = downloads / entry["filename"]
-    if not archive.exists():
-        partial = archive.with_suffix(archive.suffix + ".part")
-        with urllib.request.urlopen(entry["url"], timeout=120) as response, partial.open("wb") as out:
-            shutil.copyfileobj(response, out)
-        if digest(partial) != entry["sha256"]:
-            partial.unlink()
-            raise ValueError(f"Checksum mismatch: {archive.name}")
-        partial.replace(archive)
-    if digest(archive) != entry["sha256"]:
-        raise ValueError(f"Cached source checksum mismatch: {archive}")
+    name = entry["filename"]
+    if Path(name).name != name or "\\" in name or name in ("", ".", ".."):
+        raise ValueError(f"Invalid source archive name: {name}")
+    archive = downloads / name
+    download_verified(archive, entry["url"], entry["sha256"])
     return archive
 
 

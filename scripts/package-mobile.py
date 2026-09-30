@@ -4,35 +4,41 @@ import argparse
 import json
 from pathlib import Path
 import subprocess
+import tempfile
 import zipfile
-import importlib.util
-
-ROOT = Path(__file__).resolve().parents[1]
-spec = importlib.util.spec_from_file_location("mobile_sources", ROOT / "scripts/mobile-sources.py")
-sources = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(sources)
+from build_common import ROOT, sha256
 
 
 def package(platform):
     out = ROOT / "dist" / platform
     info = ROOT / "build/mobile" / platform / "BUILDINFO.json"
     entries = json.loads(info.read_text(encoding="utf-8"))
-    # Include current local changes as well as tracked files; no generated build tree.
+    # Read current contents of tracked files, excluding local backups and secrets.
     paths = subprocess.check_output(
-        ["git", "ls-files", "-z", "--cached", "--others", "--exclude-standard"], cwd=ROOT
-    ).decode().split("\0")
-    with zipfile.ZipFile(out / "corresponding-source.zip", "w", zipfile.ZIP_DEFLATED) as bundle:
-        for name in sorted(set(paths)):
-            if name and (name.startswith(("mobile/", "scripts/", ".github/workflows/"))
-                         or name in ("LICENSE", "README.md", "THIRD-PARTY-NOTICES.md", "docs/MOBILE.md", "tests/mobile_build_tests.py", "tests/mobile_protocol_tests.c")):
-                bundle.write(ROOT / name, "project/" + name)
-        for entry in entries.values():
-            archive = ROOT / ".tools/mobile-downloads" / entry["filename"]
-            if sources.digest(archive) != entry["sha256"]:
-                raise ValueError("Source changed before packaging")
-            bundle.write(archive, "upstream/" + archive.name)
+        ["git", "ls-files", "-z", "--cached"], cwd=ROOT
+    ).decode("utf-8").split("\0")
+    out.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(prefix="source-", dir=out) as work:
+        staged = Path(work) / "corresponding-source.zip"
+        with zipfile.ZipFile(staged, "w", zipfile.ZIP_DEFLATED) as bundle:
+            for name in sorted(set(paths)):
+                if name and (name.startswith(("mobile/", "scripts/", ".github/workflows/"))
+                             or name in ("LICENSE", "README.md", "THIRD-PARTY-NOTICES.md", "docs/MOBILE.md", "tests/mobile_build_tests.py", "tests/mobile_protocol_tests.c")):
+                    path = ROOT / name
+                    if path.is_symlink() or not path.resolve().is_relative_to(ROOT):
+                        raise ValueError(f"Source file must stay in the workspace: {name}")
+                    bundle.write(path, "project/" + name)
+            for entry in entries.values():
+                name = entry["filename"]
+                if Path(name).name != name or "\\" in name or name in ("", ".", ".."):
+                    raise ValueError(f"Invalid source archive name: {name}")
+                archive = ROOT / ".tools/mobile-downloads" / name
+                if archive.is_symlink() or not archive.resolve().is_relative_to(ROOT) or sha256(archive) != entry["sha256"]:
+                    raise ValueError("Source changed before packaging")
+                bundle.write(archive, "upstream/" + archive.name, compress_type=zipfile.ZIP_STORED)
+        staged.replace(out / staged.name)
     (out / "SHA256SUMS.txt").write_text("".join(
-        f"{sources.digest(path)}  {path.name}\n" for path in sorted(out.iterdir())
+        f"{sha256(path)}  {path.name}\n" for path in sorted(out.iterdir())
         if path.is_file() and path.name != "SHA256SUMS.txt"), encoding="utf-8")
 
 

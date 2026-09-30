@@ -10,10 +10,15 @@ from pathlib import Path
 import tarfile
 import tempfile
 import struct
+import subprocess
+import sys
 import unittest
+import zipfile
 from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "scripts"))
+import build_common
 
 
 def module(name):
@@ -27,6 +32,7 @@ sources = module("mobile-sources")
 signing = module("ios-signing")
 android_audit = module("audit-android")
 android_prepare = module("prepare-mobile-android")
+packaging = module("package-mobile")
 
 
 class AndroidTests(unittest.TestCase):
@@ -76,15 +82,63 @@ class SourceTests(unittest.TestCase):
             destination = Path(directory)
             entry = {"filename": "source.tar.gz", "url": "https://example.invalid/source",
                      "sha256": hashlib.sha256(b"expected").hexdigest()}
-            with patch.object(sources.urllib.request, "urlopen", return_value=io.BytesIO(b"corrupt")):
-                with self.assertRaises(ValueError):
+            with patch.object(build_common.urllib.request, "urlopen", return_value=io.BytesIO(b"corrupt")):
+                with self.assertRaises(RuntimeError):
                     sources.fetch(entry, destination)
             self.assertFalse((destination / entry["filename"]).exists())
-            with patch.object(sources.urllib.request, "urlopen", return_value=io.BytesIO(b"expected")):
+            self.assertEqual(list(destination.iterdir()), [])
+            with patch.object(build_common.urllib.request, "urlopen", return_value=io.BytesIO(b"expected")):
                 archive = sources.fetch(entry, destination)
             archive.write_bytes(b"tampered")
-            with self.assertRaises(ValueError):
+            with self.assertRaises(RuntimeError):
                 sources.fetch(entry, destination)
+
+    def test_download_retries_and_cleans_failed_attempts(self):
+        with tempfile.TemporaryDirectory() as directory:
+            archive = Path(directory) / "source.tar.gz"
+            checksum = hashlib.sha256(b"expected").hexdigest()
+            with patch.object(build_common.time, "sleep"), patch.object(
+                build_common.urllib.request, "urlopen",
+                side_effect=[OSError("offline"), io.BytesIO(b"expected")],
+            ) as request:
+                build_common.download_verified(archive, "https://example.invalid", checksum)
+                self.assertEqual(request.call_count, 2)
+            with patch.object(build_common.urllib.request, "urlopen") as request:
+                build_common.download_verified(archive, "https://example.invalid", checksum)
+                request.assert_not_called()
+            archive.unlink()
+            with patch.object(build_common.time, "sleep"), patch.object(
+                build_common.urllib.request, "urlopen", side_effect=OSError("offline"),
+            ) as request:
+                with self.assertRaises(OSError):
+                    build_common.download_verified(archive, "https://example.invalid", checksum)
+                self.assertEqual(request.call_count, 3)
+            self.assertEqual(list(Path(directory).iterdir()), [])
+
+    def test_concurrent_downloads_use_independent_temporary_files(self):
+        with tempfile.TemporaryDirectory() as directory:
+            archive = Path(directory) / "source.tar.gz"
+            checksum = hashlib.sha256(b"expected").hexdigest()
+
+            class InterleavedResponse(io.BytesIO):
+                def read(self, size=-1):
+                    if self.tell() == 0:
+                        build_common.download_verified(archive, "https://example.invalid", checksum)
+                    return super().read(size)
+
+            with patch.object(build_common.urllib.request, "urlopen", side_effect=[
+                InterleavedResponse(b"expected"), io.BytesIO(b"expected"),
+            ]):
+                build_common.download_verified(archive, "https://example.invalid", checksum)
+            self.assertEqual(archive.read_bytes(), b"expected")
+            self.assertEqual(list(Path(directory).iterdir()), [archive])
+
+    def test_download_rejects_unsafe_archive_names(self):
+        for name in ("../source.tar.gz", "..\\source.tar.gz", ".", "", "/source.tar.gz"):
+            with self.subTest(name=name), patch.object(sources, "download_verified") as download:
+                with self.assertRaises(ValueError):
+                    sources.fetch({"filename": name}, Path("unused"))
+                download.assert_not_called()
 
     def test_archive_rejects_path_escape(self):
         for name in ("../escape", "source/../../escape"):
@@ -97,6 +151,55 @@ class SourceTests(unittest.TestCase):
                 with self.assertRaises((ValueError, tarfile.FilterError)):
                     sources.unpack(archive, Path(directory) / "out", "source")
                 self.assertFalse((Path(directory) / "escape").exists())
+
+
+class PackagingTests(unittest.TestCase):
+    def setUp(self):
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        self.root = Path(temporary.name).resolve()
+        self.out = self.root / "dist/ios"
+        self.out.mkdir(parents=True)
+        self.archive = self.root / ".tools/mobile-downloads/source.tar.gz"
+        self.archive.parent.mkdir(parents=True)
+        self.archive.write_bytes(b"upstream archive")
+        self.entries = {"core": {"filename": self.archive.name, "sha256": build_common.sha256(self.archive)}}
+        self.info = self.root / "build/mobile/ios/BUILDINFO.json"
+        self.info.parent.mkdir(parents=True)
+        self.info.write_text(json.dumps(self.entries))
+        (self.root / "mobile").mkdir()
+        (self.root / "mobile/app.swift").write_text("tracked source")
+        subprocess.run(["git", "init", "-q", str(self.root)], check=True)
+        subprocess.run(["git", "-C", str(self.root), "add", "mobile/app.swift"], check=True)
+        self.root_patch = patch.object(packaging, "ROOT", self.root)
+        self.root_patch.start()
+        self.addCleanup(self.root_patch.stop)
+
+    def test_only_tracked_current_sources_and_uncompressed_upstream(self):
+        (self.root / "mobile/app.swift").write_text("current changes")
+        (self.root / "mobile/backup.txt").write_text("private backup")
+        packaging.package("ios")
+        with zipfile.ZipFile(self.out / "corresponding-source.zip") as bundle:
+            self.assertEqual(set(bundle.namelist()), {"project/mobile/app.swift", "upstream/source.tar.gz"})
+            self.assertEqual(bundle.read("project/mobile/app.swift"), b"current changes")
+            self.assertEqual(bundle.getinfo("upstream/source.tar.gz").compress_type, zipfile.ZIP_STORED)
+        checksum = build_common.sha256(self.out / "corresponding-source.zip")
+        self.assertIn(checksum, (self.out / "SHA256SUMS.txt").read_text())
+
+    def test_failed_package_preserves_previous_outputs(self):
+        packaging.package("ios")
+        previous = {p.name: p.read_bytes() for p in self.out.iterdir()}
+        self.archive.write_bytes(b"corrupt")
+        with self.assertRaises(ValueError):
+            packaging.package("ios")
+        self.assertEqual({p.name: p.read_bytes() for p in self.out.iterdir()}, previous)
+
+    def test_rejects_escaping_archive_name(self):
+        self.entries["core"]["filename"] = "../source.tar.gz"
+        self.info.write_text(json.dumps(self.entries))
+        with self.assertRaisesRegex(ValueError, "Invalid source archive name"):
+            packaging.package("ios")
+        self.assertEqual(list(self.out.iterdir()), [])
 
 
 class SigningTests(unittest.TestCase):
