@@ -4,7 +4,7 @@
 
 ## 安装
 
-本次 APK 套装仅包含 `ocserv` 和 `luci-app-ocserv-easy`。完整上传到新目录后运行 `sh install.sh`，再重新登录 LuCI。安装成功后会移除原 `luci-app-ocserv` 和其中文翻译，避免重复页面。首次安装、证书和 TUN 说明见 [N1 安装指南](OPENWRT-N1.md)。
+本次 APK 套装仅包含 `ocserv` 和 `luci-app-ocserv-easy`。选择与设备匹配的架构，完整上传到新目录后运行 `sh install.sh`，再重新登录 LuCI。安装成功后会移除原 `luci-app-ocserv` 和其中文翻译，避免重复页面。通用安装见 [OpenWrt 多架构说明](OPENWRT.md)，N1 的证书和 TUN 说明见 [N1 安装指南](OPENWRT-N1.md)。
 
 包直接依赖 `ocserv`，以及 `luci-compat`、`luci-lib-nixio`、`luci-lib-jsonc`，由当前固件的软件源解析。没有默认管理账号，沿用 LuCI 自身的登录。
 
