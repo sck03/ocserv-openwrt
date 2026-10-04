@@ -127,16 +127,16 @@ PE 审计要求正确架构、子系统 6.1、允许的系统 DLL，拒绝已知
 
 移动端对应源码包同样只收录 Git 跟踪文件的当前内容，完整生成后替换旧包；上游压缩归档直接存入 ZIP，避免重复压缩。移动端与桌面端共用下载校验、网络重试和独立临时文件清理逻辑。
 
-## N1 服务端
+## OpenWrt 多架构服务端
 
-使用匹配固件的 OpenWrt 25.12.x / armsr/armv8 / aarch64_generic / APK SDK：
+使用匹配固件的 OpenWrt 25.12.x / APK SDK。目标清单统一维护在 `server/openwrt/targets.json`，GitHub Actions 自动从该清单生成六目标矩阵。以下以 x86/64 为例；省略 `--target` 时仍使用 armsr/armv8：
 
 ~~~sh
-python3 scripts/fetch-sdk.py --version 25.12.5 --output /tmp/sdk-25.12
+python3 scripts/fetch-sdk.py --version 25.12.5 --target x86/64 --output /tmp/sdk-25.12
 bash server/tools/build-ocserv.sh /tmp/sdk-25.12
 python3 scripts/package-server.py /tmp/sdk-25.12
 ~~~
 
-服务端 ZIP 包含 ocserv 源码、配方、LuCI feed 源码、BUILDINFO、安装工具和逐文件校验。文件名包含 ocserv 和管理页的 APK 修订号及发行标识。每次使用全新临时目录打包，避免混入旧文件；包审计读取 SDK 清理后保留的 .pkgdir，管理页保留原始 CSS，附带 validation/ui 供复核。
+服务端 ZIP 包含 ocserv 源码、配方、LuCI feed 源码、BUILDINFO、安装工具、架构白名单和逐文件校验。文件名和外部校验文件均包含架构，合并矩阵产物时不会互相覆盖。SDK 下载校验官方 SHA-256，构建和打包核对实际 SDK target 与软件包架构，包审计按目标检查 ELF 位数、字节序与机器类型。管理页保留原始 CSS，附带 validation/ui 供复核。目标列表和安装边界见 [OpenWrt 说明](OPENWRT.md)。
 
 安装 `lupa==2.8` 后，事务回归运行 `python tests/guard_integration.py`，命令执行边界回归运行 `python tests/process_tests.py`；网络隔离验证在 Linux 网络命名空间运行 sudo python3 tests/vpn_guard_tests.py。SDK/架构检查不替代 OPL 定制固件验收，不用官方模块替换 Flippy 内核模块。

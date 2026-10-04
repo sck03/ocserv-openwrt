@@ -11,6 +11,7 @@ import tarfile
 import tempfile
 from build_common import ROOT, sha256
 from release_metadata import build_metadata
+from validate_sdk import validate_sdk
 
 
 def main():
@@ -19,6 +20,8 @@ def main():
     args = parser.parse_args()
     sdk = args.sdk.resolve()
     entry = json.loads((sdk / "sdk-info.json").read_text(encoding="utf-8"))
+    target = validate_sdk(sdk)
+    architecture = target["architecture"]
     if not re.fullmatch(r"25\.12\.\d+", entry["version"]):
         raise RuntimeError("Only OpenWrt 25.12.x packages are supported")
     recipe = (ROOT / "server/openwrt/ocserv/Makefile").read_text(encoding="utf-8")
@@ -31,7 +34,7 @@ def main():
     metadata = build_metadata()
     dist = ROOT / "dist"
     dist.mkdir(exist_ok=True)
-    name = (f"ocserv-{ocserv_version}-r{ocserv_release}-openwrt-{entry['version']}-aarch64_generic-"
+    name = (f"ocserv-{ocserv_version}-r{ocserv_release}-openwrt-{entry['version']}-{architecture}-"
             f"ui-{ui_version}-r{ui_release}-{metadata['release_label']}")
     with tempfile.TemporaryDirectory(prefix="server-", dir=dist) as temporary:
         output = Path(temporary) / name
@@ -55,8 +58,11 @@ def main():
             raise RuntimeError("Cannot locate the staged ocserv ELF executable in the SDK package cache")
         with executables[0].open("rb") as executable:
             header = executable.read(64)
-        if len(header) != 64 or header[:5] != b"\x7fELF\x02" or header[5] != 1 or struct.unpack_from("<H", header, 18)[0] != 183:
-            raise RuntimeError("ocserv must be a 64-bit little-endian AArch64 ELF executable")
+        endian = "<" if target["elf_data"] == 1 else ">"
+        if (len(header) != 64 or header[:4] != b"\x7fELF" or
+                header[4] != target["elf_class"] or header[5] != target["elf_data"] or
+                struct.unpack_from(endian + "H", header, 18)[0] != target["elf_machine"]):
+            raise RuntimeError("ocserv ELF does not match " + architecture)
         server_root = executables[0].parents[2]
         if sha256(server_root / "etc/init.d/ocserv") != sha256(ROOT / "server/openwrt/ocserv/files/ocserv.init"):
             raise RuntimeError("The staged ocserv startup/certificate script is stale")
@@ -94,15 +100,17 @@ def main():
         for feed in ("packages", "luci"):
             revisions[feed] = subprocess.check_output(["git", "-C", str(sdk / "feeds" / feed), "rev-parse", "HEAD"], text=True).strip()
         info = {**metadata, "ocserv": ocserv_version, "ocserv_release": ocserv_release,
-                "management_ui": ui_version, "management_ui_release": ui_release, "sdk": entry, "architecture": "aarch64_generic",
-                "apk_architectures": ["aarch64", "aarch64_generic"], "packages": [p.name for p in packages],
+                "management_ui": ui_version, "management_ui_release": ui_release, "sdk": entry, "architecture": architecture,
+                "apk_architectures": target["apk_architectures"], "packages": [p.name for p in packages],
                 "commit": os.environ.get("GITHUB_SHA", "local"), "feeds": revisions,
-                "boundary": "SDK compile/ELF validation; OPL/Flippy device ABI and real VPN traffic require device testing."}
+                "boundary": "SDK compile/ELF validation; firmware ABI and real VPN traffic require device testing."}
         (output / "BUILDINFO.json").write_text(json.dumps(info, indent=2) + "\n", encoding="utf-8")
+        (output / "APK-ARCHITECTURES").write_text("\n".join(target["apk_architectures"]) + "\n", encoding="ascii")
         shutil.copyfile(sdk / "feeds.conf", output / "feeds.conf.build")
         for filename in ("install.sh", "preflight-n1.sh", "diagnose-n1.sh", "export-profile.sh", "add-user.sh"):
             shutil.copyfile(ROOT / "server/tools" / filename, output / filename)
         shutil.copyfile(ROOT / "docs/OPENWRT-N1.md", output / "OPENWRT-N1.md")
+        shutil.copyfile(ROOT / "docs/OPENWRT.md", output / "OPENWRT.md")
         shutil.copyfile(ROOT / "docs/SERVER-UI.md", output / "SERVER-UI.md")
         shutil.copyfile(ROOT / "docs/VPN-ONLY-OPENCLASH.md", output / "VPN-ONLY-OPENCLASH.md")
         source = output / "source"
@@ -120,7 +128,7 @@ def main():
         bundle = Path(shutil.make_archive(str(output), "zip", root_dir=output.parent, base_dir=output.name))
         destination = dist / bundle.name
         bundle.replace(destination)
-        (dist / f"SHA256SUMS-openwrt-{entry['version']}.txt").write_text(
+        (dist / f"SHA256SUMS-openwrt-{entry['version']}-{architecture}.txt").write_text(
             f"{sha256(destination)}  {destination.name}\n", encoding="ascii")
         print(f"Collected {len(packages)} {fmt} packages; kernel modules are not included.")
         print(f"Created {destination} ({destination.stat().st_size} bytes)")

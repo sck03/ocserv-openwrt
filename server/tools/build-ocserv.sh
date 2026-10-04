@@ -49,10 +49,7 @@ make defconfig
 grep -q '^CONFIG_USE_APK=y$' .config || { printf '%s\n' 'Use an OpenWrt 25.12 APK SDK.' >&2; exit 1; }
 grep -Eq '^CONFIG_PACKAGE_ocserv=(y|m)$' .config
 grep -Eq '^CONFIG_PACKAGE_luci-app-ocserv-easy=(y|m)$' .config
-if ! grep -q '^CONFIG_TARGET_armsr_armv8=y' .config; then
-    printf '%s\n' 'This task targets armsr/armv8. Check that the SDK matches the N1 firmware before compiling.' >&2
-    exit 1
-fi
+python3 "$feed/../../scripts/validate_sdk.py" "$sdk"
 make package/bulijie/ocserv/download V=s
 make -j"$build_jobs" package/bulijie/ocserv/compile V=s
 make -j"$build_jobs" package/bulijie/luci-app-ocserv-easy/compile V=s

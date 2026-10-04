@@ -6,7 +6,7 @@ import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
-from sdk_config import BASE, resolve_sdk
+from sdk_config import BASE, TARGETS, resolve_sdk
 
 spec = importlib.util.spec_from_file_location("prepare_build", ROOT / "scripts/prepare-build.py")
 prepare = importlib.util.module_from_spec(spec)
@@ -52,6 +52,22 @@ class BuildSelectionTests(unittest.TestCase):
         name = "openwrt-sdk-25.12.6-armsr-armv8_gcc-14.3.0_musl.Linux-x86_64.tar.zst"
         with self.assertRaisesRegex(ValueError, "SHA256SUMS"):
             resolve_sdk("25.12.6", fetch=lambda url: "" if url.endswith("sha256sums") else f'<a href="{name}">')
+
+    def test_all_target_urls_and_metadata(self):
+        for target, config in TARGETS.items():
+            with self.subTest(target=target):
+                name = 'openwrt-sdk-25.12.6-' + target.replace('/', '-') + '_gcc-14.3.0_musl.Linux-x86_64.tar.zst'
+                base = BASE + '25.12.6/targets/' + target + '/'
+                pages = {base: f'<a href="{name}">', base + 'sha256sums': 'd' * 64 + '  ' + name}
+                entry = resolve_sdk('25.12.6', fetch=pages.__getitem__, target=target)
+                self.assertEqual(entry['url'], base + name)
+                self.assertEqual(entry['architecture'], config['architecture'])
+                self.assertEqual(entry['target'], target)
+
+    def test_unsupported_target_fails_before_download(self):
+        for target in ('../x86/64', 'x86/invalid', 'unknown'):
+            with self.assertRaises(ValueError):
+                resolve_sdk(target=target, fetch=lambda _: self.fail('unexpected download'))
 
 
 if __name__ == "__main__":

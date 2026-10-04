@@ -1,0 +1,8 @@
+{
+  "armsr/armv8": {"architecture": "aarch64_generic", "apk_architectures": ["aarch64_generic", "aarch64"], "elf_class": 2, "elf_data": 1, "elf_machine": 183},
+  "x86/64": {"architecture": "x86_64", "apk_architectures": ["x86_64"], "elf_class": 2, "elf_data": 1, "elf_machine": 62},
+  "mediatek/filogic": {"architecture": "aarch64_cortex-a53", "apk_architectures": ["aarch64_cortex-a53"], "elf_class": 2, "elf_data": 1, "elf_machine": 183},
+  "ipq806x/generic": {"architecture": "arm_cortex-a15_neon-vfpv4", "apk_architectures": ["arm_cortex-a15_neon-vfpv4"], "elf_class": 1, "elf_data": 1, "elf_machine": 40},
+  "ramips/mt7621": {"architecture": "mipsel_24kc", "apk_architectures": ["mipsel_24kc"], "elf_class": 1, "elf_data": 1, "elf_machine": 8},
+  "ath79/generic": {"architecture": "mips_24kc", "apk_architectures": ["mips_24kc"], "elf_class": 1, "elf_data": 2, "elf_machine": 8}
+}

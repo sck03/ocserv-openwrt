@@ -1,6 +1,6 @@
 # 布利杰VPN
 
-原生 Win32 / C++17 的 OpenConnect 客户端 0.5.0，配套 ocserv 1.5.0-r3 服务端和中文管理页 0.4.1。Windows 提供 x86/x64 便携包；N1 服务端只维护 **OpenWrt 25.12 系列、armsr/armv8、aarch64_generic、APK**，兼容 OPL 的 `apk --print-arch` 输出 `aarch64`。
+原生 Win32 / C++17 的 OpenConnect 客户端 0.5.0，配套 ocserv 1.5.0-r3 服务端和中文管理页 0.4.1。Windows 提供 x86/x64 便携包；服务端支持 **OpenWrt 25.12 / APK** 的六个目标，覆盖 x86_64、AArch64、ARMv7、MIPS 和 MIPSEL，保留 N1/OPL 支持。具体架构与安装方法见 [OpenWrt 多架构说明](docs/OPENWRT.md)。
 
 客户端按官方 OpenConnect GUI 1.6.2 的交互重写：服务器配置列表、主界面 / VPN 信息页、独立日志、服务器认证弹窗和托盘，默认中文，可切换英文。静态合并 OpenConnect 9.21、GnuTLS、软件令牌和 XML/压缩库，无需安装 Qt、.NET 或 VC 运行库。完整保留随包的 `wintun.dll` 和 `vpnc-script-win.js`；Windows 7 SP1 是兼容目标，仍需实机验收。
 
@@ -41,16 +41,17 @@ sh install.sh
 ## 构建与发行
 
 - [Windows 客户端工作流](https://github.com/sck03/ocserv-openwrt/actions/workflows/build-client.yml)：Linux 并行构建 x86/x64，Windows 运行界面、配置、认证及便携 EXE 启动回归，再生成发行版。`build_jobs=auto` 使用可用 CPU，`publish_release=false` 可只验证构建。
-- [N1 服务端工作流](https://github.com/sck03/ocserv-openwrt/actions/workflows/build-server.yml)：通过 `sdk_version` 指定具体 `25.12.x` 或 `auto`。默认 25.12.5，`auto` 只选择 25.12 系列稳定版。`build_jobs` 默认 `auto`，使用运行器全部可用 CPU 并行编译，也可手动填写任务数。
+- [OpenWrt 服务端工作流](https://github.com/sck03/ocserv-openwrt/actions/workflows/build-server.yml)：并行构建全部六个目标。通过 `sdk_version` 指定具体 `25.12.x` 或 `auto`。默认 25.12.5，`auto` 只选择 25.12 系列稳定版。`build_jobs` 默认 `auto`，使用运行器全部可用 CPU 并行编译，也可手动填写任务数。
 - [Android 客户端工作流](https://github.com/sck03/ocserv-openwrt/actions/workflows/build-android.yml)：基于固定版本 OpenTunnel，编译三个架构的 OpenConnect 核心和 APK；默认 debug，配置签名 Secrets 后可构建 release。
 - [iOS 客户端工作流](https://github.com/sck03/ocserv-openwrt/actions/workflows/build-ios.yml)：原生应用与 Packet Tunnel 扩展，默认未签名编译归档，配置 Apple 证书和两个 Ad Hoc 描述文件后导出 IPA。使用及签名见[移动客户端说明](docs/MOBILE.md)。
 - Windows 交叉编译、服务端和 Android 使用 `ubuntu-24.04`，iOS 使用 `macos-15`。Actions/管理页脚本检查使用 Node.js 24。运行器系统版本与 N1 固件版本是不同概念。
 - Windows 和服务端工作流均可填写 `release_version` 设置发行套装版本，留空使用北京时间日期和时分秒；标题始终显示真实构建时间。`publish_release=false` 可只构建，两端仅允许 main 发布。
 - Windows 和服务端手动工作流全部检查成功后发布独立 Pre-release；[Releases](https://github.com/sck03/ocserv-openwrt/releases) 附件长期保留，Actions artifacts 保留 7 天。移动端工作流目前仅上传 artifacts。
-- 服务端 artifact 为 `openwrt-25.12-aarch64_generic`，内含两个 APK、安装工具、源码、BUILDINFO 和 SHA256SUMS；ZIP 名称带管理页版本，便于区分修复版。
+- 服务端 artifact 为 `openwrt-25.12-<架构>`，各架构分别包含两个 APK、安装工具、源码、BUILDINFO 和 SHA256SUMS；ZIP 名称带架构和管理页版本。
 
 ## 资料
 
+- [OpenWrt 多架构支持与安装](docs/OPENWRT.md)
 - [N1 安装与首次配置](docs/OPENWRT-N1.md)
 - [中文管理页](docs/SERVER-UI.md)
 - [客户端证书与密码保存](docs/CLIENT.md)

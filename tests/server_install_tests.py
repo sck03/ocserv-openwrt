@@ -92,7 +92,7 @@ checks = []
 with tempfile.TemporaryDirectory(prefix='bulijie-install-test-') as temporary:
     base = Path(temporary)
 
-    def fixture(name, existing=False):
+    def fixture(name, existing=False, architectures='aarch64_generic\naarch64\n'):
         root = base / name
         for folder in ('bin', 'bundle', 'etc/config', 'etc/init.d', 'etc/ocserv', 'usr/libexec', 'root', 'tmp'):
             (root / folder).mkdir(parents=True)
@@ -120,6 +120,7 @@ with tempfile.TemporaryDirectory(prefix='bulijie-install-test-') as temporary:
         preflight=preflight.replace('[ -c /dev/net/tun ]','[ -f "'+str(root/'tun.available')+'" ]')
         (root/'tun.available').touch()
         (root / 'bundle/preflight-n1.sh').write_text(preflight,encoding='utf-8')
+        (root / 'bundle/APK-ARCHITECTURES').write_text(architectures)
         for package in ('ocserv-1.5.0-r3.apk', 'luci-app-ocserv-easy-0.4.1-r1.apk'):
             (root / 'bundle' / package).write_bytes(b'local test APK')
         manifest = ''.join(hashlib.sha256(path.read_bytes()).hexdigest() + '  ' + path.name + '\n'
@@ -159,6 +160,15 @@ with tempfile.TemporaryDirectory(prefix='bulijie-install-test-') as temporary:
     result=run(root,INSTALL_ARCH='aarch64')
     assert result.returncode==0,result.stdout+result.stderr
     checks.append('OPL APK architecture aarch64 is accepted')
+
+    for architecture in ('x86_64', 'aarch64_cortex-a53', 'arm_cortex-a15_neon-vfpv4', 'mipsel_24kc', 'mips_24kc'):
+        root = fixture(architecture, architectures=architecture + '\n')
+        result = run(root, INSTALL_ARCH=architecture)
+        assert result.returncode == 0, result.stdout + result.stderr
+        checks.append(architecture + ': matching bundle installs')
+    root = fixture('missing_arch_manifest')
+    (root / 'bundle/APK-ARCHITECTURES').unlink()
+    assert run(root).returncode != 0 and not (root / 'installed').exists()
 
     root=fixture('btrfs_df')
     result=run(root,INSTALL_DF_FAIL='1')

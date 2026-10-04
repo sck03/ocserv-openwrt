@@ -14,6 +14,7 @@ import zipfile
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
+from sdk_config import TARGETS
 spec = importlib.util.spec_from_file_location("server_package", ROOT / "scripts/package-server.py")
 package = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(package)
@@ -28,8 +29,8 @@ class ServerPackageTests(unittest.TestCase):
         for directory in ("server", "docs"):
             shutil.copytree(ROOT / directory, self.root / directory)
         self.sdk.mkdir()
-        (self.sdk / "sdk-info.json").write_text(json.dumps({"version": "25.12.5"}))
-        (self.sdk / ".config").write_text("CONFIG_USE_APK=y\n")
+        (self.sdk / "sdk-info.json").write_text(json.dumps({"version": "25.12.5", "target": "armsr/armv8"}))
+        (self.sdk / ".config").write_text('CONFIG_USE_APK=y\nCONFIG_TARGET_armsr_armv8=y\nCONFIG_TARGET_ARCH_PACKAGES="aarch64_generic"\n')
         (self.sdk / "feeds.conf").write_text("fixture feeds\n")
         self.write("dl/ocserv-1.5.0.tar.xz", b"synthetic upstream archive")
         recipe = self.root / "server/openwrt/ocserv/Makefile"
@@ -112,7 +113,7 @@ class ServerPackageTests(unittest.TestCase):
         archive = self.bundle()
         checksum = package.sha256(archive)
         self.binary.write_bytes(b"invalid executable")
-        with self.assertRaisesRegex(RuntimeError, "AArch64"):
+        with self.assertRaisesRegex(RuntimeError, "ELF"):
             self.bundle()
         self.assertEqual(package.sha256(archive), checksum)
         self.assertEqual(list((self.root / "dist").glob("server-*")), [])
@@ -124,6 +125,34 @@ class ServerPackageTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "source checksum"):
             self.bundle()
         self.assertEqual(package.sha256(archive), checksum)
+
+    def test_all_targets_package_and_reject_wrong_elf(self):
+        for target, config in TARGETS.items():
+            with self.subTest(target=target):
+                (self.sdk / "sdk-info.json").write_text(json.dumps({"version": "25.12.5", "target": target}))
+                (self.sdk / ".config").write_text('CONFIG_USE_APK=y\nCONFIG_TARGET_' + target.replace('/', '_') +
+                    '=y\nCONFIG_TARGET_ARCH_PACKAGES="' + config['architecture'] + '"\n')
+                header = bytearray(64)
+                header[:6] = b'\x7fELF' + bytes([config['elf_class'], config['elf_data']])
+                struct.pack_into('<H' if config['elf_data'] == 1 else '>H', header, 18, config['elf_machine'])
+                self.binary.write_bytes(header)
+                self.bundle()
+                archives = list((self.root / 'dist').glob('*-' + config['architecture'] + '-*.zip'))
+                self.assertEqual(len(archives), 1)
+                with zipfile.ZipFile(archives[0]) as contents:
+                    prefix = archives[0].stem + '/'
+                    self.assertEqual(contents.read(prefix + 'APK-ARCHITECTURES').decode().splitlines(), config['apk_architectures'])
+                    self.assertEqual(json.loads(contents.read(prefix + 'BUILDINFO.json'))['architecture'], config['architecture'])
+                header[4] = 3 - config['elf_class']
+                self.binary.write_bytes(header)
+                with self.assertRaisesRegex(RuntimeError, 'ELF'):
+                    self.bundle()
+        self.assertEqual(len(list((self.root / 'dist').glob('SHA256SUMS-openwrt-*.txt'))), len(TARGETS))
+
+    def test_wrong_sdk_target_rejected(self):
+        (self.sdk / '.config').write_text('CONFIG_USE_APK=y\nCONFIG_TARGET_x86_64=y\nCONFIG_TARGET_ARCH_PACKAGES="x86_64"\n')
+        with self.assertRaisesRegex(RuntimeError, 'SDK target'):
+            self.bundle()
 
 
 if __name__ == "__main__":

@@ -49,6 +49,7 @@ jobs:
       release_version: ${{ steps.metadata.outputs.release_version }}
       build_timestamp: ${{ steps.metadata.outputs.build_timestamp }}
       sdk_version: ${{ steps.sdk.outputs.version }}
+      matrix: ${{ steps.sdk.outputs.matrix }}
     steps:
       - uses: actions/checkout@v7.0.1
         with:
@@ -130,10 +131,13 @@ jobs:
           retention-days: 7
 
   server:
-    name: OpenWrt 25.12 / aarch64_generic / APK
+    name: OpenWrt 25.12 / ${{ matrix.target }} / APK
     needs: validate
     runs-on: ubuntu-24.04
     timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.validate.outputs.matrix) }}
     env:
       RELEASE_VERSION: ${{ needs.validate.outputs.release_version }}
       BUILD_TIMESTAMP: ${{ needs.validate.outputs.build_timestamp }}
@@ -156,7 +160,8 @@ jobs:
       - name: Verify and extract the selected SDK
         env:
           SDK_VERSION: ${{ needs.validate.outputs.sdk_version }}
-        run: python3 scripts/fetch-sdk.py --version "$SDK_VERSION" --output "$RUNNER_TEMP/sdk-25.12"
+          SDK_TARGET: ${{ matrix.target }}
+        run: python3 scripts/fetch-sdk.py --version "$SDK_VERSION" --target "$SDK_TARGET" --output "$RUNNER_TEMP/sdk-25.12"
       - name: Build ocserv and Chinese LuCI packages
         run: |
           mkdir -p test-results
@@ -164,7 +169,7 @@ jobs:
           python3 scripts/package-server.py "$RUNNER_TEMP/sdk-25.12"
       - uses: actions/upload-artifact@v7.0.1
         with:
-          name: openwrt-25.12-aarch64_generic
+          name: openwrt-25.12-${{ matrix.architecture }}
           path: |
             dist/ocserv-*-openwrt-*.zip
             dist/SHA256SUMS-openwrt-*.txt
@@ -174,7 +179,7 @@ jobs:
       - uses: actions/upload-artifact@v7.0.1
         if: failure()
         with:
-          name: server-build-log-25.12
+          name: server-build-log-25.12-${{ matrix.architecture }}
           path: test-results/*.log
           retention-days: 7
 
@@ -195,7 +200,7 @@ jobs:
           persist-credentials: false
       - uses: actions/download-artifact@v8.0.1
         with:
-          pattern: openwrt-25.12-aarch64_generic
+          pattern: openwrt-25.12-*
           path: dist
           merge-multiple: true
       - name: Collect selected SDK bundles and checksums

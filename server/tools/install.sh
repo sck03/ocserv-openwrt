@@ -1,5 +1,5 @@
 #!/bin/sh
-# Install the verified 25.12 APK bundle on a Phicomm N1; OpenClash is opt-in.
+# Install the verified OpenWrt 25.12 APK bundle; OpenClash is opt-in.
 set -eu
 umask 077
 cd "$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)"
@@ -7,10 +7,11 @@ cd "$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)"
 [ -f SHA256SUMS ] || { echo '请完整解压服务端套装后运行 install.sh。'; exit 1; }
 sha256sum -c SHA256SUMS
 sh ./preflight-n1.sh
-case "$(apk --print-arch)" in
-    aarch64|aarch64_generic) ;;
-    *) echo '此套装仅适用于 N1 的 aarch64 / aarch64_generic 用户空间。'; exit 1 ;;
-esac
+[ -s APK-ARCHITECTURES ] || { echo '缺少套装架构清单，请重新下载完整 ZIP。'; exit 1; }
+device_arch=$(apk --print-arch)
+grep -Fqx -- "$device_arch" APK-ARCHITECTURES || {
+    echo "套装与设备架构不匹配：$device_arch。请下载对应架构的 ZIP。"; exit 1;
+}
 
 fresh=0
 pending=/etc/ocserv/easy-install-pending
@@ -44,7 +45,7 @@ apk update
 apk add --simulate --allow-untrusted "$@" >"$plan" 2>&1 || { cat "$plan"; exit 1; }
 if grep -Ei '(installing|upgrading|downgrading|replacing).*(kernel|kmod-)' "$plan" >/dev/null; then
     cat "$plan"
-    echo '安装计划涉及内核模块，已停止。请检查 OPL/Flippy 软件源。'
+    echo '安装计划涉及内核模块，已停止。请检查当前固件的软件源。'
     exit 1
 fi
 backup="/root/bulijie-before-install-$(date +%Y%m%d-%H%M%S)-$$"
