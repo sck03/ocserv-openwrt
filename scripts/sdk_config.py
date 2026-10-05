@@ -26,8 +26,7 @@ def read_text(url):
 def resolve_sdk(requested="", fetch=read_text, target=DEFAULT_TARGET):
     configuration = target_config(target)
     series = "25.12"
-    pinned = json.loads((ROOT / "server/openwrt/sdks.json").read_text(encoding="utf-8"))[series]
-    requested = requested.strip() or pinned["version"]
+    requested = requested.strip() or "auto"
     if requested == "auto":
         releases = re.findall(r'href="(25\.12\.\d+)/"', fetch(BASE))
         if not releases:
@@ -35,8 +34,6 @@ def resolve_sdk(requested="", fetch=read_text, target=DEFAULT_TARGET):
         requested = max(releases, key=lambda value: tuple(map(int, value.split("."))))
     if not re.fullmatch(r"25\.12\.\d+", requested):
         raise ValueError("Use a released 25.12.x version or auto; other series, RCs and snapshots are not selected")
-    if requested == pinned["version"] and target == DEFAULT_TARGET:
-        return dict(pinned, **configuration, series=series, checksum_origin="repository pin")
     base = BASE + requested + "/targets/" + target + "/"
     names = set(re.findall(r'href="(openwrt-sdk-' + re.escape(requested) +
                            '-' + re.escape(target.replace('/', '-')) + r'_[A-Za-z0-9_.+-]+\.Linux-x86_64\.tar\.(?:zst|xz))"', fetch(base)))

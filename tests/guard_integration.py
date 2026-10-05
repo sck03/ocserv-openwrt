@@ -1,10 +1,8 @@
 """Exercise the real VPN-only transaction manager against isolated OpenWrt interfaces."""
 import json
 from pathlib import Path
-import sys
 
 ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT / '.tools/python-test'))
 from lupa.lua51 import LuaRuntime
 
 lua = LuaRuntime(unpack_returned_tuples=True)

@@ -3,12 +3,10 @@ from pathlib import Path
 from http.server import BaseHTTPRequestHandler, HTTPServer
 import base64
 import json
-import sys
 import argparse
 from urllib.parse import parse_qs, urlsplit
 
 ROOT=Path(__file__).resolve().parents[1]
-sys.path.insert(0,str(ROOT/'.tools/python-test'))
 from lupa.lua51 import LuaRuntime, lua_type
 lua=LuaRuntime(unpack_returned_tuples=True)
 source=ROOT/'server/openwrt/luci-app-ocserv-easy/luasrc/model/ocserv_easy'

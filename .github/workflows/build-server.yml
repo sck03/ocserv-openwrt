@@ -18,7 +18,7 @@ on:
       sdk_version:
         description: OpenWrt 25.12.x SDK 版本；填 auto 选择 25.12 系列最新稳定版
         type: string
-        default: "25.12.5"
+        default: "auto"
       build_jobs:
         description: 并行编译任务数；auto 使用运行器全部可用 CPU，也可填写正整数
         type: string
@@ -54,6 +54,10 @@ jobs:
       - uses: actions/checkout@v7.0.1
         with:
           persist-credentials: false
+      - uses: actions/setup-python@v7.0.0
+        with:
+          python-version: "3.14"
+          check-latest: true
       - name: Resolve release version and build time
         id: metadata
         env:
@@ -64,12 +68,9 @@ jobs:
         env:
           SDK_VERSION: ${{ inputs.sdk_version }}
         run: python3 scripts/sdk_config.py --version "$SDK_VERSION" --github-output
-      - uses: actions/setup-python@v7.0.0
-        with:
-          python-version: "3.14"
       - uses: actions/setup-node@v7.0.0
         with:
-          node-version: "24"
+          node-version: "26"
           check-latest: true
           package-manager-cache: false
       - run: python -m pip install lupa==2.8
@@ -101,7 +102,7 @@ jobs:
           sudo python3 tests/vpn_guard_tests.py 2>&1 | tee test-results/vpn-guard-tests.log
       - name: Validate management page and stalled requests
         run: |
-          python -m pip install playwright==1.58.0
+          python -m pip install playwright==1.63.0
           python -m playwright install --with-deps chromium
           python tests/server_preview.py --port 22981 > test-results/server-preview.log 2>&1 &
           preview_pid=$!
@@ -145,6 +146,10 @@ jobs:
       - uses: actions/checkout@v7.0.1
         with:
           persist-credentials: false
+      - uses: actions/setup-python@v7.0.0
+        with:
+          python-version: '3.14'
+          check-latest: true
       - name: Select official ocserv source
         env:
           OCSERV_VERSION: ${{ inputs.ocserv_version }}
@@ -198,6 +203,10 @@ jobs:
       - uses: actions/checkout@v7.0.1
         with:
           persist-credentials: false
+      - uses: actions/setup-python@v7.0.0
+        with:
+          python-version: '3.14'
+          check-latest: true
       - uses: actions/download-artifact@v8.0.1
         with:
           pattern: openwrt-25.12-*

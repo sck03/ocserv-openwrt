@@ -14,9 +14,9 @@
 
 客户端流程为：参数和脚本检查 → x64/x86 编译及 PE 审计 → Windows 配置、界面、回环认证和便携 EXE 启动回归 → 与对应源码一同发布。源码归档与静态依赖有缓存；源码、配方、编译器或补丁变化时重建。artifact 保留 7 天。
 
-Actions 使用官方 checkout、cache、setup-node、setup-python、upload-artifact 和 download-artifact。JavaScript 检查用 Node.js 24，Windows 测试用 Python 3.14；用户运行客户端无需这些工具。
+Actions 使用官方 checkout、cache、setup-node、setup-python、upload-artifact 和 download-artifact。JavaScript 检查用 Node.js 26，Windows 测试用 Python 3.14；用户运行客户端无需这些工具。
 
-服务端同样提供 `release_version` 和 `publish_release`，关闭后只生成构建附件；发布仅在 main 上执行。`build_jobs=auto` 通过 nproc 使用可用 CPU，GNU Make 和 SDK 的 Ninja 共用额度。`sdk_version` 默认 25.12.5，`auto` 在参数检查阶段解析为具体稳定版，后续使用同一版本。SDK 放在 Git 仓库之外，仅构建 ocserv 和独立中文管理页两个 APK。详见 [上游更新](UPSTREAM-UPDATES.md)。
+服务端同样提供 `release_version` 和 `publish_release`，关闭后只生成构建附件；发布仅在 main 上执行。`build_jobs=auto` 通过 nproc 使用可用 CPU，GNU Make 和 SDK 的 Ninja 共用额度。`sdk_version` 默认 `auto`，在参数检查阶段解析为 25.12 系列最新稳定补丁版，后续全部架构使用同一版本。SDK 放在 Git 仓库之外，仅构建 ocserv 和独立中文管理页两个 APK。详见 [上游更新](UPSTREAM-UPDATES.md)。
 
 `release_version` 是发行套装版本，用于 Release 标题、标签、ZIP 名称和 BUILDINFO；不改写源码中的客户端程序版本、ocserv 上游版本或 APK 版本。版本号允许 2–4 段数字、可选 v 前缀及预发布后缀，最长 64 字符。构建时间由参数检查任务生成一次，以 UTC 保存、北京时间显示，x86/x64、源码包和发布页保持一致。
 
