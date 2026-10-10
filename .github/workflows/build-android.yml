@@ -34,7 +34,7 @@ jobs:
       - name: Check mobile build contracts
         run: |
           python3 tests/mobile_build_tests.py
-          bash -n scripts/build-android.sh scripts/build-ios-core.sh scripts/build-ios.sh
+          bash -n scripts/build-android.sh scripts/build-apple-core.sh scripts/build-ios.sh
       - name: Install native tools and Android SDK
         run: |
           sudo apt-get update

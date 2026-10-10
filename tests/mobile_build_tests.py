@@ -167,21 +167,21 @@ class PackagingTests(unittest.TestCase):
         self.info = self.root / "build/mobile/ios/BUILDINFO.json"
         self.info.parent.mkdir(parents=True)
         self.info.write_text(json.dumps(self.entries))
-        (self.root / "mobile").mkdir()
-        (self.root / "mobile/app.swift").write_text("tracked source")
+        (self.root / "mobile/ios").mkdir(parents=True)
+        (self.root / "mobile/ios/app.swift").write_text("tracked source")
         subprocess.run(["git", "init", "-q", str(self.root)], check=True)
-        subprocess.run(["git", "-C", str(self.root), "add", "mobile/app.swift"], check=True)
+        subprocess.run(["git", "-C", str(self.root), "add", "mobile/ios/app.swift"], check=True)
         self.root_patch = patch.object(packaging, "ROOT", self.root)
         self.root_patch.start()
         self.addCleanup(self.root_patch.stop)
 
     def test_only_tracked_current_sources_and_uncompressed_upstream(self):
-        (self.root / "mobile/app.swift").write_text("current changes")
-        (self.root / "mobile/backup.txt").write_text("private backup")
+        (self.root / "mobile/ios/app.swift").write_text("current changes")
+        (self.root / "mobile/ios/backup.txt").write_text("private backup")
         packaging.package("ios")
         with zipfile.ZipFile(self.out / "corresponding-source.zip") as bundle:
-            self.assertEqual(set(bundle.namelist()), {"project/mobile/app.swift", "upstream/source.tar.gz"})
-            self.assertEqual(bundle.read("project/mobile/app.swift"), b"current changes")
+            self.assertEqual(set(bundle.namelist()), {"project/mobile/ios/app.swift", "upstream/source.tar.gz"})
+            self.assertEqual(bundle.read("project/mobile/ios/app.swift"), b"current changes")
             self.assertEqual(bundle.getinfo("upstream/source.tar.gz").compress_type, zipfile.ZIP_STORED)
         checksum = build_common.sha256(self.out / "corresponding-source.zip")
         self.assertIn(checksum, (self.out / "SHA256SUMS.txt").read_text())
@@ -193,6 +193,24 @@ class PackagingTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             packaging.package("ios")
         self.assertEqual({p.name: p.read_bytes() for p in self.out.iterdir()}, previous)
+
+    def test_macos_includes_icon_and_shared_core_without_other_apps(self):
+        for name in ("resources/app.ico", "client/apple/PacketTunnelProvider.m", "desktop/macos/App/main.swift", "desktop/linux/main.cpp"):
+            path = self.root / name
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text("fixture source")
+            subprocess.run(["git", "-C", str(self.root), "add", name], check=True)
+        info = self.root / "build/desktop/macos/BUILDINFO.json"
+        info.parent.mkdir(parents=True)
+        info.write_text(json.dumps(self.entries))
+        packaging.package("macos")
+        with zipfile.ZipFile(self.root / "dist/macos/corresponding-source.zip") as bundle:
+            names = set(bundle.namelist())
+        self.assertIn("project/resources/app.ico", names)
+        self.assertIn("project/client/apple/PacketTunnelProvider.m", names)
+        self.assertIn("project/desktop/macos/App/main.swift", names)
+        self.assertNotIn("project/desktop/linux/main.cpp", names)
+        self.assertNotIn("project/mobile/ios/app.swift", names)
 
     def test_rejects_escaping_archive_name(self):
         self.entries["core"]["filename"] = "../source.tar.gz"

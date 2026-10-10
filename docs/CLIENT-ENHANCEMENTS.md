@@ -25,4 +25,4 @@ VPN 始终需要服务端。当前 N1/OpenWrt 上的 ocserv 已承担这一角�
 
 该项目的 CLI、后台服务及多个库提供开源代码，许可证按组件分为 MIT、GPL-3.0 等；GP Connect 桌面 GUI 外壳是专有组件，不能视为可直接复制的开源界面。具体范围见其[许可证说明](https://github.com/yuezk/GlobalProtect-openconnect/blob/8724ed3b373536942660731c7bd529f325c014c4/README.md#licensing)。
 
-建议先对照补强会话状态与异常恢复测试，再完善诊断和可选自动连接。权限分离与企业认证分别作为独立改动评估，不为这些可选能力增加当前便携版的默认依赖。
+后续可按实际部署需求评估 Windows 权限服务、企业认证与浏览器 SSO；这些能力不作为当前便携版的默认依赖。

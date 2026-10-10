@@ -669,7 +669,7 @@ public:
         }
         GError *failure = nullptr;
         client = nm_client_new(nullptr, &failure);
-        if (client)
+        if (client && nm_client_get_nm_running(client))
             agent = linkora_agent_new(&failure);
         if (!client || !agent || !nm_client_get_nm_running(client)) {
             error = "configuration";

@@ -43,11 +43,23 @@ int main() {
         GError *error = nullptr;
         GDBusConnection *bus = g_bus_get_sync(G_BUS_TYPE_SESSION, nullptr, &error);
         check(bus != nullptr, "private test D-Bus was not available");
-        auto *agent = NM_SECRET_AGENT_OLD(
-            g_initable_new(linkora_agent_get_type(), nullptr, &error, NM_SECRET_AGENT_OLD_IDENTIFIER,
-                           "io.github.sck03.linkoravpn.test", NM_SECRET_AGENT_OLD_AUTO_REGISTER, FALSE,
-                           NM_SECRET_AGENT_OLD_DBUS_CONNECTION, bus, nullptr));
-        check(agent != nullptr, "could not initialize the real secret agent");
+        auto *agent = NM_SECRET_AGENT_OLD(g_object_new(
+            linkora_agent_get_type(), NM_SECRET_AGENT_OLD_IDENTIFIER, "io.github.sck03.linkoravpn.test",
+            NM_SECRET_AGENT_OLD_AUTO_REGISTER, FALSE, NM_SECRET_AGENT_OLD_DBUS_CONNECTION, bus, nullptr));
+        check(agent != nullptr, "could not create the real secret agent");
+        Result initialized;
+        g_async_initable_init_async(
+            G_ASYNC_INITABLE(agent), G_PRIORITY_DEFAULT, nullptr,
+            [](GObject *object, GAsyncResult *result, gpointer data) {
+                auto *state = static_cast<Result *>(data);
+                GError *failure = nullptr;
+                state->failed = !g_async_initable_init_finish(G_ASYNC_INITABLE(object), result, &failure);
+                g_clear_error(&failure);
+                ++state->calls;
+            },
+            &initialized);
+        wait(initialized);
+        check(!initialized.failed, "could not initialize the real secret agent");
         auto *profile = nm_simple_connection_new();
         auto *setting = nm_setting_connection_new();
         constexpr char uuid[] = "12345678-1234-4234-8234-123456789012";

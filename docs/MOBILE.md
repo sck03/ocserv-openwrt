@@ -1,6 +1,6 @@
 # Linkora VPN Android / iOS 客户端
 
-Linkora VPN 移动端当前版本为 **0.2.0**，使用 **OpenConnect / Cisco AnyConnect 协议**连接本项目的 ocserv。Android / iOS 默认安装标识为 `io.github.sck03.linkoravpn`，按全新安装使用，重新填写服务器、账号和指纹。Windows 客户端与服务端构建流程保持独立。
+Linkora VPN 移动端当前版本为 **Android 0.2.0 / iOS 0.2.1**，使用 **OpenConnect / Cisco AnyConnect 协议**连接本项目的 ocserv。Android / iOS 默认安装标识为 `io.github.sck03.linkoravpn`，按全新安装使用，重新填写服务器、账号和指纹。iOS 与 macOS 共用 `client/apple` 中的地址、数据包与会话代码；桌面使用方法见[桌面说明](DESKTOP.md)。
 
 ## GitHub Actions 构建
 

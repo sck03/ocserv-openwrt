@@ -14,7 +14,13 @@ def package(platform):
     entries = json.loads(info.read_text(encoding="utf-8"))
     if not (ROOT / ".git").exists():
         raise ValueError("Package mobile sources from a Git checkout to exclude signing files")
-    paths = source_files(ROOT, ("mobile", "client/apple", "desktop", "scripts", ".github/workflows"), (
+    directories = {
+        "android": ("mobile/android",),
+        "ios": ("mobile/ios", "client/apple"),
+        "macos": ("desktop/macos", "client/apple", "resources"),
+    }[platform]
+    paths = source_files(ROOT, (*directories, "scripts", ".github/workflows"), (
+        "mobile/sources.json",
         "LICENSE", "README.md", "THIRD-PARTY-NOTICES.md", "docs/MOBILE.md", "docs/DESKTOP.md",
         "tests/mobile_build_tests.py", "tests/mobile_protocol_tests.c", "tests/ios_connection_tests.m",
     ))

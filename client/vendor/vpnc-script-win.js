@@ -239,12 +239,12 @@ case "connect":
     var internal_ip4_netmask = env("INTERNAL_IP4_NETMASK") || "255.255.255.255";
     var internal_gw = env("INTERNAL_IP4_ADDRESS");
 
-    echo(INFO, "Legacy IP Internet gateway: " + gw4);
+    echo(INFO, "IPv4 Internet gateway: " + gw4);
     echo(INFO, "IPv6 Internet gateway     : " + gw6);
     echo(INFO, "VPN Interface Identifiers : \"" + env("TUNDEV") + "\" / " + env("TUNIDX"));
     echo(INFO, "Public VPN Gateway Address: " + env("VPNGATEWAY"));
-    echo(INFO, "Internal Legacy IP Address: " + env("INTERNAL_IP4_ADDRESS"));
-    echo(INFO, "Internal Legacy IP Netmask: " + internal_ip4_netmask);
+    echo(INFO, "Internal IPv4 Address: " + env("INTERNAL_IP4_ADDRESS"));
+    echo(INFO, "Internal IPv4 Netmask: " + internal_ip4_netmask);
 
 
     if (env("INTERNAL_IP4_MTU")) {
@@ -262,10 +262,10 @@ case "connect":
     gatewayRoute(env("VPNGATEWAY"), gw4, gw6);
     echo(INFO, "done.");
 
-    echo(INFO, "Configuring \"" + env("TUNDEV") + "\" / " + env("TUNIDX") + " interface for Legacy IP...");
+    echo(INFO, "Configuring \"" + env("TUNDEV") + "\" / " + env("TUNIDX") + " interface for IPv4...");
 
     if (!env("CISCO_SPLIT_INC")) {
-        // Interface metric must be set to 1 in order to add a route with metric 1 since Windows Vista
+        // The interface metric must permit the tunnel's metric-1 route.
         run("netsh interface ip set interface " + env("TUNIDX") + " metric=1 store=active");
     }
 
@@ -294,12 +294,7 @@ case "connect":
         var dns = env("INTERNAL_IP4_DNS").split(/ /);
         for (var i = 0; i < dns.length; i++) {
             var protocol = dns[i].indexOf(":") !== -1 ? "ipv6" : "ipv4";
-            // With 'validate=yes' (the default on newer Windows versions), Windows will try to
-            // connect to the DNS server, time out after ~10 seconds, and print a warning, but
-            // nevertheless add the specified server. Adding 'validate=no' is thus NECESSARY.
-            // We know that Windows 7 supports/requires the 'validate=no' flag (see #52). If
-            // someone using an older version of Windows that errors out on the unknown flag
-            // really wants us to support it, we'll need to figure out how to distinguish it.
+            // Skip the synchronous DNS probe while the tunnel routes are still being configured.
             run("netsh interface " + protocol + " add dnsservers " + env("TUNIDX") + " " + dns[i]
                + " validate=no");
         }
@@ -308,7 +303,7 @@ case "connect":
     echo(INFO, "done.");
 
     // Add internal network routes
-    echo(INFO, "Configuring Legacy IP networks:");
+    echo(INFO, "Configuring IPv4 networks:");
     if (env("CISCO_SPLIT_INC")) {
         for (var i = 0 ; i < parseInt(env("CISCO_SPLIT_INC")); i++) {
             var network = env("CISCO_SPLIT_INC_" + i + "_ADDR");
@@ -316,12 +311,12 @@ case "connect":
             var netmasklen = env("CISCO_SPLIT_INC_" + i + "_MASKLEN");
             run("route add " + network + " mask " + netmask +
                 " " + internal_gw + " if " + env("TUNIDX"));
-            echo(INFO, "Configured Legacy IP split-include route: " + network + "/" + netmasklen);
+            echo(INFO, "Configured IPv4 split-include route: " + network + "/" + netmasklen);
         }
     }
 
     excludedRoutes(gw4, gw6);
-    echo(INFO, "Legacy IP route configuration done.");
+    echo(INFO, "IPv4 route configuration done.");
 
     if (env("INTERNAL_IP6_ADDRESS")) {
         echo(INFO, "Configuring \"" + env("TUNDEV") + "\" / " + env("TUNIDX") + " interface for IPv6...");
@@ -363,7 +358,7 @@ case "disconnect":
     releaseRoutes();
 
     // Delete address
-    echo(INFO, "Removing" + (env("INTERNAL_IP6_ADDRESS") ? " IPv6 and" : "") + " Legacy IP addresses");
+    echo(INFO, "Removing" + (env("INTERNAL_IP6_ADDRESS") ? " IPv6 and" : "") + " IPv4 addresses");
     run("netsh interface ipv4 delete address " + env("TUNIDX") + " " +
         env("INTERNAL_IP4_ADDRESS") + " gateway=all");
     if (env("INTERNAL_IP6_ADDRESS")) {
