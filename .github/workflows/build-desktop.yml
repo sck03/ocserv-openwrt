@@ -29,7 +29,7 @@ jobs:
           DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
             ca-certificates git build-essential cmake ninja-build pkg-config python3 \
             libgtk-3-dev libnm-dev libsecret-1-dev network-manager-openconnect-gnome \
-            dbus-x11 xvfb xauth desktop-file-utils
+            dbus-x11 xvfb xauth desktop-file-utils fonts-noto-cjk
       - uses: actions/checkout@v7.0.1
         with:
           persist-credentials: false

@@ -127,6 +127,7 @@ private:
     Handle cancel_event_{CreateEventW(nullptr, TRUE, FALSE, nullptr)};
     Handle resumed_event_{CreateEventW(nullptr, TRUE, TRUE, nullptr)};
     std::atomic<bool> suspended_{false}, tunnel_loop_{false}, pause_pending_{false};
+    std::atomic<bool> cancel_requested_{false}, statistics_pending_{false};
     std::thread worker_;
     std::mutex command_mutex_;
     SOCKET command_ = INVALID_SOCKET;
@@ -144,6 +145,7 @@ private:
     bool tun_ready_ = false;
     bool authentication_rejected_ = false;
     bool cleaning_ = false, cleanup_failed_ = false;
+    bool mainloop_finished_ = false;
     std::unique_lock<std::mutex> script_environment_lock_;
     std::filesystem::path script_log_;
     std::wstring previous_script_log_;

@@ -119,13 +119,15 @@ bool Session::start() {
     }
 }
 bool Session::stopped() const {
-    return WaitForSingleObject(cancel_event_.get(), 0) == WAIT_OBJECT_0;
+    return cancel_requested_.load(std::memory_order_acquire);
 }
 bool Session::send(char command) {
     std::lock_guard<std::mutex> lock(command_mutex_);
     return command_ != INVALID_SOCKET && ::send(command_, &command, 1, 0) == 1;
 }
 void Session::cancel() {
+    if (cancel_requested_.exchange(true))
+        return;
     SetEvent(cancel_event_.get());
     send(OC_CMD_CANCEL);
 }
@@ -155,8 +157,9 @@ bool Session::wait_until_resumed() {
     return !stopped();
 }
 void Session::request_statistics() {
-    if (!stopped())
-        send(OC_CMD_STATS);
+    if (!stopped() && tunnel_loop_.load() && !statistics_pending_.exchange(true))
+        if (!send(OC_CMD_STATS))
+            statistics_pending_.store(false);
 }
 void Session::state(State value, bool terminal, std::wstring message) {
     if (stopped() && !terminal && value != State::Disconnecting)
@@ -508,10 +511,16 @@ void Session::progress_callback(void *context, int level, const char *format, ..
     // This is the core's format string, not untrusted server text. Script
     // failures must never be retried as transient network failures.
     if (strstr(format, "Script '%s' failed for %s")) {
+        va_list failure;
+        va_start(failure, format);
+        (void)va_arg(failure, const char *);
+        const char *reason = va_arg(failure, const char *);
+        int code = va_arg(failure, int);
+        va_end(failure);
         self->tun_failed_ = true;
-        if (self->cleaning_)
+        if (self->cleaning_ || (reason && strcmp(reason, "disconnect") == 0))
             self->cleanup_failed_ = true;
-        self->fail(ErrorCategory::Adapter);
+        self->fail(ErrorCategory::Adapter, code);
     }
     if (self->state_ == State::Connected &&
         (strstr(format, "remaining timeout") || strstr(format, "SSL connection failure"))) {
@@ -537,6 +546,7 @@ void Session::progress_callback(void *context, int level, const char *format, ..
 }
 void Session::statistics_callback(void *context, const oc_stats *stats) {
     auto *self = static_cast<Session *>(context);
+    self->statistics_pending_.store(false);
     if (!stats || self->stopped())
         return;
     try {
@@ -684,6 +694,16 @@ void Session::read_script_log() {
 void Session::cleanup() noexcept {
     tunnel_loop_.store(false);
     pause_pending_.store(false);
+    if (vpn_ && tun_ready_ && !mainloop_finished_) {
+        // PAUSE retains the adapter. Re-enter with CANCEL so the core runs its
+        // disconnect script and closes Wintun before vpninfo_free releases data.
+        cleaning_ = true;
+        send(OC_CMD_CANCEL);
+        openconnect_mainloop(vpn_, 0, RECONNECT_INTERVAL_MIN);
+        mainloop_finished_ = true;
+        cleaning_ = false;
+    }
+    statistics_pending_.store(false);
     {
         std::lock_guard<std::mutex> lock(command_mutex_);
         command_ = INVALID_SOCKET;
@@ -756,7 +776,7 @@ void Session::run() {
         http_status_ = 0;
         forms_ = retry_seconds_ = 0;
         group_selected_ = used_saved_username_ = used_saved_password_ = last_empty_ = false;
-        authentication_rejected_ = tun_failed_ = cleanup_failed_ = false;
+        authentication_rejected_ = tun_failed_ = cleanup_failed_ = mainloop_finished_ = false;
         ok = wait_until_resumed() && run_attempt();
         if (tun_ready_)
             state(State::Disconnecting);
@@ -935,6 +955,7 @@ bool Session::run_attempt() {
         if (suspended_.load())
             network_changed();
         result = openconnect_mainloop(vpn_, profile_.reconnect_timeout, RECONNECT_INTERVAL_MIN);
+        mainloop_finished_ = result < 0;
         tunnel_loop_.store(false);
         pause_pending_.store(false);
         if (tun_failed_)

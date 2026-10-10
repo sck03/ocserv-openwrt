@@ -23,11 +23,11 @@
 @property(nonatomic, strong) NSURL *server;
 @property(nonatomic, copy) NSString *sessionID;
 @property(nonatomic, copy) NSString *phase;
-@property(nonatomic) NSUInteger generation;
+@property(atomic) NSUInteger generation;
 @property(nonatomic) NSUInteger stateGeneration;
-@property(nonatomic) uint64_t downloaded, uploaded;
 @property(atomic) BOOL sleeping;
 @property(atomic) BOOL established;
+@property(nonatomic) BOOL loopRunning, pauseRequested; // protected by @synchronized(self)
 @property(nonatomic, strong) dispatch_semaphore_t resumed;
 @property(nonatomic, strong) dispatch_semaphore_t packetClosed;
 @property(nonatomic) NSUInteger authAttempts;
@@ -37,6 +37,7 @@
 @property(nonatomic, strong) NSError *connectionError;
 - (NSError *)configureTunnel;
 - (void)recordState:(NSString *)phase;
+- (void)requestPause;
 @end
 
 static NSError *VPNError(NSInteger category, NSString *message) {
@@ -123,13 +124,6 @@ static void Reconnected(void *data) {
         [provider recordState:@"connected"];
     }
 }
-static void Statistics(void *data, const struct oc_stats *stats) {
-    PacketTunnelProvider *provider = (__bridge PacketTunnelProvider *)data;
-    @synchronized(provider) {
-        provider.downloaded = stats->rx_bytes;
-        provider.uploaded = stats->tx_bytes;
-    }
-}
 
 @implementation PacketTunnelProvider
 - (void)recordState:(NSString *)phase {
@@ -154,7 +148,7 @@ static void Statistics(void *data, const struct oc_stats *stats) {
         self.stateGeneration = 0;
         self.phase = @"connecting";
         self.stopCompletions = [NSMutableArray array];
-        self.downloaded = self.uploaded = 0;
+        self.loopRunning = self.pauseRequested = NO;
     }
     self.sleeping = self.established = NO;
     self.resumed = dispatch_semaphore_create(0);
@@ -219,11 +213,20 @@ static void Statistics(void *data, const struct oc_stats *stats) {
         openconnect_set_reqmtu(self.vpn, 1400);
         openconnect_set_dpd(self.vpn, 30);
         openconnect_set_reconnected_handler(self.vpn, Reconnected);
-        openconnect_set_stats_handler(self.vpn, Statistics);
         if (openconnect_set_protocol(self.vpn, "anyconnect") ||
-            openconnect_parse_url(self.vpn, server.UTF8String) || openconnect_obtain_cookie(self.vpn) ||
-            self.stopping) {
-            failure = self.connectionError ?: VPNError(2, @"无法连接服务器，请检查网络和地址");
+            openconnect_parse_url(self.vpn, server.UTF8String)) {
+            failure = VPNError(6, @"服务器或协议配置无效");
+            break;
+        }
+        int authentication = openconnect_obtain_cookie(self.vpn);
+        if (authentication || self.stopping) {
+            NSInteger category =
+                authentication == -ENOENT || authentication == -EPERM || authentication == -EACCES ? 4
+                : authentication == -ETIMEDOUT                                                     ? 3
+                                                                                                   : 2;
+            failure = self.connectionError
+                          ?: VPNError(category, category == 4 ? @"认证失败，请检查账号和密码"
+                                                              : @"无法连接服务器，请检查网络和地址");
             break;
         }
         self.password = nil;
@@ -263,7 +266,15 @@ static void Statistics(void *data, const struct oc_stats *stats) {
         [self recordState:@"connected"];
         completion(nil);
         while (!self.stopping) {
+            @synchronized(self) {
+                self.loopRunning = YES;
+            }
+            if (self.sleeping)
+                [self requestPause];
             int result = openconnect_mainloop(self.vpn, 300, 10);
+            @synchronized(self) {
+                self.loopRunning = self.pauseRequested = NO;
+            }
             if (self.stopping)
                 break;
             if (result) {
@@ -381,31 +392,33 @@ static void Statistics(void *data, const struct oc_stats *stats) {
     __weak PacketTunnelProvider *weakSelf = self;
     dispatch_source_set_event_handler(self.reader, ^{
       PacketTunnelProvider *provider = weakSelf;
-      if (!provider || provider.stopping || provider.generation != generation || provider.packetFD != fd)
-          return;
-      unsigned char bytes[65540];
-      NSMutableArray *packets = [NSMutableArray arrayWithCapacity:32];
-      NSMutableArray *protocols = [NSMutableArray arrayWithCapacity:32];
-      // Bound each event so disconnect/cleanup cannot starve under sustained traffic.
-      for (int i = 0; i < 32 && !provider.stopping; i++) {
-          ssize_t count = recv(fd, bytes, sizeof(bytes), 0);
-          if (count < 0)
-              break;
-          if (count <= 4)
-              continue;
-          uint32_t family;
-          memcpy(&family, bytes, 4);
-          family = ntohl(family);
-          if (family != AF_INET && family != AF_INET6)
-              continue;
-          if (!vpn_packet_valid(bytes + 4, (size_t)count - 4, family == AF_INET ? 4 : 6))
-              continue;
-          NSData *packet = [NSData dataWithBytes:bytes + 4 length:(NSUInteger)count - 4];
-          [packets addObject:packet];
-          [protocols addObject:@(family)];
+      @synchronized(provider) {
+          if (!provider || provider.stopping || provider.generation != generation || provider.packetFD != fd)
+              return;
+          unsigned char bytes[65540];
+          NSMutableArray *packets = [NSMutableArray arrayWithCapacity:32];
+          NSMutableArray *protocols = [NSMutableArray arrayWithCapacity:32];
+          // Bound each event so disconnect/cleanup cannot starve under sustained traffic.
+          for (int i = 0; i < 32 && !provider.stopping; i++) {
+              ssize_t count = recv(fd, bytes, sizeof(bytes), 0);
+              if (count < 0)
+                  break;
+              if (count <= 4)
+                  continue;
+              uint32_t family;
+              memcpy(&family, bytes, 4);
+              family = ntohl(family);
+              if (family != AF_INET && family != AF_INET6)
+                  continue;
+              if (!vpn_packet_valid(bytes + 4, (size_t)count - 4, family == AF_INET ? 4 : 6))
+                  continue;
+              NSData *packet = [NSData dataWithBytes:bytes + 4 length:(NSUInteger)count - 4];
+              [packets addObject:packet];
+              [protocols addObject:@(family)];
+          }
+          if (packets.count)
+              [provider.packetFlow writePackets:packets withProtocols:protocols];
       }
-      if (packets.count)
-          [provider.packetFlow writePackets:packets withProtocols:protocols];
     });
     dispatch_source_set_cancel_handler(self.reader, ^{
       close(fd);
@@ -427,29 +440,31 @@ static void Statistics(void *data, const struct oc_stats *stats) {
           if (!provider)
               return;
           dispatch_async(queue, ^{
-            if (provider.stopping || provider.generation != generation || provider.packetFD < 0)
-                return;
-            if (packets.count != protocols.count) {
+            @synchronized(provider) {
+                if (provider.stopping || provider.generation != generation || provider.packetFD < 0)
+                    return;
+                if (packets.count != protocols.count) {
+                    [provider readPackets];
+                    return;
+                }
+                for (NSUInteger i = 0; i < packets.count; i++) {
+                    unsigned protocol = protocols[i].unsignedIntValue;
+                    if (protocol != AF_INET && protocol != AF_INET6)
+                        continue;
+                    if (!vpn_packet_valid(packets[i].bytes, packets[i].length, protocol == AF_INET ? 4 : 6))
+                        continue;
+                    uint32_t family = htonl(protocols[i].unsignedIntValue);
+                    struct iovec vectors[2] = {{&family, sizeof(family)},
+                                               {(void *)packets[i].bytes, packets[i].length}};
+                    struct msghdr message = {0};
+                    message.msg_iov = vectors;
+                    message.msg_iovlen = 2;
+                    // Darwin OpenConnect expects the four-byte network-order AF prefix.
+                    // Drop on backpressure, just as a bounded TUN queue does.
+                    sendmsg(provider.packetFD, &message, 0);
+                }
                 [provider readPackets];
-                return;
             }
-            for (NSUInteger i = 0; i < packets.count; i++) {
-                unsigned protocol = protocols[i].unsignedIntValue;
-                if (protocol != AF_INET && protocol != AF_INET6)
-                    continue;
-                if (!vpn_packet_valid(packets[i].bytes, packets[i].length, protocol == AF_INET ? 4 : 6))
-                    continue;
-                uint32_t family = htonl(protocols[i].unsignedIntValue);
-                struct iovec vectors[2] = {{&family, sizeof(family)},
-                                           {(void *)packets[i].bytes, packets[i].length}};
-                struct msghdr message = {0};
-                message.msg_iov = vectors;
-                message.msg_iovlen = 2;
-                // Darwin OpenConnect expects the four-byte network-order AF prefix.
-                // Drop on backpressure, just as a bounded TUN queue does.
-                sendmsg(provider.packetFD, &message, 0);
-            }
-            [provider readPackets];
           });
         }];
 }
@@ -475,22 +490,21 @@ static void Statistics(void *data, const struct oc_stats *stats) {
 }
 - (void)sleepWithCompletionHandler:(void (^)(void))completionHandler {
     self.sleeping = YES;
-    @synchronized(self) {
-        if (self.established && self.commandFD >= 0) {
-            char command = OC_CMD_PAUSE;
-            write(self.commandFD, &command, 1);
-        }
-    }
+    [self requestPause];
     completionHandler();
 }
 - (void)wake {
     self.sleeping = NO;
     if (self.resumed)
         dispatch_semaphore_signal(self.resumed);
+    [self requestPause];
+}
+- (void)requestPause {
     @synchronized(self) {
-        if (self.established && self.commandFD >= 0) {
+        if (self.established && self.loopRunning && !self.pauseRequested && !self.stopping &&
+            self.commandFD >= 0) {
             char command = OC_CMD_PAUSE;
-            write(self.commandFD, &command, 1);
+            self.pauseRequested = write(self.commandFD, &command, 1) == 1;
         }
     }
 }
@@ -503,16 +517,10 @@ static void Statistics(void *data, const struct oc_stats *stats) {
         return;
     }
     @synchronized(self) {
-        if (self.commandFD >= 0) {
-            char command = OC_CMD_STATS;
-            write(self.commandFD, &command, 1);
-        }
         NSDictionary *snapshot = @{
             @"session_id" : self.sessionID ?: @"",
             @"generation" : @(self.stateGeneration),
-            @"state" : self.phase ?: @"idle",
-            @"downloaded_bytes" : @(self.downloaded),
-            @"uploaded_bytes" : @(self.uploaded)
+            @"state" : self.phase ?: @"idle"
         };
         completionHandler([NSJSONSerialization dataWithJSONObject:snapshot options:0 error:nil]);
     }

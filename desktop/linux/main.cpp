@@ -66,6 +66,10 @@ public:
             g_source_remove(retryTimer);
         linkora_agent_cancel(agent);
         clearActive();
+        if (agent)
+            g_signal_handlers_disconnect_by_data(agent, this);
+        if (client)
+            g_signal_handlers_disconnect_by_data(client, this);
         g_clear_object(&agent);
         g_clear_object(&client);
     }
@@ -101,6 +105,17 @@ public:
         gtk_widget_set_sensitive(editButton, !busy && !closing && selected());
         gtk_widget_set_sensitive(deleteButton, !busy && !closing && selected());
         gtk_widget_set_sensitive(login, !busy && !closing && (selected() || !autoID.empty()));
+        std::string loginLabel = "登录后自动连接所选服务器";
+        if (client && !autoID.empty()) {
+            if (auto *profile = nm_client_get_connection_by_uuid(client, autoID.c_str()))
+                loginLabel = std::string("登录后自动连接：") + nm_connection_get_id(NM_CONNECTION(profile));
+        }
+        gtk_button_set_label(GTK_BUTTON(login), loginLabel.c_str());
+        if (startup && available && !busy && !closing) {
+            startup = false;
+            if (!autoID.empty() && gtk_combo_box_set_active_id(GTK_COMBO_BOX(servers), autoID.c_str()))
+                connect();
+        }
     }
     NMRemoteConnection *selected() const {
         if (!client)
@@ -291,6 +306,10 @@ public:
                     else if (nm_active_connection_get_state(connection) ==
                              NM_ACTIVE_CONNECTION_STATE_DEACTIVATED)
                         self->ended(connection);
+                    else if (NM_IS_VPN_CONNECTION(connection))
+                        vpnChanged(NM_VPN_CONNECTION(connection),
+                                   nm_vpn_connection_get_vpn_state(NM_VPN_CONNECTION(connection)),
+                                   NM_VPN_CONNECTION_STATE_REASON_NONE, self);
                 } else if (self->request.accepts(operation->token)) {
                     self->error = "configuration";
                     self->ended();
@@ -673,9 +692,6 @@ public:
                                  static_cast<Application *>(data)->update();
                              })),
                              this);
-            if (startup && !autoID.empty() &&
-                gtk_combo_box_set_active_id(GTK_COMBO_BOX(servers), autoID.c_str()))
-                connect();
         }
         g_clear_error(&failure);
         update();

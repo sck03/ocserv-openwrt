@@ -13,10 +13,14 @@ struct VPNProfile: Codable, Identifiable, Equatable {
     var username = ""
     var pin = ""
     var rememberPassword = false
+    var origin: String {
+        guard let url = VPNServerURL(server) else { return "" }
+        return (url.host?.lowercased() ?? "") + ":" + String(url.port ?? 443)
+    }
 
     func validated() throws -> VPNProfile {
         guard let url = VPNServerURL(server), !name.trimmingCharacters(in: .whitespaces).isEmpty,
-              name.count <= 128, username.count <= 8192, !username.isEmpty,
+              name.count <= 128, username.utf8.count <= 8192, !username.isEmpty, !username.contains("\0"),
               pin.hasPrefix("pin-sha256:"), let hash = Data(base64Encoded: String(pin.dropFirst(11))),
               hash.count == 32, hash.base64EncodedString() == String(pin.dropFirst(11)), UUID(uuidString: id) != nil else {
             throw ClientError.invalidProfile
@@ -103,6 +107,7 @@ final class DesktopVPN: NSObject, ObservableObject, OSSystemExtensionRequestDele
     private var currentProfile: VPNProfile?
     private var errorCategory = "none"
     private var errorCode = 0
+    private var exportGeneration: UInt64 = 0
     private var storageReady = false
     private var extensionReady = false
     private var extensionCompletion: CheckedContinuation<Void, Error>?
@@ -197,6 +202,9 @@ final class DesktopVPN: NSObject, ObservableObject, OSSystemExtensionRequestDele
         do {
             let profile = try draft.validated()
             guard profiles.count < 128 || profiles.contains(where: { $0.id == profile.id }) else { throw ClientError.invalidStore }
+            if let previous = profiles.first(where: { $0.id == profile.id }), previous.origin != profile.origin {
+                try Credentials.remove(profile.id)
+            }
             if profile.rememberPassword {
                 if !password.isEmpty { try Credentials.save(password, for: profile.id) }
             } else { try Credentials.remove(profile.id) }
@@ -224,7 +232,7 @@ final class DesktopVPN: NSObject, ObservableObject, OSSystemExtensionRequestDele
                 }
                 try Credentials.remove(id)
                 try write(profiles.filter { $0.id != id })
-                if UserDefaults.standard.string(forKey: "selected") == id { setLogin(false) }
+                if UserDefaults.standard.string(forKey: "autoProfile") == id { setLogin(false) }
                 draft = profiles.first ?? VPNProfile()
                 password = ""
             } catch { show(error) }
@@ -248,7 +256,7 @@ final class DesktopVPN: NSObject, ObservableObject, OSSystemExtensionRequestDele
         guard !busy, storageReady, save() else { return }
         do {
             sessionPassword = password.isEmpty && draft.rememberPassword ? try Credentials.read(draft.id) : password
-            guard !sessionPassword.isEmpty else { throw ClientError.missingPassword }
+            guard !sessionPassword.isEmpty, sessionPassword.utf8.count <= 8192, !sessionPassword.contains("\0") else { throw ClientError.missingPassword }
             epoch &+= 1
             sessionID = UUID().uuidString
             wanted = true
@@ -424,7 +432,25 @@ final class DesktopVPN: NSObject, ObservableObject, OSSystemExtensionRequestDele
             "generation": epoch, "attempt": attempt, "state": status, "error_category": errorCategory,
             "error_code": errorCode, "events": events]
         do { try JSONSerialization.data(withJSONObject: snapshot, options: [.prettyPrinted, .sortedKeys]).write(to: url, options: .atomic) }
-        catch { show(error) }
+        catch { show(error); return }
+        exportGeneration &+= 1
+        let export = exportGeneration, request = epoch
+        // A complete client report already exists if the extension is paused or stops.
+        guard let session = manager?.connection as? NETunnelProviderSession, connected else { return }
+        try? session.sendProviderMessage(Data("diagnostics".utf8)) { [weak self] data in
+            Task { @MainActor in
+                guard let self, self.exportGeneration == export, self.epoch == request, let data,
+                      let value = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                      let id = value["session_id"] as? String, UUID(uuidString: id) != nil,
+                      let generation = value["generation"] as? NSNumber,
+                      let phase = value["state"] as? String,
+                      ["idle", "connecting", "authenticating", "connected", "reconnecting", "suspended", "disconnecting", "failed"].contains(phase) else { return }
+                var report = snapshot
+                report["tunnel"] = ["session_id": id, "generation": generation, "state": phase]
+                do { try JSONSerialization.data(withJSONObject: report, options: [.prettyPrinted, .sortedKeys]).write(to: url, options: .atomic) }
+                catch { self.show(error) }
+            }
+        }
     }
 }
 

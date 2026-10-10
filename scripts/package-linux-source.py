@@ -11,7 +11,8 @@ def package():
     paths = source_files(ROOT, ('desktop/linux',), (
         'scripts/build-linux.sh', 'scripts/package-linux-source.py', 'scripts/build_common.py',
         'scripts/release_metadata.py', 'resources/app.svg', 'LICENSE', 'THIRD-PARTY-NOTICES.md',
-        'docs/DESKTOP.md', 'tests/linux_desktop_tests.cpp', '.github/workflows/build-desktop.yml',
+        'docs/DESKTOP.md', 'tests/linux_desktop_tests.cpp', 'tests/linux_auth_fixture.cpp',
+        'tests/linux_agent_tests.cpp', '.github/workflows/build-desktop.yml',
     ))
     with tempfile.TemporaryDirectory(prefix='source-', dir=out) as work:
         staged = Path(work) / 'LinkoraVPN-linux-source.zip'
