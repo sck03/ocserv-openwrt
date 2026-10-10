@@ -1,5 +1,34 @@
 # 验证记录
 
+## 2026-10-10 Linkora VPN 全新安装命名与精简
+
+主体代码为 `7ec2c05`，Android 通知及桌面小组件名称补全为 `6d0867c`。Windows 版本 `0.6.0`、Android/iOS `0.2.0`、ocserv `1.5.0-r6`、管理页 `0.5.0-r1`。
+
+客户端、服务端管理页、发行包和文档统一使用 Linkora VPN。Windows 使用新的 DPAPI 上下文、配置 schema 2 和 `.vpn` 导出；移动端默认 ID 为 `io.github.sck03.linkoravpn`，防火墙对象使用新的产品前缀。本版按全新安装部署，不提供旧版数据迁移。
+
+移除旧密码迁移函数、命令行工具、管理入口和旧页面跳转，替换原字母图标及重复的图形生成代码。Windows 从 CMake 统一生成版本头和清单，修复界面/协议版本落后于 EXE 属性的问题；便携包回归实际检查 EXE 产品名、文件名和版本资源。源码打包共用 Git 文件清单，避免扫描无关缓存；Release 对本项目 C++ 启用体积优化及无用节清理。
+
+| 平台 | 本次 GitHub 验证 |
+|---|---|
+| Windows | [运行 38028344769](https://github.com/sck03/ocserv-openwrt/actions/runs/38028344769)，`7ec2c05`：x86/x64 编译、PE 审计、版本资源、中英文便携包启动及原生回归全部通过 |
+| 服务端 | [运行 38028346418](https://github.com/sck03/ocserv-openwrt/actions/runs/38028346418)，`7ec2c05`：功能回归及六个 OpenWrt 25.12.5 目标编译、打包全部通过 |
+| Android | [运行 38028911546](https://github.com/sck03/ocserv-openwrt/actions/runs/38028911546)，`6d0867c`：三个架构核心、单元测试、debug APK、签名和 16 KB 对齐检查通过 |
+| iOS | [运行 38028349382](https://github.com/sck03/ocserv-openwrt/actions/runs/38028349382)，`7ec2c05`：地址/数据包校验、应用与隧道扩展编译及未签名 archive 通过 |
+
+Windows 两个架构各通过配置/DPAPI 46 项、界面 26 项、WSH 6 项、资源 8 组和真实回环 TLS/认证 26 项；x64 另通过真实 Wintun 隧道 3 项。服务端通过 Lua 逻辑 50 项、启动配置一致性 4 项、事务 36 项、进程 9 项、安装 24 项、密码文件 9 项、证书 11 项、隔离网络 20 项、浏览器 15 组和轮询 5 组。
+
+与上一轮同组件版本的 [Windows 构建 38024500027](https://github.com/sck03/ocserv-openwrt/actions/runs/38024500027) 比较，实际便携包体积下降如下：
+
+| 文件 | 调整前（字节） | 调整后（字节） | 减少 |
+|---|---:|---:|---:|
+| Windows x64 ZIP | 3,117,467 | 2,987,290 | 4.18% |
+| Windows x86 ZIP | 3,204,959 | 3,072,888 | 4.12% |
+| Windows 图标 | 62,347 | 34,392 | 44.84% |
+
+本地另通过原生配置/DPAPI、构建与打包、Lua 事务、浏览器及脚本检查，并使用校验过的 Android 上游源码核对通知与小组件名称。清理脚本删除约 217 MiB 临时编译环境、参考源码副本和缓存；验证报告与日志保留在 `test-results/`，不进入 Git 或发行包。
+
+Windows/服务端使用 `publish_release=false`，移动端使用 debug/unsigned；未发布 Release。本次为编译和自动回归，未连接用户 N1，也未执行 Win7 或手机实机验收。GlobalProtect 参考及后续功能建议见[客户端增强建议](CLIENT-ENHANCEMENTS.md)。
+
 ## 2026-10-10 局域网 IPv4 兼容性复查
 
 代码提交：`ad551b6`。Windows 保持 `0.5.2`，iOS 保持 `0.1.1`；Android 更新为 `0.1.2`，ocserv 为 `1.5.0-r6`，管理页为 `0.4.1-r7`。
