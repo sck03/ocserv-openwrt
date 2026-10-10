@@ -14,7 +14,8 @@ inline constexpr char Service[] = "org.freedesktop.NetworkManager.openconnect";
 inline constexpr char ProductID[] = "io.github.sck03.linkoravpn";
 inline constexpr char Marker[] = "io.github.sck03.linkoravpn.managed";
 inline bool field(std::string_view text) {
-    return text.size() <= 8192 && text.find_first_of("\r\n\0", 0, 3) == std::string_view::npos;
+    return text.size() <= 8192 && text.find_first_of("\r\n\0", 0, 3) == std::string_view::npos &&
+           g_utf8_validate(text.data(), static_cast<gssize>(text.size()), nullptr);
 }
 inline std::string gateway(std::string text) {
     if (text.empty() || !field(text) || std::any_of(text.begin(), text.end(), [](unsigned char c) {

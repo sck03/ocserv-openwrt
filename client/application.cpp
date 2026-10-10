@@ -708,7 +708,8 @@ void Application::drain_events() {
     }
 }
 LRESULT Application::message(UINT message, WPARAM wparam, LPARAM lparam) {
-    if (message == WM_CTLCOLORSTATIC && GetDlgCtrlID(reinterpret_cast<HWND>(lparam)) != Status) {
+    if (message == WM_CTLCOLORSTATIC && GetDlgCtrlID(reinterpret_cast<HWND>(lparam)) != Status &&
+        GetDlgCtrlID(reinterpret_cast<HWND>(lparam)) != StatusDetail) {
         HDC dc = reinterpret_cast<HDC>(wparam);
         SetTextColor(dc, GetSysColor(COLOR_WINDOWTEXT));
         SetBkColor(dc, GetSysColor(COLOR_WINDOW));

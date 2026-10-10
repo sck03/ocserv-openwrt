@@ -34,7 +34,9 @@ jobs:
         with:
           persist-credentials: false
       - name: Build, test and package
-        run: bash scripts/build-linux.sh
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          bash scripts/build-linux.sh
       - uses: actions/upload-artifact@v7.0.1
         with:
           name: linux-${{ matrix.arch }}

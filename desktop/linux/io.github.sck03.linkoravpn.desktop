@@ -5,4 +5,4 @@ Comment=Connect securely to an OpenConnect / ocserv VPN
 Exec=linkora-vpn
 Icon=io.github.sck03.linkoravpn
 Terminal=false
-Categories=Network;Security;
+Categories=Network;

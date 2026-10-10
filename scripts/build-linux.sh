@@ -7,7 +7,7 @@ build="build/desktop/linux-$arch"
 cmake -S desktop/linux -B "$build" -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/usr -DBUILD_TESTING=ON
 cmake --build "$build" --parallel "$(getconf _NPROCESSORS_ONLN)"
 ctest --test-dir "$build" --output-on-failure
-xvfb-run -a dbus-run-session -- "$build/linkora-vpn" --smoke-test
+NO_AT_BRIDGE=1 xvfb-run -a dbus-run-session -- "$build/linkora-vpn" --smoke-test
 desktop-file-validate desktop/linux/io.github.sck03.linkoravpn.desktop
 stage="$build/package"
 mkdir -p "$stage/DEBIAN" dist/linux

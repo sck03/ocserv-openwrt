@@ -30,6 +30,8 @@ int main() {
         check(!oversized.append(std::string(8193, 'x').data(), 8193));
         AuthReply truncated;
         check(truncated.append("cookie\n", 7) && !truncated.valid());
+        AuthReply malformed;
+        check(!malformed.append("cookie\n\xff\n", 9));
         check(retry_delay("network", 1) == 2 && retry_delay("timeout", 3) == 8 && !retry_delay("network", 4));
         for (const char *error : {"authentication", "certificate", "adapter", "canceled", "configuration"})
             check(!retry_delay(error, 1));
