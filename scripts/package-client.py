@@ -48,7 +48,7 @@ def main():
         license_dir.mkdir()
         for filename in ("布利杰VPN.exe", "wintun.dll"):
             shutil.copyfile(build / filename, folder / filename)
-        for filename in ("client/vendor/vpnc-script-win.js", "THIRD-PARTY-NOTICES.md"):
+        for filename in ("client/vendor/vpnc-script-win.js", "THIRD-PARTY-NOTICES.md", "docs/WAN.md"):
             shutil.copyfile(ROOT / filename, folder / Path(filename).name)
         for source, destination in licenses.items():
             shutil.copyfile(ROOT / source, license_dir / destination)
@@ -78,6 +78,7 @@ def main():
             "2. 在“配置”菜单新建连接，或直接填写实际网关地址，支持端口和用户组路径。\n"
             "3. 点击“连接”，按需完成 Windows 管理员授权，随后按服务器提示填写用户名、密码、分组或验证码。\n"
             "4. 未知证书需核对指纹后确认；指定 CA 或固定指纹不匹配时会拒绝连接。\n"
+            "   支持域名及 [IPv6]:端口。公网入口、端口转发和运营商内网说明见同包 WAN.md。\n"
             "5. 高级配置中的“记住密码”使用当前 Windows 用户的 DPAPI 加密。验证码不会作为密码保存。\n"
             "6. “VPN 信息”显示地址和流量，“查看日志”可复制诊断日志；设置菜单可切换中文/English及托盘行为。\n\n"
             "导入/导出 .bvpn 可共享地址、连接选项和公有证书，不包含密码、令牌或私钥。\n"

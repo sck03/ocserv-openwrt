@@ -278,7 +278,9 @@ case "connect":
     }
 
     // Add excluded routes
-    if (env("CISCO_SPLIT_EXC")) {
+    // An IPv6-only uplink can carry an IPv4 VPN. Without a physical IPv4
+    // default route there is no IPv4 next hop for the server's exclusions.
+    if (env("CISCO_SPLIT_EXC") && gw4) {
         for (var i = 0 ; i < parseInt(env("CISCO_SPLIT_EXC")); i++) {
             var network = env("CISCO_SPLIT_EXC_" + i + "_ADDR");
             var netmask = env("CISCO_SPLIT_EXC_" + i + "_MASK");
@@ -354,7 +356,7 @@ case "disconnect":
     }
 
     // Delete Legacy IP split-exclude routes
-    if (env("CISCO_SPLIT_EXC")) {
+    if (env("CISCO_SPLIT_EXC") && getDefaultGateway4()) {
         echo(INFO, "Removing Legacy IP split-exclude routes");
         for (var i = 0 ; i < parseInt(env("CISCO_SPLIT_EXC")); i++) {
             var network = env("CISCO_SPLIT_EXC_" + i + "_ADDR");

@@ -7,7 +7,7 @@ const vm = require('node:vm');
 
 const source = fs.readFileSync(path.join(__dirname, '../vendor/vpnc-script-win.js'), 'utf8');
 let passed = 0;
-function execute(overrides = {}, failure = () => 0, storage = { text: '' }) {
+function execute(overrides = {}, failure = () => 0, storage = { text: '' }, routes = {}) {
     const environment = {
         reason: 'connect', TUNIDX: '42', TUNDEV: 'Synthetic VPN', VPNGATEWAY: '203.0.113.7',
         INTERNAL_IP4_ADDRESS: '198.18.0.2', INTERNAL_IP4_NETMASK: '255.255.255.0',
@@ -25,7 +25,7 @@ function execute(overrides = {}, failure = () => 0, storage = { text: '' }) {
             return {
                 StdIn: { Close() {} }, ExitCode: failure(command),
                 StdOut: { ReadAll: () => command.includes('route print')
-                    ? '0.0.0.0 0.0.0.0 192.0.2.1 192.0.2.2 25\n'
+                    ? (routes.ipv4 ?? '0.0.0.0 0.0.0.0 192.0.2.1 192.0.2.2 25\n')
                     : command.includes('ipv6 show route') ? '::/0 12 fe80::1\n' : '' }
             };
         }
@@ -95,6 +95,17 @@ test('disconnect releases the gateway route and tunnel address', () => {
 test('IPv6 DNS uses the IPv6 netsh command', () => {
     const result = execute({ INTERNAL_IP4_DNS: '198.18.0.1 2001:db8::53' });
     assert(result.commands.some(c => c.includes('ipv6 add dnsservers 42 2001:db8::53 validate=no')));
+});
+test('an IPv6-only uplink carries the IPv4 tunnel without invalid IPv4 exclusions', () => {
+    for (const reason of ['connect', 'disconnect']) {
+        const result = execute({ reason, VPNGATEWAY: '2001:db8::7',
+            CISCO_SPLIT_EXC: '1', CISCO_SPLIT_EXC_0_ADDR: '192.168.19.0',
+            CISCO_SPLIT_EXC_0_MASK: '255.255.255.0', CISCO_SPLIT_EXC_0_MASKLEN: '24'
+        }, () => 0, { text: '' }, { ipv4: '' });
+        assert.equal(result.exitCode, 0);
+        assert(result.commands.some(c => c.includes('2001:db8::7/128 12 fe80::1')));
+        assert(!result.commands.some(c => /route (add|delete) 192\.168\.19\.0/.test(c)));
+    }
 });
 test('session logs use UTF-16 and the application-selected path', () => {
     const result = execute({ BULIJIE_SCRIPT_LOG: 'C:\\Temp\\中文-session.log' });

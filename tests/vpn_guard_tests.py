@@ -169,9 +169,9 @@ class GuardTests(unittest.TestCase):
         pair(cls.router, "vpns0", cls.vpn, "vpn0")
 
         addresses = [
-            (cls.router, "br-lan", "192.168.19.254/24", "fd19::254/64"),
-            (cls.lan, "eth0", "192.168.19.20/24", "fd19::20/64"),
-            (cls.upstream, "eth0", "192.168.19.1/24", "fd19::1/64"),
+            (cls.router, "br-lan", "192.168.19.254/24", "2001:db8:19::254/64"),
+            (cls.lan, "eth0", "192.168.19.20/24", "2001:db8:19::20/64"),
+            (cls.upstream, "eth0", "192.168.19.1/24", "2001:db8:19::1/64"),
             (cls.router, "vpns0", "10.77.0.1/24", "fd77::1/64"),
             (cls.vpn, "vpn0", "10.77.0.2/24", "fd77::2/64"),
         ]
@@ -182,8 +182,8 @@ class GuardTests(unittest.TestCase):
             nsrun(cls.lan, "ip", "addr", "add", address, "dev", "eth0")
         nsrun(cls.upstream, "ip", "addr", "add", "203.0.113.10/32", "dev", "lo")
         nsrun(cls.upstream, "ip", "addr", "add", "2001:db8:2::10/128", "dev", "lo", "nodad")
-        for namespace, gateway, gateway6 in ((cls.router, "192.168.19.1", "fd19::1"),
-                                              (cls.lan, "192.168.19.254", "fd19::254"),
+        for namespace, gateway, gateway6 in ((cls.router, "192.168.19.1", "2001:db8:19::1"),
+                                              (cls.lan, "192.168.19.254", "2001:db8:19::254"),
                                               (cls.vpn, "10.77.0.1", "fd77::1")):
             nsrun(namespace, "ip", "route", "add", "default", "via", gateway)
             nsrun(namespace, "ip", "-6", "route", "add", "default", "via", gateway6)
@@ -255,6 +255,24 @@ table inet simulated_openclash {
             with self.subTest(protocol=protocol):
                 self.allowed("lan", "192.168.19.254", 4443, "ocserv", protocol)
 
+    def test_ipv6_vpn_entry_works_without_enabling_tunnel_ipv6(self):
+        for protocol in ("tcp", "udp"):
+            with self.subTest(protocol=protocol):
+                self.allowed("lan", "2001:db8:19::254", 4443, "ocserv", protocol)
+        self.denied("vpn", "2001:db8:2::10", 9099)
+        self.assertGreater(self.counter("VPN IPv6 disabled"), 0)
+
+    def test_routed_wan_sources_can_reach_only_the_vpn_entry(self):
+        # The upstream namespace supplies non-LAN source addresses, as seen
+        # after IPv4 port forwarding or ordinary IPv6 routing to a side router.
+        for host, source in (("192.168.19.254", "203.0.113.10"),
+                             ("2001:db8:19::254", "2001:db8:2::10")):
+            for protocol in ("tcp", "udp"):
+                with self.subTest(host=host, protocol=protocol):
+                    self.allowed("upstream", host, 4443, "ocserv", protocol, source)
+                    self.denied("upstream", host, 443, protocol, source)
+                    self.denied("upstream", host, 7890, protocol, source)
+
     def test_management_requires_admin_ip(self):
         for port, service in ((22, "ssh"), (443, "luci")):
             with self.subTest(port=port):
@@ -315,7 +333,9 @@ table inet simulated_openclash {
 
     def test_lan_ipv6_gateway_and_local_proxy_are_denied(self):
         self.denied("lan", "2001:db8:2::10", 9099)
-        self.denied("lan", "fd19::254", 7890)
+        self.denied("lan", "2001:db8:19::254", 7890)
+        self.denied("lan", "2001:db8:19::254", 443)
+        self.denied("lan", "2001:db8:19::254", 53, "udp")
 
     def test_unconfigured_vpn_ipv6_is_denied(self):
         self.denied("vpn", "2001:db8:2::10", 9099)

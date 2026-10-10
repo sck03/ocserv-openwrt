@@ -199,6 +199,22 @@ test("disable restores original settings, lists and local file",function()
     enable(); disable(); check(equal(before,S.cfg)); check(extra==S.files["/etc/ocserv/ocserv.conf.local"] and not S.nft)
     check(S.files[root.."last-backup.json"]~=nil and S.files[root.."guard.nft"]==nil)
 end)
+test("IPv6 VPN entry retains isolation and restores a prior IPv4 listener",function()
+    reset()
+    local extra="listen-host = 192.168.19.253\n# administrator setting\n"
+    S.files["/etc/ocserv/ocserv.conf.local"]=extra
+    S.cfg.ocserv.config.ip6addr="fd77::/64"
+    local before=clone(S.cfg)
+    enable()
+    check(not S.cfg.ocserv.config.ip6addr)
+    local entry=S.cfg.firewall.bulijie_ocserv_entry6
+    check(entry.src=="lan" and entry.family=="ipv6" and not entry.dest and entry.target=="ACCEPT")
+    check(entry.dest_port=="4443 4443")
+    check(not S.files["/etc/ocserv/ocserv.conf.local"]:find("listen-host",1,true))
+    check(S.files[root.."guard.nft"]:find("VPN IPv6 disabled",1,true))
+    disable()
+    check(equal(before,S.cfg) and S.files["/etc/ocserv/ocserv.conf.local"]==extra)
+end)
 test("repeat toggles back up the latest normal settings",function()
     reset(); enable(); disable(); S.cfg.dhcp.dns.domain="new-normal"; local before=clone(S.cfg)
     enable(); disable(); check(equal(before,S.cfg))

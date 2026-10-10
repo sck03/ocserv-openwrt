@@ -16,6 +16,7 @@ local function fixture_settings()
         ipaddr="10.77.0.0",netmask="24",ip6addr="",default_domain="",easy_public_url="https://vpn.example.com:4443",dns={"10.77.0.1"},route_mode="split",routes={"192.168.19.0/24"}}
 end
 local old_hash="$6$existingSalt$"..string.rep("a",86)
+local test_pin="pin-sha256:"..TEST_BASE64(string.rep("a",32))
 local function hasher() return "$6$newSalt$"..string.rep("b",86) end
 local original={{id="employee",name="employee01",group="*",password=old_hash}}
 test("1.5 minimum and future versions",function()
@@ -123,6 +124,7 @@ test("default authentication is plain and export guards custom auth",function()
     local cfg,dns,routes=logic.validate_settings(fixture_settings())
     local rendered=logic.render(TEST_TEMPLATE,"",cfg,dns,routes,{domain="lan"})
     check(logic.standard_auth(rendered));check(not rendered:find("|PORT|",1,true));check(rendered:find("max-same-clients = 1",1,true))
+    check(rendered:find("listen-host-is-dyndns = true",1,true),"DDNS on an upstream router must also re-resolve on reconnect")
     check(not logic.standard_auth(rendered..'\nauth = "pam"\n'))
     cfg.auth="pam";expect("plain_auth_required",function()logic.render(TEST_TEMPLATE,"",cfg,dns,routes)end)
 end)
@@ -216,6 +218,9 @@ local function cursor()
 end
 local function run(argv)
     local command=table.concat(argv," ");S.commands[#S.commands+1]=command
+    if argv[1]=="/usr/bin/certtool" then
+        return S.certtool_code or 0,S.certtool_output or ("Public Key PIN:\n\t"..test_pin.."\n")
+    end
     if command=="/usr/sbin/ocserv --version"then
         if S.version_timeout then return 124,"" end
         return 0,(S.legacy_banner and "ocserv " or "OpenConnect VPN Server ")..S.version.."\n"
@@ -350,6 +355,32 @@ test("address profiles work without a CA and normalize a LAN address",function()
     reset();S.files["/etc/ocserv/ca.pem"]=nil
     local profile,name=backend.export("address","192.168.19.253:4443")
     check(name=="BulijieVPN.bvpn" and profile=="[VPN]\nServer=https://192.168.19.253:4443\n")
+end)
+test("pinned profiles support a public hostname or IPv6 without the initial CA",function()
+    reset();S.files["/etc/ocserv/ca.pem"]=nil
+    for _,url in ipairs({"vpn.example.com:4443","[2001:db8::1]:4443"}) do
+        local profile,name=backend.export("pin",url)
+        check(name=="BulijieVPN.bvpn" and profile=="[VPN]\nServer=https://"..url.."\nServerPin="..test_pin.."\n")
+        check(not profile:find("CABase64",1,true) and not profile:find(old_hash,1,true))
+    end
+    check(contains_command("certtool --pubkey-info --load-certificate /etc/ocserv/server-cert.pem"))
+end)
+test("pin export uses the configured certificate and detects key rotation",function()
+    reset();local c=cursor();c:set("ocserv","config","server_cert","/etc/ocserv/public-cert.pem");c:commit("ocserv")
+    S.certtool_output="Public Key PIN:\n\tpin-sha256:"..TEST_BASE64(string.rep("b",32)).."\n"
+    local profile=backend.export("pin","vpn.example.com:4443")
+    check(profile:find(TEST_BASE64(string.rep("b",32)),1,true))
+    check(contains_command("--load-certificate /etc/ocserv/public-cert.pem"))
+end)
+test("failed or ambiguous certificate exports never fall back to unpinned profiles",function()
+    reset();S.certtool_code=1
+    expect("pin_unavailable",function()backend.export("pin","vpn.example.com")end)
+    S.certtool_code=0;S.certtool_output="pin-sha256:truncated="
+    expect("pin_unavailable",function()backend.export("pin","vpn.example.com")end)
+    reset();S.files["/etc/ocserv/ocserv.conf.local"]="server-cert = /etc/ocserv/another.pem\n"
+    expect("pin_unavailable",function()backend.export("pin","vpn.example.com")end)
+    reset();S.files["/etc/ocserv/ocserv.conf.local"]="[vhost:other.example.com]\n"
+    expect("pin_unavailable",function()backend.export("pin","vpn.example.com")end)
 end)
 test("profile downloads reject insecure addresses and injected lines",function()
     reset()

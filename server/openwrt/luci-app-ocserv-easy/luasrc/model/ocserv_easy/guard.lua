@@ -210,6 +210,7 @@ local function plan(c,info)
     for name,values in pairs({
         bulijie_vpn_to_lan={[".type"]="forwarding",src="ocvpn",dest="lan"},
         bulijie_ocserv_entry={[".type"]="rule",name="Allow-ocserv-from-LAN",src="lan",dest_ip=info.lan,proto="tcp udp",dest_port=tostring(info.port).." "..tostring(info.udp_port),family="ipv4",target="ACCEPT"},
+        bulijie_ocserv_entry6={[".type"]="rule",name="Allow-ocserv-over-IPv6",src="lan",proto="tcp udp",dest_port=tostring(info.port).." "..tostring(info.udp_port),family="ipv6",target="ACCEPT"},
         bulijie_guard={[".type"]="include",type="nftables",path=rulefile,position="ruleset-prepend",enabled="1"}
     }) do
         logic.require(not c:get("firewall",name),"guard_section_conflict")
@@ -244,7 +245,8 @@ local function plan(c,info)
         if not managed[key] then lines[#lines+1]=line end
     end
     lines[#lines+1]="# Managed by the VPN-only switch; restored when disabled."
-    lines[#lines+1]="listen-host = "..info.lan
+    -- Leave the listener dual-stack. The input rules restrict access to VPN
+    -- ports, including when an upstream router routes public IPv6 to the N1.
     lines[#lines+1]="no-route = "..info.lan_network.."/"..info.lan_mask
     lines[#lines+1]="tunnel-all-dns = true"
     state.files[1]={path="/etc/ocserv/ocserv.conf.local",before=extra or false,after=table.concat(lines,"\n").."\n"}

@@ -28,8 +28,11 @@ table inet bulijie_guard {
         ct state invalid counter drop
         ct direction reply ct state { established, related } counter return
         meta l4proto ipv6-icmp icmpv6 type { nd-router-advert, nd-neighbor-solicit, nd-neighbor-advert } ip6 hoplimit 255 counter return
+        meta l4proto ipv6-icmp icmpv6 type { destination-unreachable, packet-too-big, time-exceeded, parameter-problem } counter return
         ip daddr $LAN_ADDRESS tcp dport $VPN_TCP_PORT counter return
         ip daddr $LAN_ADDRESS udp dport $VPN_UDP_PORT counter return
+        meta nfproto ipv6 fib daddr type local tcp dport $VPN_TCP_PORT counter return
+        meta nfproto ipv6 fib daddr type local udp dport $VPN_UDP_PORT counter return
         ip daddr $LAN_ADDRESS ip saddr $ADMIN_ADDRESS tcp dport $ADMIN_PORTS counter return
         ip daddr $LAN_ADDRESS ip saddr $ADMIN_ADDRESS icmp type echo-request counter return
         counter drop comment "LAN service denied"

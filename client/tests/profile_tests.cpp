@@ -30,6 +30,25 @@ int main(int argc, char **argv) {
         check(!normalize_gateway(L"http://vpn.example.com", normalized) &&
                   !normalize_gateway(L"https://user:pass@vpn.example.com", normalized),
               "insecure gateway rejection");
+        for (const auto &entry : std::vector<std::pair<std::wstring, std::wstring>>{
+                 {L"VPN.Example.COM:4443", L"https://vpn.example.com:4443"},
+                 {L"https://vpn.example.com:443", L"https://vpn.example.com"},
+                 {L"例子.测试:4443", L"https://xn--fsqu00a.xn--0zwm56d:4443"},
+                 {L"[2001:db8::1]:4443", L"https://[2001:db8::1]:4443"},
+                 {L"https://[::1]/group", L"https://[::1]/group"},
+                 {L"vpn_host.lan", L"https://vpn_host.lan"},
+                 {L"vpn.example.com.", L"https://vpn.example.com."},
+                 {L"vpn.example.com/group?key=value", L"https://vpn.example.com/group?key=value"}}) {
+            check(normalize_gateway(entry.first, normalized) && normalized == entry.second,
+                  "domain, IDN and IPv6 gateway normalization");
+        }
+        for (const auto &invalid : std::vector<std::wstring>{
+                 L"vpn..example.com", L".vpn.example.com", L"-vpn.example.com", L"vpn-.example.com",
+                 L"999.1.1.1", L"192.168.01.1", L"vpn.example.com:", L"vpn.example.com:65536",
+                 L"https://@vpn.example.com", L"https://[2001:db8:::1]", L"https://[fe80::1%12]",
+                 std::wstring(64, L'a') + L".example.com"}) {
+            check(!normalize_gateway(invalid, normalized), "malformed gateway rejected before connection");
+        }
         check(wide(utf8(L"中文配置")) == L"中文配置", "Unicode conversion");
         std::string encoded, decoded;
         check(protect_secret("Synthetic fixture password", "fixture-A", encoded, error) &&

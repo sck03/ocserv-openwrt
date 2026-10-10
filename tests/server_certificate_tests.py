@@ -1,4 +1,5 @@
 """Run the packaged certificate initialization function with real certtool in a temporary directory."""
+import base64
 import hashlib
 import json
 import os
@@ -41,6 +42,12 @@ logger() { :; }
     checks.append('the generated certificate verifies for the N1 LAN IP and hostname')
     subprocess.run(['openssl','verify','-CAfile',str(folder/'ca.pem'),'-purpose','sslserver',str(folder/'server-cert.pem')],check=True,capture_output=True)
     checks.append('the generated leaf has TLS server certificate usage')
+    public=subprocess.run(['openssl','x509','-in',str(folder/'server-cert.pem'),'-pubkey','-noout'],check=True,capture_output=True).stdout
+    spki=subprocess.run(['openssl','pkey','-pubin','-outform','DER'],input=public,check=True,capture_output=True).stdout
+    expected_pin='pin-sha256:'+base64.b64encode(hashlib.sha256(spki).digest()).decode('ascii')
+    key_info=subprocess.run(['certtool','--pubkey-info','--load-certificate',str(folder/'server-cert.pem')],check=True,capture_output=True,text=True)
+    assert expected_pin in key_info.stdout+key_info.stderr
+    checks.append('exported certtool pin matches the OpenConnect SHA-256 SPKI fingerprint, not the whole certificate')
     digests={p.name:hashlib.sha256(p.read_bytes()).hexdigest() for p in folder.glob('*.pem')}
     assert initialize(folder).returncode==0
     assert digests=={p.name:hashlib.sha256(p.read_bytes()).hexdigest() for p in folder.glob('*.pem')}

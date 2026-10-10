@@ -234,9 +234,7 @@ local function apply_settings(s,request)
     local config={}; for key,value in pairs(s.config) do config[key]=value end
     for key,value in pairs(values) do config[key]=value end
     local domain=s.cursor:get_first("dhcp","dnsmasq","domain","")
-    local dyndns=false
-    s.cursor:foreach("ddns","service",function(row) if row.domain and row.domain~="" then dyndns=true end end)
-    local candidate=logic.render(s.template,s.extra,config,dns,routes,{domain=domain,dyndns=dyndns})
+    local candidate=logic.render(s.template,s.extra,config,dns,routes,{domain=domain})
     logic.require(logic.standard_auth(candidate),"custom_auth_file")
     local was_running=running()
     if was_running then logic.require(request.allow_restart==true,"restart_confirmation_required") end
@@ -308,14 +306,35 @@ function M.repair_users()
     if (s.config.auth or "plain")~="plain" then return {effect="unchanged",converted=0,needs_password=0} end
     return M.action({action="repair_users",revision=s.revision})
 end
+local function server_pin()
+    local s=snapshot()
+    local rendered=logic.render(s.template,s.extra,s.config,s.dns,s.routes,
+        {domain=s.cursor:get_first("dhcp","dnsmasq","domain","")})
+    local certificate
+    for line in (rendered.."\n"):gmatch("([^\n]*)\n") do
+        -- Multiple keys or virtual hosts need an explicitly selected pin.
+        logic.require(not line:match("^%s*%[vhost:"),"pin_unavailable")
+        local path=line:match("^%s*server%-cert%s*=%s*(.-)%s*$")
+        if path then
+            logic.require(not certificate,"pin_unavailable")
+            certificate=path:match('^"(.*)"$') or path
+        end
+    end
+    logic.require(certificate and certificate:sub(1,1)=="/","pin_unavailable")
+    local code,output=run({"/usr/bin/certtool","--pubkey-info","--load-certificate",certificate},8)
+    local pin=code==0 and ("\n"..output.."\n"):match("\n%s*(pin%-sha256:[A-Za-z0-9+/]+=)%s*\n")
+    logic.require(pin and #pin==55,"pin_unavailable")
+    return pin
+end
 function M.export(kind,url)
-    logic.require(kind=="ca" or kind=="profile" or kind=="address","bad_request")
+    logic.require(kind=="ca" or kind=="profile" or kind=="address" or kind=="pin","bad_request")
     local normalized
     if kind~="ca" then
         if type(url)=="string" and not url:find("://",1,true) then url="https://"..url end
         normalized=logic.url(url)
         logic.require(normalized,"invalid_url")
         if kind=="address" then return "[VPN]\nServer="..normalized.."\n","BulijieVPN.bvpn" end
+        if kind=="pin" then return "[VPN]\nServer="..normalized.."\nServerPin="..server_pin().."\n","BulijieVPN.bvpn" end
     end
     local ca=read("/etc/ocserv/ca.pem",65536)
     logic.require(ca and ca:find("-----BEGIN CERTIFICATE-----",1,true) and ca:find("-----END CERTIFICATE-----",1,true) and not ca:find("PRIVATE KEY",1,true),"ca_unavailable")

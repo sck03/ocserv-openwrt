@@ -107,12 +107,10 @@ def main():
         (output / "BUILDINFO.json").write_text(json.dumps(info, indent=2) + "\n", encoding="utf-8")
         (output / "APK-ARCHITECTURES").write_text("\n".join(target["apk_architectures"]) + "\n", encoding="ascii")
         shutil.copyfile(sdk / "feeds.conf", output / "feeds.conf.build")
-        for filename in ("install.sh", "preflight-n1.sh", "diagnose-n1.sh", "export-profile.sh", "add-user.sh"):
+        for filename in ("install.sh", "preflight-n1.sh", "diagnose-n1.sh", "add-user.sh"):
             shutil.copyfile(ROOT / "server/tools" / filename, output / filename)
-        shutil.copyfile(ROOT / "docs/OPENWRT-N1.md", output / "OPENWRT-N1.md")
-        shutil.copyfile(ROOT / "docs/OPENWRT.md", output / "OPENWRT.md")
-        shutil.copyfile(ROOT / "docs/SERVER-UI.md", output / "SERVER-UI.md")
-        shutil.copyfile(ROOT / "docs/VPN-ONLY-OPENCLASH.md", output / "VPN-ONLY-OPENCLASH.md")
+        for filename in ("OPENWRT-N1.md", "OPENWRT.md", "SERVER-UI.md", "VPN-ONLY-OPENCLASH.md", "WAN.md"):
+            shutil.copyfile(ROOT / "docs" / filename, output / filename)
         source = output / "source"
         source.mkdir(exist_ok=True)
         archive = sdk / "dl" / f"ocserv-{ocserv_version}.tar.xz"

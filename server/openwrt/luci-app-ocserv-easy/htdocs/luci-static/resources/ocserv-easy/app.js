@@ -246,7 +246,7 @@
             flag('compression',t('启用压缩','Enable compression'),t('通常关闭，减少 CPU 开销。','Usually disabled to reduce CPU work.')),
             textInput('default_domain',t('默认域名','Default domain'),t('可留空。','Optional.')),
             textInput('ip6addr',t('VPN IPv6 地址池','VPN IPv6 pool'),t('可留空，例如 fd77::/64。','Optional, for example fd77::/64.')),
-            textInput('easy_public_url',t('员工连接地址','Employee connection address'),t('供下载客户端配置使用。','Used when downloading client profiles.'),{placeholder:'https://vpn.example.com:4443'})
+            textInput('easy_public_url',t('员工连接地址','Employee connection address'),t('填写客户端可访问的 HTTPS 域名或 IP；外网用户应使用公网入口。','Use an HTTPS hostname or IP reachable by clients; remote users need a public endpoint.'),{placeholder:'https://vpn.example.com:4443'})
         ])]);
         var save=element('button',{type:'submit',className:'cbi-button cbi-button-apply',text:t('保存并应用','Save and apply'),disabled:!writable() || !state.settings_supported || !!(state.guard && state.guard.enabled)});
         var form=element('form',{},[general,advanced,element('div',{className:'easy-save-bar'},[element('span',{className:'easy-muted',text:t('应用前检查配置；运行中的 VPN 会短暂重启。','Checks configuration before applying; a running VPN briefly restarts.')}),save])]);
@@ -310,13 +310,27 @@
     }
     function renderExport() {
         var server=element('input',{value:state.settings.easy_public_url || (state.guard && state.guard.lan ? state.guard.lan+':'+state.settings.port : ''),type:'text',required:true,maxLength:512,placeholder:'192.168.19.253:4443'});
-        var trust=element('select',{},[element('option',{value:'address',text:t('首次连接时确认证书（推荐）','Confirm certificate on first connection (recommended)')}),element('option',{value:'profile',text:t('附带公共 CA 证书','Include the public CA certificate'),disabled:!state.ca_available})]);
+        var trust=element('select',{},[
+            element('option',{value:'pin',text:t('固定服务器指纹（推荐）','Pin the server public key (recommended)')}),
+            element('option',{value:'address',text:t('首次连接时确认证书','Confirm certificate on first connection')}),
+            element('option',{value:'profile',text:t('附带公共 CA 证书','Include the public CA certificate'),disabled:!state.ca_available})
+        ]);
         var profile=element('button',{type:'submit',className:'cbi-button cbi-button-apply',text:t('下载 .bvpn 连接配置','Download .bvpn profile')});
-        var form=element('form',{},[field(t('客户端实际连接的服务器地址','Server address used by clients'),server,t('例如 192.168.19.253:4443，也可填写完整的 https:// 地址。','For example 192.168.19.253:4443; a full https:// address is also accepted.')),field(t('证书验证方式','Certificate verification'),trust),element('p',{text:t('导入后填写各自的账号密码。选择首次连接确认时，客户端会显示证书指纹；选择 CA 时，证书须包含填写的域名或 IP。','After import, each user enters their own credentials. First-connection confirmation shows the fingerprint; CA verification requires a certificate covering the entered hostname or IP.')}),element('p',{className:'easy-muted',text:t('配置不包含账号、密码或私钥。','Profiles contain no usernames, passwords, or private keys.')}),profile]);
+        var form=element('form',{},[
+            field(t('客户端实际连接的服务器地址','Server address used by clients'),server,t('例如 vpn.example.com:4443 或 [2001:db8::1]:4443。外网请填写实际公网地址和外部端口。','For example vpn.example.com:4443 or [2001:db8::1]:4443. Remote clients need the actual public address and external port.')),
+            field(t('证书验证方式','Certificate verification'),trust),
+            element('p',{text:t('固定指纹会校验服务器公钥，适用于自签证书、域名和 IPv6。更换公钥后需重新分发配置。选择 CA 时，证书必须包含填写的域名或 IP。','Pinning verifies the server public key and supports self-signed certificates, hostnames and IPv6. Redistribute profiles after changing the key. CA verification requires a certificate covering the entered hostname or IP.')}),
+            element('p',{className:'easy-muted',text:t('请从可信的管理连接下载并分发配置。导入后填写各自的账号密码；配置不包含账号、密码或私钥。','Download and distribute profiles through a trusted management connection. Users enter their own credentials after import; profiles contain no usernames, passwords or private keys.')}),profile
+        ]);
         form.addEventListener('submit',function(event){event.preventDefault();download(trust.value,server.value.trim());});
         var ca=button(t('下载 ca.pem','Download ca.pem'),function(){download('ca','');});ca.disabled=!state.ca_available;
         content.appendChild(element('section',{className:'easy-card'},[element('h3',{text:t('分发客户端配置','Distribute client profiles')}),form]));
         content.appendChild(element('section',{className:'easy-card'},[element('h3',{text:t('单独下载 CA 证书','Download the CA certificate')}),element('p',{className:'easy-muted',text:t('适用于已有服务器地址的布利杰VPN，或其他支持导入 CA 的客户端。','For BulijieVPN with a configured server address, or another client that can import a CA.')}),ca]));
+        content.appendChild(element('section',{className:'easy-card'},[
+            element('h3',{text:t('从外网连接','Connecting over the Internet')}),
+            element('p',{text:t('域名需要解析到可达的公网 IP。IPv4 旁路由部署需要在主路由转发 VPN 的 TCP/UDP 端口；IPv6 需要两端都有 IPv6，并在主路由放行 N1 的 VPN 端口。','The hostname must resolve to a reachable public IP. An IPv4 side router needs TCP/UDP forwarding on the main router. IPv6 requires connectivity on both ends and a firewall rule allowing the N1 VPN ports.')}),
+            element('p',{className:'easy-muted',text:t('运营商内网无法仅靠域名实现外网直连；可使用可达的公网 IPv6、申请公网 IPv4，或部署公网中转。请用手机流量等独立网络验收。','A hostname alone cannot make a server behind carrier NAT reachable. Use public IPv6, request a public IPv4 address, or deploy a public relay. Test from a separate network, such as mobile data.')})
+        ]));
     }
     function renderStatus() {
         statusBox.replaceChildren();

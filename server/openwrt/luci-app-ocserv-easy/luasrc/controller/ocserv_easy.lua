@@ -81,7 +81,7 @@ function download()
     if not ok then
         http.status(400,"Invalid export")
         http.prepare_content("text/plain; charset=utf-8")
-        http.write("Cannot export. Check the server address and, for CA exports, the public CA certificate. / 无法导出，请检查服务器地址；附带 CA 时还需检查公共 CA 证书。")
+        http.write("Cannot export. Check the server address and certificate. Pin export requires a single server certificate; use first-connection confirmation for custom virtual hosts. / 无法导出，请检查地址和证书。指纹导出要求使用单一服务端证书；自定义多证书或虚拟主机可选择首次连接确认证书。")
         return
     end
     http.header("Content-Disposition",'attachment; filename="'..filename..'"')

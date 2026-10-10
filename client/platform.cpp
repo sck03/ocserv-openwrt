@@ -219,6 +219,11 @@ bool normalize_gateway(const std::wstring &input, std::wstring &normalized, std:
             return false;
     if (normalized.find(L"://") == std::wstring::npos)
         normalized = L"https://" + normalized;
+    const auto authority_begin = normalized.find(L"://") + 3;
+    const auto authority_end = normalized.find_first_of(L"/?", authority_begin);
+    const auto authority = normalized.substr(authority_begin, authority_end - authority_begin);
+    if (authority.empty() || authority.back() == L':' || authority.find(L'@') != std::wstring::npos)
+        return false;
     URL_COMPONENTS parts{};
     parts.dwStructSize = sizeof(parts);
     parts.dwHostNameLength = parts.dwUrlPathLength = parts.dwExtraInfoLength = parts.dwUserNameLength =
@@ -233,26 +238,53 @@ bool normalize_gateway(const std::wstring &input, std::wstring &normalized, std:
     std::transform(host.begin(), host.end(), host.begin(),
                    [](wchar_t c) { return static_cast<wchar_t>(std::towlower(c)); });
     if (host.find(L':') != std::wstring::npos) {
-        auto address=host;
-        if(address.front()==L'['&&address.back()==L']')address=address.substr(1,address.size()-2);
+        auto address = host;
+        if (address.front() == L'[' && address.back() == L']')
+            address = address.substr(1, address.size() - 2);
         IN6_ADDR ipv6{};
-        if(InetPtonW(AF_INET6,address.c_str(),&ipv6)!=1)return false;
-        host=L"["+address+L"]";
+        if (InetPtonW(AF_INET6, address.c_str(), &ipv6) != 1)
+            return false;
+        host = L"[" + address + L"]";
     } else {
-        if(std::any_of(host.begin(),host.end(),[](wchar_t c){return c>127;})) {
-            int length=IdnToAscii(IDN_USE_STD3_ASCII_RULES,host.data(),static_cast<int>(host.size()),nullptr,0);
-            if(length<=0)return false;
-            std::wstring ascii(static_cast<size_t>(length),L'\0');
-            if(!IdnToAscii(IDN_USE_STD3_ASCII_RULES,host.data(),static_cast<int>(host.size()),ascii.data(),length))return false;
-            host=std::move(ascii);
+        if (std::any_of(host.begin(), host.end(), [](wchar_t c) { return c > 127; })) {
+            int length = IdnToAscii(IDN_USE_STD3_ASCII_RULES, host.data(), static_cast<int>(host.size()),
+                                    nullptr, 0);
+            if (length <= 0)
+                return false;
+            std::wstring ascii(static_cast<size_t>(length), L'\0');
+            if (!IdnToAscii(IDN_USE_STD3_ASCII_RULES, host.data(), static_cast<int>(host.size()),
+                            ascii.data(), length))
+                return false;
+            host = std::move(ascii);
         }
-        if(!std::all_of(host.begin(),host.end(),[](wchar_t c){return (c>=L'a'&&c<=L'z')||(c>=L'0'&&c<=L'9')||c==L'-'||c==L'.'||c==L'_';}))return false;
+        if (host.size() > 253 || !std::all_of(host.begin(), host.end(), [](wchar_t c) {
+                return (c >= L'a' && c <= L'z') || (c >= L'0' && c <= L'9') ||
+                       c == L'-' || c == L'.' || c == L'_';
+            }))
+            return false;
+        // Preserve existing hostname spelling for the DPAPI origin binding.
+        // Underscores and a final root dot remain usable on private DNS servers.
+        for (size_t begin = 0; begin < host.size();) {
+            auto end = host.find(L'.', begin);
+            if (end == std::wstring::npos)
+                end = host.size();
+            if (end == begin || end - begin > 63 || host[begin] == L'-' || host[end - 1] == L'-')
+                return false;
+            begin = end + 1;
+        }
+        if (std::all_of(host.begin(), host.end(), [](wchar_t c) {
+                return (c >= L'0' && c <= L'9') || c == L'.';
+            })) {
+            IN_ADDR ipv4{};
+            if (InetPtonW(AF_INET, host.c_str(), &ipv4) != 1)
+                return false;
+        }
     }
     if (origin)
         *origin = L"https://" + host + L":" + std::to_wstring(parts.nPort);
-    std::wstring path=parts.dwUrlPathLength?std::wstring(parts.lpszUrlPath,parts.dwUrlPathLength):L"";
-    std::wstring extra=parts.dwExtraInfoLength?std::wstring(parts.lpszExtraInfo,parts.dwExtraInfoLength):L"";
-    normalized=L"https://"+host+(parts.nPort==443?L"":L":"+std::to_wstring(parts.nPort))+path+extra;
+    std::wstring path = parts.dwUrlPathLength ? std::wstring(parts.lpszUrlPath, parts.dwUrlPathLength) : L"";
+    std::wstring extra = parts.dwExtraInfoLength ? std::wstring(parts.lpszExtraInfo, parts.dwExtraInfoLength) : L"";
+    normalized = L"https://" + host + (parts.nPort == 443 ? L"" : L":" + std::to_wstring(parts.nPort)) + path + extra;
     return true;
 }
 bool valid_pin(const std::string &value) {

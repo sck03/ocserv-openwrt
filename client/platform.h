@@ -12,7 +12,7 @@
 
 namespace bulijie {
 inline constexpr wchar_t Product[] = L"布利杰VPN";
-inline constexpr char Version[] = "0.5.0";
+inline constexpr char Version[] = "0.5.1";
 enum class Language { Chinese, English };
 inline const wchar_t *tr(Language language, const wchar_t *zh, const wchar_t *en) {
     return language == Language::Chinese ? zh : en;

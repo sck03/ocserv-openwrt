@@ -276,7 +276,7 @@ function M.render(template, extra, config, dns, routes, context)
     M.require(domain=="" or M.domain(domain), "invalid_domain")
     local values={ PORT=config.port or "4443", UDP_PORT=config.udp_port~="" and config.udp_port or config.port or "4443",
         MAX_CLIENTS=config.max_clients or "8", MAX_SAME=config.max_same or "2", DPD=config.dpd or "120",
-        AUTH="plain[passwd=/var/etc/ocpasswd]", DYNDNS=context.dyndns and "true" or "false",
+        AUTH="plain[passwd=/var/etc/ocpasswd]", DYNDNS="true",
         PREDICTABLE_IPS=flag("predictable_ips","1"), DEFAULT_DOMAIN=domain, ENABLE_DEFAULT_DOMAIN=domain~="" and "" or "#",
         ENABLE_SPLIT_DNS=config.split_dns=="1" and "" or "#", CISCO_COMPAT=flag("cisco_compat","1"),
         PING_LEASES=flag("ping_leases","0"), UDP=(config.udp or "1")=="1" and "" or "#", COMPRESSION=config.compression=="1" and "" or "#",

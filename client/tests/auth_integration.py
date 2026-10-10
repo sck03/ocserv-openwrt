@@ -10,6 +10,7 @@ import http.server
 import ipaddress
 import json
 from pathlib import Path
+import socket
 import ssl
 import subprocess
 import threading
@@ -39,7 +40,8 @@ def certificate(folder, name, expired=False):
             .not_valid_before(now - timedelta(days=2))
             .not_valid_after(now + timedelta(days=-1 if expired else 2))
             .add_extension(x509.SubjectAlternativeName([x509.DNSName("localhost"),
-                x509.IPAddress(ipaddress.ip_address("127.0.0.1"))]), critical=False)
+                x509.IPAddress(ipaddress.ip_address("127.0.0.1")),
+                x509.IPAddress(ipaddress.ip_address("::1"))]), critical=False)
             .add_extension(x509.BasicConstraints(ca=True, path_length=None), critical=True)
             .sign(key, hashes.SHA256()))
     key_path, cert_path = folder / f"{name}.key", folder / f"{name}.pem"
@@ -60,7 +62,7 @@ def main():
     original = certificate(output, "original")
     replacement = certificate(output, "replacement")
     expired = certificate(output, "expired", expired=True)
-    counts = {"requests": 0, "credentials": 0, "passwords": [], "choices": []}
+    counts = {"requests": 0, "credentials": 0, "passwords": [], "choices": [], "server_names": []}
 
     class Handler(http.server.BaseHTTPRequestHandler):
         protocol_version = "HTTP/1.1"
@@ -143,16 +145,24 @@ def main():
             self.form(fields, "<error>Wrong credentials</error>" if password else "")
 
     server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    class IPv6Server(http.server.ThreadingHTTPServer):
+        address_family = socket.AF_INET6
+
+    server6 = IPv6Server(("::1", 0), Handler)
     tls = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
     tls.minimum_version = ssl.TLSVersion.TLSv1_2
     tls.load_cert_chain(original[0], original[1])
+    tls.set_servername_callback(lambda connection, name, context: counts["server_names"].append(name))
     server.socket = tls.wrap_socket(server.socket, server_side=True)
+    server6.socket = tls.wrap_socket(server6.socket, server_side=True)
     worker = threading.Thread(target=server.serve_forever, daemon=True)
+    worker6 = threading.Thread(target=server6.serve_forever, daemon=True)
     worker.start()
+    worker6.start()
     results = []
 
     def case(name, route="/ok", terminal="idle", posts=1, checks=None, **options):
-        counts.update(requests=0, credentials=0, passwords=[], choices=[])
+        counts.update(requests=0, credentials=0, passwords=[], choices=[], server_names=[])
         directory = options.pop("store", name)
         config = {"gateway": f"https://127.0.0.1:{server.server_port}{route}",
                   "directory": str(output / directory), "password": PASSWORD, **options}
@@ -177,6 +187,19 @@ def main():
 
     try:
         case("verified_fixed_pin", pin=original[2], checks=lambda r: r["stoken"] and r["oath"] and r["system_keys"])
+        case("hostname_SNI_and_saved_password", gateway=f"https://localhost:{server.server_port}/ok",
+             pin=original[2], batch_mode=True, saved_password=PASSWORD,
+             checks=lambda r: "localhost" in counts["server_names"] and all(p["kind"] != "password" for p in r["prompts"]))
+        case("hostname_custom_CA", gateway=f"https://localhost:{server.server_port}/ok", ca_file=str(original[0]),
+             checks=lambda r: all(p["kind"] != "certificate" for p in r["prompts"]))
+        case("IPv6_fixed_pin_and_saved_password", gateway=f"https://[::1]:{server6.server_port}/ok",
+             pin=original[2], batch_mode=True, saved_password=PASSWORD,
+             checks=lambda r: all(p["kind"] != "password" for p in r["prompts"]))
+        case("IPv6_custom_CA", gateway=f"https://[::1]:{server6.server_port}/ok", ca_file=str(original[0]),
+             checks=lambda r: all(p["kind"] != "certificate" for p in r["prompts"]))
+        case("IPv6_wrong_pin_sends_no_credentials", gateway=f"https://[::1]:{server6.server_port}/ok",
+             terminal="failed", posts=0, pin=replacement[2], accept_certificate=True,
+             checks=lambda r: not r["prompts"])
         case("untrusted_certificate_sends_no_credentials", posts=0, checks=lambda r: r["canceled"] and len(r["prompts"]) == 1)
         case("wrong_fixed_pin_is_not_overridable", terminal="failed", posts=0, pin=replacement[2], accept_certificate=True,
              checks=lambda r: not r["prompts"])
@@ -216,8 +239,11 @@ def main():
              checks=lambda r: not r["prompts"])
     finally:
         server.shutdown()
+        server6.shutdown()
         server.server_close()
+        server6.server_close()
         worker.join(timeout=3)
+        worker6.join(timeout=3)
     (output / "auth-results.json").write_text(json.dumps(results, indent=2), encoding="utf-8")
     (args.output / "auth-results.json").write_text(json.dumps({"run": str(output), "results": results}, indent=2), encoding="utf-8")
     print(json.dumps({"passed": sum(r["passed"] for r in results), "total": len(results), "run": str(output)}))

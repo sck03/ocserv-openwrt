@@ -83,10 +83,6 @@ setup_config() {
 
 	test $auth = "plain" && authsuffix="\[passwd=/var/etc/ocpasswd\]"
 
-	dyndns="false"
-	hostname=`uci show ddns 2>/dev/null|grep domain|head -1|cut -d '=' -f 2`
-	[ -n "$hostname" ] && dyndns="true"
-
 	mkdir -p /var/etc
 	sed -e "s~|PORT|~$port~g" \
 	    -e "s~|UDP_PORT|~$udp_port~g" \
@@ -94,7 +90,7 @@ setup_config() {
 	    -e "s~|MAX_SAME|~$max_same~g" \
 	    -e "s~|DPD|~$dpd~g" \
 	    -e "s~|AUTH|~$auth$authsuffix~g" \
-	    -e "s~|DYNDNS|~$dyndns~g" \
+	    -e "s~|DYNDNS|~true~g" \
 	    -e "s~|PREDICTABLE_IPS|~$predictable_ips~g" \
 	    -e "s~|DEFAULT_DOMAIN|~$default_domain~g" \
 	    -e "s~|ENABLE_DEFAULT_DOMAIN|~$enable_default_domain~g" \
@@ -135,7 +131,7 @@ setup_users() {
 }
 
 setup_routes() {
-	local routes
+	local ip netmask
 
 	config_get ip $1 ip
 	config_get netmask $1 netmask
@@ -146,7 +142,7 @@ setup_routes() {
 }
 
 setup_dns() {
-	local routes
+	local ip
 
 	config_get ip $1 ip
 

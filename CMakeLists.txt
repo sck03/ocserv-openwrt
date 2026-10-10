@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.24)
-project(BridgeVPN VERSION 0.5.0 LANGUAGES C CXX RC)
+project(BridgeVPN VERSION 0.5.1 LANGUAGES C CXX RC)
 if(NOT WIN32 OR MSVC)
     message(FATAL_ERROR "Use the documented MinGW Windows toolchain.")
 endif()

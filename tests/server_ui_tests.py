@@ -106,6 +106,21 @@ with sync_playwright() as pw:
         expect(page.get_by_role('button',name='保存并应用',exact=True)).to_be_enabled()
         checks.append('disable restores settings and re-enables network editing')
         page.get_by_role('tab',name='客户端配置',exact=True).click()
+        expect(page.get_by_label('证书验证方式',exact=True)).to_have_value('pin')
+        page.get_by_label('客户端实际连接的服务器地址',exact=True).fill('vpn.example.com:4443')
+        with page.expect_download() as pending:
+            page.get_by_role('button',name='下载 .bvpn 连接配置',exact=True).click()
+        pending.value.save_as(str(args.output/'domain-pin.bvpn'))
+        pinned=(args.output/'domain-pin.bvpn').read_text()
+        assert 'Server=https://vpn.example.com:4443\nServerPin=pin-sha256:' in pinned
+        assert 'CABase64=' not in pinned
+        page.get_by_label('客户端实际连接的服务器地址',exact=True).fill('[2001:db8::1]:4443')
+        with page.expect_download() as pending:
+            page.get_by_role('button',name='下载 .bvpn 连接配置',exact=True).click()
+        pending.value.save_as(str(args.output/'ipv6-pin.bvpn'))
+        assert 'Server=https://[2001:db8::1]:4443\nServerPin=pin-sha256:' in (args.output/'ipv6-pin.bvpn').read_text()
+        checks.append('public hostname and IPv6 profiles include the configured server public-key pin by default')
+        page.get_by_label('证书验证方式',exact=True).select_option('address')
         page.get_by_label('客户端实际连接的服务器地址',exact=True).fill('192.168.19.253:4443')
         with page.expect_download() as pending:
             page.get_by_role('button',name='下载 .bvpn 连接配置',exact=True).click()

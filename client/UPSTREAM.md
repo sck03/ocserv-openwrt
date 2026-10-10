@@ -12,6 +12,8 @@ The port includes Main / VPN Info tabs, quick and advanced profiles, text/passwo
 
 The Windows helper explicitly catches JScript exceptions and exits nonzero: WSH itself can report an unhandled runtime error yet return status 0. Native tests execute the shipped helper with an invalid log path to verify this failure boundary.
 
+An IPv6-only uplink can carry the IPv4 tunnel. The helper skips IPv4 split-exclusion routes when no physical IPv4 default gateway exists, instead of passing an empty next hop to `route.exe`.
+
 Library source URLs, versions and SHA-256 values live in scripts/sources.json. Extraction is unmodified; patches apply with zero fuzz to a build-local copy.
 
 ## OpenConnect patch
