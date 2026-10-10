@@ -5,7 +5,7 @@
 #include <iostream>
 #include <stdexcept>
 
-using namespace bulijie;
+using namespace vpn;
 namespace {
 void progress(void *, int, const char *, ...) {}
 }
@@ -44,15 +44,15 @@ int wmain(int argc, wchar_t **argv) {
         std::wstring environment_error;
         if (!write_atomic(environment_script,
                 "try { var e = WScript.CreateObject('WScript.Shell').Environment('Process');"
-                "var f = WScript.CreateObject('Scripting.FileSystemObject').OpenTextFile(e('BULIJIE_SCRIPT_LOG'), 2, true);"
-                "f.WriteLine(e('BULIJIE_SCRIPT_FIXTURE')); f.Close(); } finally { WScript.Quit(1); }",
+                "var f = WScript.CreateObject('Scripting.FileSystemObject').OpenTextFile(e('VPN_SCRIPT_LOG'), 2, true);"
+                "f.WriteLine(e('VPN_SCRIPT_FIXTURE')); f.Close(); } finally { WScript.Quit(1); }",
                 environment_error))
             throw std::runtime_error("Could not write environment fixture");
         for (int session = 1; session <= 2; ++session) {
             auto log = directory / (L"日志-" + std::to_wstring(session) + L".txt");
             auto expected = std::to_wstring(session);
-            if (!SetEnvironmentVariableW(L"BULIJIE_SCRIPT_LOG", log.c_str()) ||
-                !SetEnvironmentVariableW(L"BULIJIE_SCRIPT_FIXTURE", expected.c_str()))
+            if (!SetEnvironmentVariableW(L"VPN_SCRIPT_LOG", log.c_str()) ||
+                !SetEnvironmentVariableW(L"VPN_SCRIPT_FIXTURE", expected.c_str()))
                 throw std::runtime_error("Could not set session fixture environment");
             openconnect_info *vpn = openconnect_vpninfo_new("script-fixture", nullptr, nullptr, nullptr,
                                                            progress, nullptr);
@@ -66,11 +66,11 @@ int wmain(int argc, wchar_t **argv) {
                 throw std::runtime_error("Script inherited a stale session environment");
             ++passed;
         }
-        SetEnvironmentVariableW(L"BULIJIE_SCRIPT_FIXTURE", nullptr);
+        SetEnvironmentVariableW(L"VPN_SCRIPT_FIXTURE", nullptr);
         // This path cannot be opened: verify that the shipped helper converts a real
         // FileSystemObject exception to a failed pre-init, without reaching adapter setup.
         auto invalid_log = directory / L"missing-parent" / L"script.log";
-        if (!SetEnvironmentVariableW(L"BULIJIE_SCRIPT_LOG", invalid_log.c_str()))
+        if (!SetEnvironmentVariableW(L"VPN_SCRIPT_LOG", invalid_log.c_str()))
             throw std::runtime_error("Could not set the script fixture environment");
         openconnect_info *vpn = openconnect_vpninfo_new("script-fixture", nullptr, nullptr, nullptr,
                                                        progress, nullptr);

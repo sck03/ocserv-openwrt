@@ -2,7 +2,7 @@
 #include "ui.h"
 #include "event_queue.h"
 
-namespace bulijie {
+namespace vpn {
 class Application final : public ui::Window {
 public:
     explicit Application(std::filesystem::path data_directory);
@@ -54,4 +54,4 @@ private:
     UINT taskbar_created_ = 0;
     HACCEL accelerators_ = nullptr;
 };
-} // namespace bulijie
+} // namespace vpn

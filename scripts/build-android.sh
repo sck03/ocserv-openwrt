@@ -28,8 +28,8 @@ else
   bash gradlew :app:assembleDebug :app:testDebugUnitTest --no-daemon --stacktrace
 fi
 mkdir -p "$root/dist/android"
-cp app/build/outputs/apk/"$mode"/*.apk "$root/dist/android/BulijieVPN-android-$mode.apk"
-python3 "$root/scripts/audit-android.py" "$root/dist/android/BulijieVPN-android-$mode.apk"
+cp app/build/outputs/apk/"$mode"/*.apk "$root/dist/android/LinkoraVPN-android-$mode.apk"
+python3 "$root/scripts/audit-android.py" "$root/dist/android/LinkoraVPN-android-$mode.apk"
 cp ../BUILDINFO.json "$root/dist/android/BUILDINFO.json"
 cd "$root"
 python3 scripts/package-mobile.py android

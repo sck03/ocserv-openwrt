@@ -9,10 +9,11 @@
 #include <filesystem>
 #include <string>
 #include <vector>
+#include "build_info.h"
 
-namespace bulijie {
-inline constexpr wchar_t Product[] = L"布利杰VPN";
-inline constexpr char Version[] = "0.5.1";
+namespace vpn {
+inline constexpr wchar_t Product[] = VPN_PRODUCT_NAME_W;
+inline constexpr char Version[] = VPN_VERSION;
 enum class Language { Chinese, English };
 inline const wchar_t *tr(Language language, const wchar_t *zh, const wchar_t *en) {
     return language == Language::Chinese ? zh : en;
@@ -72,4 +73,4 @@ bool valid_public_certificates(const std::string &raw, std::wstring &error);
 bool administrator();
 std::wstring read_window_text(HWND window, size_t limit = 32768);
 void copy_text(HWND owner, const std::wstring &value);
-} // namespace bulijie
+} // namespace vpn

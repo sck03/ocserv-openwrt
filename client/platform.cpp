@@ -6,7 +6,7 @@
 #include <climits>
 #include <cwctype>
 
-namespace bulijie {
+namespace vpn {
 std::string utf8(const std::wstring &value) {
     if (value.empty())
         return {};
@@ -177,7 +177,7 @@ bool protect_secret(const std::string &value, const std::string &context, std::s
     DATA_BLOB entropy{static_cast<DWORD>(context.size()),
                       reinterpret_cast<BYTE *>(const_cast<char *>(context.data()))};
     DATA_BLOB output{};
-    if (!CryptProtectData(&input, L"BulijieVPN profile", &entropy, nullptr, nullptr,
+    if (!CryptProtectData(&input, L"LinkoraVPN profile", &entropy, nullptr, nullptr,
                           CRYPTPROTECT_UI_FORBIDDEN, &output)) {
         error = system_error(GetLastError());
         return false;
@@ -375,4 +375,4 @@ void copy_text(HWND owner, const std::wstring &value) {
     }
     CloseClipboard();
 }
-} // namespace bulijie
+} // namespace vpn

@@ -3,7 +3,7 @@
 #include <iostream>
 #include <stdexcept>
 
-using namespace bulijie;
+using namespace vpn;
 namespace {
 int passed = 0;
 void check(bool result, const char *message) {
@@ -98,15 +98,15 @@ int main(int argc, char **argv) {
                   first.id, L"other.example.com", [](Profile &p) { p.password = "Wrong origin password"; },
                   error),
               "old origin cannot update credentials");
-        check(store.export_connection(root / L"fixture.bvpn", first, error), "public profile export");
-        check(read_file(root / L"fixture.bvpn", raw, error) &&
+        check(store.export_connection(root / L"fixture.vpn", first, error), "public profile export");
+        check(read_file(root / L"fixture.vpn", raw, error) &&
                   raw.find("fixture-user") == std::string::npos && raw.find("password") == std::string::npos,
               "export excludes credentials");
         ProfileStore imported(root / L"imported");
         Profile imported_profile;
-        check(imported.import_connection(root / L"fixture.bvpn", imported_profile, error) &&
+        check(imported.import_connection(root / L"fixture.vpn", imported_profile, error) &&
                   imported_profile.gateway == L"https://127.0.0.1:4443",
-              "legacy bvpn import");
+              "legacy vpn import");
         check(store.remove(second.id, error) && store.load(profiles, preferences, error) &&
                   profiles.size() == 1,
               "profile deletion");

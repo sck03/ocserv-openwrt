@@ -177,7 +177,7 @@ jobs:
         with:
           name: openwrt-25.12-${{ matrix.architecture }}
           path: |
-            dist/ocserv-*-openwrt-*.zip
+            dist/LinkoraVPN-server-ocserv-*-openwrt-*.zip
             dist/SHA256SUMS-openwrt-*.txt
           if-no-files-found: error
           compression-level: 0
@@ -216,7 +216,7 @@ jobs:
       - name: Collect selected SDK bundles and checksums
         run: |
           mkdir -p release-assets
-          cp dist/ocserv-*-openwrt-*.zip release-assets/
+          cp dist/LinkoraVPN-server-ocserv-*-openwrt-*.zip release-assets/
           cat dist/SHA256SUMS-openwrt-*.txt > release-assets/SHA256SUMS.txt
       - name: Publish verified server assets
         env:

@@ -55,7 +55,7 @@ class ServerPackageTests(unittest.TestCase):
         shutil.copytree(ui / "luasrc", self.ui_stage / "usr/lib/lua/luci")
         shutil.copytree(ui / "htdocs", self.ui_stage / "www")
         self.runtime = {self.ui_stage / relative for relative in (
-            "etc/init.d/ocserv-easy-guard", "usr/libexec/ocserv-easy-guard", "usr/libexec/ocserv-easy-repair-users")}
+            "etc/init.d/ocserv-easy-guard", "usr/libexec/ocserv-easy-guard")}
         for path in self.runtime:
             path.chmod(0o755)
 

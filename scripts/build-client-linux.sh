@@ -16,6 +16,6 @@ bash "$root/scripts/build-dependencies.sh" "$arch"
 build="$root/build/client/$arch"
 cmake --fresh -S "$root" -B "$build" -G Ninja \
     -DCMAKE_TOOLCHAIN_FILE="$root/.deps/$arch/toolchain.cmake" \
-    -DBRIDGE_DEPS="$root/.deps/$arch" -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON
+    -DVPN_DEPS="$root/.deps/$arch" -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON
 cmake --build "$build" --parallel "$jobs"
 python3 "$root/scripts/package-client.py" --arch "$arch" --build "$build" --strip "$host-strip"

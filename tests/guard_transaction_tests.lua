@@ -134,8 +134,8 @@ local function run(args)
         return 0,encode({up=S.wan or false})
     end
     if command=="/usr/sbin/nft -f "..root.."guard.nft" then S.nft=true end
-    if command=="/usr/sbin/nft delete table inet bulijie_guard" then S.nft=false end
-    if command=="/usr/sbin/nft list table inet bulijie_guard" then return S.nft and 0 or 1,"" end
+    if command=="/usr/sbin/nft delete table inet linkora_guard" then S.nft=false end
+    if command=="/usr/sbin/nft list table inet linkora_guard" then return S.nft and 0 or 1,"" end
     return 0,""
 end
 package.loaded["nixio"]=nixio
@@ -185,7 +185,7 @@ test("enabling configures real interface guard and VPN-only proxy whitelist",fun
     check(equal(S.cfg.openclash.config.lan_ac_white_ips,{"10.77.0.0/24"}) and not S.cfg.openclash.config.lan_ac_white_macs)
     check(S.cfg.openclash.config.enable_redirect_dns=="2")
     check(S.cfg.firewall.defaults.flow_offloading=="0" and S.cfg.firewall.defaults.flow_offloading_hw=="0")
-    check(equal(S.cfg.firewall.lan.device,{"br-lan"}) and S.cfg.ocserv.bulijie_guard_dns.ip=="10.77.0.1" and not S.cfg.ocserv.route1)
+    check(equal(S.cfg.firewall.lan.device,{"br-lan"}) and S.cfg.ocserv.linkora_guard_dns.ip=="10.77.0.1" and not S.cfg.ocserv.route1)
     check(S.files[root.."guard.nft"]:find("192.168.19.253",1,true) and S.files[root.."guard.nft"]:find("2222, 8443",1,true))
     disable(); check(equal(before,S.cfg))
 end)
@@ -207,7 +207,7 @@ test("IPv6 VPN entry retains isolation and restores a prior IPv4 listener",funct
     local before=clone(S.cfg)
     enable()
     check(not S.cfg.ocserv.config.ip6addr)
-    local entry=S.cfg.firewall.bulijie_ocserv_entry6
+    local entry=S.cfg.firewall.linkora_ocserv_entry6
     check(entry.src=="lan" and entry.family=="ipv6" and not entry.dest and entry.target=="ACCEPT")
     check(entry.dest_port=="4443 4443")
     check(not S.files["/etc/ocserv/ocserv.conf.local"]:find("listen-host",1,true))
@@ -284,7 +284,7 @@ test("disable preserves later changes and newly added accounts",function()
     check(guard.status(admin).last.preserved==1)
 end)
 test("an edited owned include is still removed on disable",function()
-    reset(); enable(); S.cfg.firewall.bulijie_guard.enabled="0"; disable(); check(not S.cfg.firewall.bulijie_guard and not S.nft)
+    reset(); enable(); S.cfg.firewall.linkora_guard.enabled="0"; disable(); check(not S.cfg.firewall.linkora_guard and not S.nft)
 end)
 test("uncommitted edits in another page are not discarded during recovery",function()
     reset(); enable(); S.pending="firewall"; guard.begin("disable",admin); guard.work(false)
@@ -307,7 +307,7 @@ test("extra shortcut acceleration is detected before configuration",function()
     reset(); S.files["/sys/module/shortcut_fe"]=""; expect("guard_extra_offload",function()guard.begin("enable",admin)end)
 end)
 test("unknown manual guard sections are not overwritten",function()
-    reset(); S.cfg.firewall.bulijie_guard=row("include",{path="/etc/custom-guard.nft"}); local before=clone(S.cfg)
+    reset(); S.cfg.firewall.linkora_guard=row("include",{path="/etc/custom-guard.nft"}); local before=clone(S.cfg)
     expect("guard_section_conflict",function()guard.begin("enable",admin)end); check(equal(before,S.cfg))
 end)
 test("confirmation tokens are bound to the management address",function()

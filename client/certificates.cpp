@@ -4,7 +4,7 @@
 #include <gnutls/system-keys.h>
 #include <cstddef>
 
-namespace bulijie {
+namespace vpn {
 namespace {
 HCERTSTORE certificate_store(const std::string &raw, DWORD &error) {
     if (raw.empty() || raw.find("PRIVATE KEY") != std::string::npos) {
@@ -236,4 +236,4 @@ std::vector<Protocol> supported_protocols() {
         openconnect_free_supported_protocols(protocols);
     return result;
 }
-} // namespace bulijie
+} // namespace vpn

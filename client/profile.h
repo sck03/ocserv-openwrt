@@ -2,7 +2,7 @@
 #include "platform.h"
 #include <functional>
 
-namespace bulijie {
+namespace vpn {
 struct Profile {
     Profile() = default;
     Profile(const Profile &) = default;
@@ -68,4 +68,4 @@ private:
     std::filesystem::path directory_;
     std::wstring mutex_name_;
 };
-} // namespace bulijie
+} // namespace vpn

@@ -20,14 +20,31 @@ def section(text, start, end, replacement):
 def prepare(app, root):
     gradle = app / "app/build.gradle.kts"
     value = once(gradle.read_text(encoding="utf-8"), 'applicationId = "dev.opentunnel.vpn"',
-                 'applicationId = "com.bulijie.vpn"')
-    value = once(value, '        versionCode = 16', '        versionCode = 18')
-    value = section(value, '        versionName =', '\n\n        ndk {', '        versionName = "0.1.2"')
+                 'applicationId = "io.github.sck03.linkoravpn"')
+    value = once(value, '        versionCode = 16', '        versionCode = 19')
+    value = section(value, '        versionName =', '\n\n        ndk {', '        versionName = "0.2.0"')
     gradle.write_text(value, encoding="utf-8")
-    resources = app / "app/src/main/res/values-zh-rCN"
-    resources.mkdir(exist_ok=True)
-    (resources / "strings.xml").write_text(
-        '<resources><string name="app_name">布利杰VPN</string></resources>\n', encoding="utf-8")
+    resources = app / "app/src/main/res"
+    for resource in resources.glob("values*/strings.xml"):
+        value = resource.read_text(encoding="utf-8")
+        if 'name="app_name"' in value:
+            resource.write_text(once(value, '<string name="app_name">OpenTunnel</string>',
+                                     '<string name="app_name">Linkora VPN</string>'), encoding="utf-8")
+    # These visible names bypass Android string resources in the pinned upstream.
+    source = app / "app/src/main/java/dev/opentunnel/vpn"
+    for file, replacements in {
+        "util/Strings.kt": [('"OpenTunnel"', '"Linkora VPN"')],
+        "ui/screens/HomeScreen.kt": [('text = "OpenTunnel"', 'text = "Linkora VPN"')],
+        "ui/screens/SettingsScreen.kt": [('append("OpenTunnel ', 'append("Linkora VPN ')],
+        "ui/screens/LogScreen.kt": [('OpenTunnel log', 'Linkora VPN log')],
+    }.items():
+        path = source / file
+        value = path.read_text(encoding="utf-8")
+        for before, after in replacements:
+            if before not in value:
+                raise ValueError(f"Android branding changed in {file}")
+            value = value.replace(before, after)
+        path.write_text(value, encoding="utf-8")
     manifest = app / "app/src/main/AndroidManifest.xml"
     manifest.write_text(once(manifest.read_text(encoding="utf-8"), 'android:allowBackup="true"',
                              'android:allowBackup="false"'), encoding="utf-8")

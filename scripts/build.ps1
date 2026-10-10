@@ -22,7 +22,7 @@ try {
         & $bash -l (Join-Path $PSScriptRoot 'build-dependencies.sh').Replace('\','/') $target
         if ($LASTEXITCODE) { throw "Dependency build failed: $target" }
         $build = Join-Path (Join-Path $projectRoot $OutputRoot) $target
-        & $cmake --fresh -S $projectRoot -B $build -G Ninja "-DCMAKE_TOOLCHAIN_FILE=$prefix/toolchain.cmake" "-DBRIDGE_DEPS=$prefix" "-DCMAKE_MAKE_PROGRAM=$ninja" '-DCMAKE_BUILD_TYPE=Release' '-DBUILD_TESTING=ON'
+        & $cmake --fresh -S $projectRoot -B $build -G Ninja "-DCMAKE_TOOLCHAIN_FILE=$prefix/toolchain.cmake" "-DVPN_DEPS=$prefix" "-DCMAKE_MAKE_PROGRAM=$ninja" '-DCMAKE_BUILD_TYPE=Release' '-DBUILD_TESTING=ON'
         if ($LASTEXITCODE) { throw "CMake configure failed: $target" }
         & $cmake --build $build --parallel $parallelJobs
         if ($LASTEXITCODE) { throw "Compile failed: $target" }

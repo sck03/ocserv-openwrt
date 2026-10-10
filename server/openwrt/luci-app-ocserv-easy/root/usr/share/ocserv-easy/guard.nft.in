@@ -9,9 +9,9 @@ define VPN_TCP_PORT = @VPN_TCP_PORT@
 define VPN_UDP_PORT = @VPN_UDP_PORT@
 define ADMIN_PORTS = { @ADMIN_PORTS@ }
 
-table inet bulijie_guard
-flush table inet bulijie_guard
-table inet bulijie_guard {
+table inet linkora_guard
+flush table inet linkora_guard
+table inet linkora_guard {
     chain reject_unauthenticated_transit {
         type filter hook prerouting priority -310; policy accept;
         iifname $LAN_DEVICE ip saddr $VPN_POOL counter drop comment "LAN forged VPN source"

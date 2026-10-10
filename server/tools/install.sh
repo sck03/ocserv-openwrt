@@ -39,7 +39,7 @@ if [ "$fresh" = 1 ]; then
     done
 fi
 
-plan=$(mktemp /tmp/bulijie-apk-plan.XXXXXX)
+plan=$(mktemp /tmp/linkora-vpn-apk-plan.XXXXXX)
 trap 'rm -f "$plan"' EXIT HUP INT TERM
 apk update
 apk add --simulate --allow-untrusted "$@" >"$plan" 2>&1 || { cat "$plan"; exit 1; }
@@ -48,7 +48,7 @@ if grep -Ei '(installing|upgrading|downgrading|replacing).*(kernel|kmod-)' "$pla
     echo '安装计划涉及内核模块，已停止。请检查当前固件的软件源。'
     exit 1
 fi
-backup="/root/bulijie-before-install-$(date +%Y%m%d-%H%M%S)-$$"
+backup="/root/linkora-vpn-before-install-$(date +%Y%m%d-%H%M%S)-$$"
 mkdir -m 700 "$backup"
 for name in ocserv firewall dhcp openclash; do
     [ ! -f "/etc/config/$name" ] || cp -p "/etc/config/$name" "$backup/$name.uci"
@@ -59,7 +59,6 @@ if [ "$fresh" = 1 ]; then
     printf '%s\n' 'Fresh installation awaiting VPN network setup' > "$pending"
 fi
 apk add --allow-untrusted "$@"
-/usr/libexec/ocserv-easy-repair-users
 # The maintained page now depends on ocserv directly. Retire the upstream
 # duplicate editors only after both replacement packages installed successfully.
 legacy=''
@@ -122,6 +121,6 @@ fi
 # Invalidate both older Lua and current ucode dispatcher caches.
 rm -f /tmp/luci-indexcache* /tmp/luci-modulecache/*
 echo "安装完成。安装前备份：$backup"
-echo '请重新登录 LuCI → VPN → 布利杰VPN（管理页 0.4.1）。'
+echo '请重新登录 LuCI → VPN → Linkora VPN（管理页 0.5.0）。'
 echo '全新安装：添加账号，检查服务设置，然后点击「启动服务」。'
 echo '默认端口 4443，VPN 地址池 10.77.0.0/24；专用 OpenClash 开关默认关闭。'

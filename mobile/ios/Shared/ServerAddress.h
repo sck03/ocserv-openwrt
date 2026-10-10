@@ -1,10 +1,10 @@
-#ifndef BVPN_SERVER_ADDRESS_H
-#define BVPN_SERVER_ADDRESS_H
+#ifndef VPN_SERVER_ADDRESS_H
+#define VPN_SERVER_ADDRESS_H
 #import <Foundation/Foundation.h>
 #include <arpa/inet.h>
 
 // The app and extension use the same validation before any authentication.
-static inline NSURL * _Nullable BVPNServerURL(NSString * _Nullable raw) {
+static inline NSURL * _Nullable VPNServerURL(NSString * _Nullable raw) {
     if (![raw isKindOfClass:NSString.class]) return nil;
     NSString *value = [raw stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
     NSMutableCharacterSet *invalid = [NSCharacterSet.whitespaceAndNewlineCharacterSet mutableCopy];

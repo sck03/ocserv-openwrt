@@ -2,13 +2,13 @@
 #include <shellapi.h>
 #include <algorithm>
 
-namespace bulijie {
+namespace vpn {
 using namespace ui;
 namespace {
 constexpr UINT SessionMessage = WM_APP + 20, TrayMessage = WM_APP + 21, AutoConnectMessage = WM_APP + 22;
 constexpr int ServerCaption = 510, InfoCaption = 520, InfoValue = 540;
 constexpr wchar_t ProfileFilter[] =
-    L"VPN profiles / VPN 配置 (*.bvpn;*.ini)\0*.bvpn;*.ini\0All files / 所有文件\0*.*\0\0";
+    L"VPN profiles / VPN 配置 (*.vpn)\0*.vpn\0All files / 所有文件\0*.*\0\0";
 void menu_item(HMENU menu, UINT id, const wchar_t *label, bool checked = false) {
     AppendMenuW(menu, MF_STRING | (checked ? MF_CHECKED : 0), id, label);
 }
@@ -33,7 +33,7 @@ bool Application::claim_instance() {
         hash *= 1099511628211ULL;
     }
     instance_name_ =
-        L"Local\\BulijieVPN.App." + std::to_wstring(hash) + (administrator() ? L".admin" : L".user");
+        L"Local\\LinkoraVPN.App." + std::to_wstring(hash) + (administrator() ? L".admin" : L".user");
     instance_.reset(CreateMutexW(nullptr, FALSE, instance_name_.c_str()));
     if (!instance_) {
         error(nullptr, system_error(GetLastError()));
@@ -70,7 +70,7 @@ int Application::run(int show, const std::string &connect_profile) {
         return 0;
     auto_connect_ = connect_profile;
     taskbar_created_ = RegisterWindowMessageW(L"TaskbarCreated");
-    if (!create(nullptr, L"BulijieVPN.Main", Product, 480, 264,
+    if (!create(nullptr, L"LinkoraVPN.Main", Product, 480, 264,
                 WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX, WS_EX_CONTROLPARENT,
                 CreateMenu())) {
         error(nullptr, system_error(GetLastError()));
@@ -160,7 +160,7 @@ void Application::rebuild_menu() {
     menu_item(help, ReportIssue, t(L"报告问题", L"Report an issue"));
     AppendMenuW(help, MF_SEPARATOR, 0, nullptr);
     menu_item(help, License, t(L"许可证信息", L"License information"));
-    menu_item(help, About, t(L"关于布利杰VPN", L"About BulijieVPN"));
+    menu_item(help, About, t(L"关于 Linkora VPN", L"About Linkora VPN"));
     submenu(menu, file, t(L"文件(&F)", L"&File"));
     submenu(menu, profiles, t(L"配置(&P)", L"&Profiles"));
     submenu(menu, view, t(L"查看(&V)", L"&View"));
@@ -174,7 +174,7 @@ void Application::rebuild_menu() {
 }
 void Application::translate() {
     rebuild_menu();
-    SetWindowTextW(window_, preferences_.language == Language::Chinese ? L"布利杰VPN" : L"BulijieVPN");
+    SetWindowTextW(window_, Product);
     int selection = std::max(0, TabCtrl_GetCurSel(item(Tabs)));
     TabCtrl_DeleteAllItems(item(Tabs));
     TCITEMW tab{};
@@ -358,7 +358,7 @@ void Application::command(int id) {
         else
             reload(value.id);
     } else if (id == ExportProfile && profile) {
-        auto path = choose_file(window_, true, ProfileFilter, L"bvpn", profile->name + L".bvpn");
+        auto path = choose_file(window_, true, ProfileFilter, L"vpn", profile->name + L".vpn");
         if (!path)
             return;
         std::wstring reason;
@@ -670,4 +670,4 @@ LRESULT Application::message(UINT message, WPARAM wparam, LPARAM lparam) {
     }
     return Window::message(message, wparam, lparam);
 }
-} // namespace bulijie
+} // namespace vpn

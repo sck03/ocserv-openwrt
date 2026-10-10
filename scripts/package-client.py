@@ -21,7 +21,7 @@ def main():
     dist = ROOT / "dist"
     dist.mkdir(exist_ok=True)
     metadata = build_metadata()
-    name = f"BulijieVPN-{metadata['release_label']}-windows-{args.arch}"
+    name = f"LinkoraVPN-{metadata['release_label']}-windows-{args.arch}"
     build = args.build.resolve()
     validation = dist / f"validation-{args.arch}"
     validation.mkdir(exist_ok=True)
@@ -46,7 +46,7 @@ def main():
         folder.mkdir()
         license_dir = folder / "licenses"
         license_dir.mkdir()
-        for filename in ("布利杰VPN.exe", "wintun.dll"):
+        for filename in ("LinkoraVPN.exe", "wintun.dll"):
             shutil.copyfile(build / filename, folder / filename)
         for filename in ("client/vendor/vpnc-script-win.js", "THIRD-PARTY-NOTICES.md", "docs/WAN.md"):
             shutil.copyfile(ROOT / filename, folder / Path(filename).name)
@@ -61,7 +61,7 @@ def main():
             if not notices:
                 raise RuntimeError("Missing GCC runtime license notices")
             shutil.copyfile(notices[-1], license_dir / "GCC-runtime.txt")
-        exe = folder / "布利杰VPN.exe"
+        exe = folder / "LinkoraVPN.exe"
         subprocess.run([args.strip, "--strip-all", str(exe)], check=True)
         data = exe.read_bytes()
         machine = struct.unpack_from("<H", data, struct.unpack_from("<I", data, 0x3C)[0] + 4)[0]
@@ -73,15 +73,15 @@ def main():
         if sha256(folder / "wintun.dll") != sha256(source_dll):
             raise RuntimeError("The official Wintun DLL was changed or has the wrong architecture")
         (folder / "使用说明.txt").write_text(
-            f"布利杰VPN {version()}\n\n"
-            "1. 完整解压，运行“布利杰VPN.exe”。64 位 Windows 用 x64，32 位用 x86。\n"
+            f"Linkora VPN {version()}\n\n"
+            "1. 完整解压，运行“LinkoraVPN.exe”。64 位 Windows 用 x64，32 位用 x86。\n"
             "2. 在“配置”菜单新建连接，或直接填写实际网关地址，支持端口和用户组路径。\n"
             "3. 点击“连接”，按需完成 Windows 管理员授权，随后按服务器提示填写用户名、密码、分组或验证码。\n"
             "4. 未知证书需核对指纹后确认；指定 CA 或固定指纹不匹配时会拒绝连接。\n"
             "   支持域名及 [IPv6]:端口。公网入口、端口转发和运营商内网说明见同包 WAN.md。\n"
             "5. 高级配置中的“记住密码”使用当前 Windows 用户的 DPAPI 加密。验证码不会作为密码保存。\n"
             "6. “VPN 信息”显示地址和流量，“查看日志”可复制诊断日志；设置菜单可切换中文/English及托盘行为。\n\n"
-            "导入/导出 .bvpn 可共享地址、连接选项和公有证书，不包含密码、令牌或私钥。\n"
+            "导入/导出 .vpn 可共享地址、连接选项和公有证书，不包含密码、令牌或私钥。\n"
             "配置保存在程序旁的 data 目录。复制到其他 Windows 用户后需要重新输入加密凭据。\n"
             "请完整保留 wintun.dll、vpnc-script-win.js 和 licenses，不要混用不同架构的文件。\n"
             "Win7 SP1 为兼容目标，仍需实机验证；VPN 驱动需要相应系统更新和管理员权限。\n\n"

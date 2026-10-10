@@ -31,7 +31,7 @@ def build_metadata(environment=None):
 
 def publication(component, metadata, environment=None):
     env = os.environ if environment is None else environment
-    name = {"client": "布利杰VPN Windows 客户端", "server": "ocserv OpenWrt 服务端与中文管理页"}[component]
+    name = {"client": "Linkora VPN Windows 客户端", "server": "Linkora VPN OpenWrt 服务端与中文管理页"}[component]
     for key in ("GITHUB_RUN_ID", "GITHUB_RUN_ATTEMPT"):
         if not re.fullmatch(r"[1-9][0-9]*", env.get(key, "")):
             raise ValueError(f"{key} must be a positive integer")

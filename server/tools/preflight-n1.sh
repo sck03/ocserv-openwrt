@@ -1,7 +1,7 @@
 #!/bin/sh
 # Read-only compatibility report. Never prints credentials or private keys.
 set -eu
-printf '%s\n' 'BulijieVPN / ocserv upgrade preflight'
+printf '%s\n' 'Linkora VPN / ocserv installation preflight'
 ubus call system board
 printf 'Kernel: %s\n' "$(uname -r)"
 release=$(ubus call system board | jsonfilter -e '@.release.version')

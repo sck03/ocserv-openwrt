@@ -3,7 +3,7 @@
 #include <objbase.h>
 
 int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int show) {
-    using namespace bulijie;
+    using namespace vpn;
     SetDllDirectoryW(L"");
     SetErrorMode(SEM_FAILCRITICALERRORS | SEM_NOOPENFILEERRORBOX);
     INITCOMMONCONTROLSEX controls{sizeof(controls), ICC_STANDARD_CLASSES | ICC_TAB_CLASSES};
@@ -34,7 +34,7 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int show) {
             LocalFree(arguments);
         if (!valid)
             ui::error(nullptr,
-                      L"用法 / Usage: 布利杰VPN.exe [--data-dir <directory>] [--connect <profile-id>]");
+                      L"用法 / Usage: LinkoraVPN.exe [--data-dir <directory>] [--connect <profile-id>]");
         else {
             Application application(std::move(data));
             result = application.run(show, connect);

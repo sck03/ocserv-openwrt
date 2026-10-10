@@ -155,8 +155,7 @@ function M.passwd(users)
             local group=M.user_group(u.group)
             M.require(M.group(group), "invalid_group")
             local password=type(u.password)=="string" and u.password or ""
-            -- Broken legacy records stay visible for repair, but must never be
-            -- emitted as a plaintext password or prevent repairing another user.
+            -- Invalid records cannot authenticate; reset their passwords in LuCI.
             if not M.password_hash((password:gsub("^!+",""))) then password="!" end
             rows[#rows+1] = u.name .. ":" .. group .. ":" .. password .. "\n"
         end
@@ -170,27 +169,6 @@ function M.same_users(left,right)
         for _,key in ipairs({"id","name","group","password"}) do if u[key]~=v[key] then return false end end
     end
     return true
-end
-function M.repair_users(users,hash_password)
-    local result,converted,invalid={ },0,0
-    for _,u in ipairs(users) do
-        local password=u.password
-        local group=u.group
-        -- The upstream JS editor wrote literal passwords instead of crypt
-        -- hashes. Preserve those passwords, including short legacy passwords.
-        -- Hash-like or disabled records are never guessed or reinterpreted.
-        if u.name and u.name~="" then
-            group=M.user_group(group)
-            if M.text(password,128) and #password>0 and not password:match("^[!*$]") then
-                password=hash_password(password)
-                M.require(M.password_hash(password),"hash_failed")
-                converted=converted+1
-            end
-            if not M.password_hash((tostring(password or ""):gsub("^!+",""))) then invalid=invalid+1 end
-        end
-        result[#result+1]={id=u.id,name=u.name,group=group,password=password}
-    end
-    return result,converted,invalid
 end
 function M.change_user(users, request, hash_password)
     M.require(type(request) == "table", "bad_request")

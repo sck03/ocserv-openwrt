@@ -7,7 +7,7 @@
 #include <mutex>
 #include <thread>
 
-namespace bulijie {
+namespace vpn {
 enum class State {
     Idle,
     Connecting,
@@ -142,4 +142,4 @@ private:
     size_t script_log_read_ = 0;
     bool script_environment_set_ = false;
 };
-} // namespace bulijie
+} // namespace vpn

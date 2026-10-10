@@ -4,7 +4,7 @@
 #include <cctype>
 #include <sstream>
 
-namespace bulijie {
+namespace vpn {
 using Json = nlohmann::json;
 namespace {
 bool identifier(const std::string &value) {
@@ -15,7 +15,7 @@ bool identifier(const std::string &value) {
 std::string context(const Profile &p, const char *kind) {
     std::wstring normalized, origin;
     normalize_gateway(p.gateway, normalized, &origin);
-    return "BulijieVPN/0.5/" + p.id + "/" + kind + "/" + utf8(origin);
+    return "LinkoraVPN/1/" + p.id + "/" + kind + "/" + utf8(origin);
 }
 std::wstring text(const Json &value, const char *key, size_t maximum = 32768) {
     auto item = value.find(key);
@@ -168,7 +168,7 @@ ProfileStore::ProfileStore(std::filesystem::path directory)
         hash ^= static_cast<uint64_t>(std::towlower(c));
         hash *= 1099511628211ULL;
     }
-    mutex_name_ = L"Local\\BulijieVPN.ProfileStore." + std::to_wstring(hash);
+    mutex_name_ = L"Local\\LinkoraVPN.ProfileStore." + std::to_wstring(hash);
 }
 bool ProfileStore::load(std::vector<Profile> &profiles, Preferences &preferences, std::wstring &error) const {
     profiles.clear();
@@ -183,7 +183,7 @@ bool ProfileStore::load(std::vector<Profile> &profiles, Preferences &preferences
         return false;
     try {
         Json data = Json::parse(raw);
-        if (!data.is_object() || data.value("schema", 0) != 1 || !data.contains("profiles") ||
+        if (!data.is_object() || data.value("schema", 0) != 2 || !data.contains("profiles") ||
             !data["profiles"].is_array() || data["profiles"].size() > 512)
             throw std::runtime_error("Unsupported configuration");
         const Json &options = data.value("settings", Json::object());
@@ -213,7 +213,7 @@ bool ProfileStore::load(std::vector<Profile> &profiles, Preferences &preferences
 }
 bool ProfileStore::write(const std::vector<Profile> &profiles, const Preferences &preferences,
                          std::wstring &error) const {
-    Json data{{"schema", 1},
+    Json data{{"schema", 2},
               {"settings",
                {{"language", preferences.language == Language::Chinese ? "zh-CN" : "en"},
                 {"minimize_to_tray", preferences.minimize_to_tray},
@@ -484,4 +484,4 @@ bool ProfileStore::export_connection(const std::filesystem::path &path, const Pr
     }
     return write_atomic(path, result, error);
 }
-} // namespace bulijie
+} // namespace vpn

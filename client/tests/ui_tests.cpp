@@ -6,8 +6,8 @@
 #include <iostream>
 #include <stdexcept>
 
-using namespace bulijie;
-using namespace bulijie::ui;
+using namespace vpn;
+using namespace vpn::ui;
 namespace {
 unsigned passed = 0;
 DWORD ui_thread = 0;
@@ -139,14 +139,14 @@ int wmain(int argc, wchar_t **argv) {
         Application application(root / L"data");
         std::thread actions([&] {
             try {
-                HWND main = await_window(L"BulijieVPN.Main");
-                check(read_window_text(main) == L"布利杰VPN", "Fresh UI must start in Chinese");
+                HWND main = await_window(L"LinkoraVPN.Main");
+                check(read_window_text(main) == Product, "Main window product name is incorrect");
                 check(get(main, Connect) == L"连接" && !IsWindowEnabled(GetDlgItem(main, Connect)),
                       "Empty gateway cannot connect");
                 controls_fit(main);
                 snapshot(main, root / L"main-zh.bmp");
                 command(main, NewProfile);
-                HWND profile = await_window(L"BulijieVPN.Profile");
+                HWND profile = await_window(L"LinkoraVPN.Profile");
                 set(profile, ProfileName, L"办公 VPN（测试）");
                 set(profile, ProfileGateway, L"vpn.example.test:4443");
                 controls_fit(profile);
@@ -157,7 +157,7 @@ int wmain(int argc, wchar_t **argv) {
                          "Profile list did not refresh");
                 check(IsWindowEnabled(GetDlgItem(main, Connect)) != FALSE, "Saved profile can connect");
                 command(main, EditSelected);
-                profile = await_window(L"BulijieVPN.Profile");
+                profile = await_window(L"LinkoraVPN.Profile");
                 check(get(profile, ProfileName) == L"办公 VPN（测试）",
                       "Unicode profile name did not round-trip");
                 check(get(profile, ProfileGateway) == L"https://vpn.example.test:4443",
@@ -180,7 +180,7 @@ int wmain(int argc, wchar_t **argv) {
                           profiles[0].disable_udp,
                       "Advanced settings were not persisted");
                 command(main, EditSelected);
-                profile = await_window(L"BulijieVPN.Profile");
+                profile = await_window(L"LinkoraVPN.Profile");
                 set(profile, ProfileName, L"must-not-save");
                 command(profile, IDCANCEL);
                 wait_for([&] { return !IsWindow(profile); }, "Cancel did not close editor");
@@ -194,20 +194,20 @@ int wmain(int argc, wchar_t **argv) {
                 controls_fit(main);
                 snapshot(main, root / L"vpn-info-zh.bmp");
                 command(main, ShowLog);
-                HWND log = await_window(L"BulijieVPN.Log");
+                HWND log = await_window(L"LinkoraVPN.Log");
                 check(get(log, LogAutoScroll) == L"自动滚动", "Log controls were not translated");
                 controls_fit(log);
                 snapshot(log, root / L"log-zh.bmp");
                 command(log, IDCANCEL);
                 wait_for([&] { return !IsWindowVisible(log); }, "Log did not hide");
                 command(main, English);
-                wait_for([&] { return read_window_text(main) == L"BulijieVPN"; }, "Language did not switch");
-                check(get(main, Connect) == L"Connect", "English button label is missing");
+                wait_for([&] { return get(main, Connect) == L"Connect"; }, "Language did not switch");
+                check(read_window_text(main) == Product, "Language switch changed the product name");
                 SendMessageW(GetDlgItem(main, Tabs), TCM_SETCURSEL, 0, 0);
                 SendMessageW(main, WM_NOTIFY, Tabs, reinterpret_cast<LPARAM>(&notification));
                 snapshot(main, root / L"main-en.bmp");
                 command(main, EditSelected);
-                profile = await_window(L"BulijieVPN.Profile");
+                profile = await_window(L"LinkoraVPN.Profile");
                 check(read_window_text(profile) == L"Edit profile", "Editor did not switch to English");
                 controls_fit(profile);
                 snapshot(profile, root / L"advanced-profile-en.bmp");
@@ -223,9 +223,9 @@ int wmain(int argc, wchar_t **argv) {
             } catch (const std::exception &exception) {
                 failure = exception.what();
                 // Close only windows owned by the current test thread.
-                if (HWND profile = find_window(L"BulijieVPN.Profile"))
+                if (HWND profile = find_window(L"LinkoraVPN.Profile"))
                     command(profile, IDCANCEL);
-                if (HWND main = find_window(L"BulijieVPN.Main"))
+                if (HWND main = find_window(L"LinkoraVPN.Main"))
                     command(main, Quit);
             }
         });

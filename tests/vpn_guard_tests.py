@@ -136,7 +136,7 @@ class GuardTests(unittest.TestCase):
         for command in ("ip", "nft"):
             if not shutil.which(command):
                 raise RuntimeError(f"Missing {command}")
-        cls.rules_directory = tempfile.TemporaryDirectory(prefix="bulijie-guard-test-")
+        cls.rules_directory = tempfile.TemporaryDirectory(prefix="linkora-vpn-guard-test-")
         cls.addClassCleanup(cls.rules_directory.cleanup)
         rules = GUARD_TEMPLATE.read_text(encoding="utf-8")
         for key, value in {"LAN_DEVICE":"br-lan", "LAN_ADDRESS":"192.168.19.254", "ADMIN_ADDRESS":"192.168.19.2",
@@ -243,7 +243,7 @@ table inet simulated_openclash {
         self.assertIn("error", self.probe(role, host, port, protocol, source))
 
     def counter(self, comment):
-        table = json.loads(nsrun(self.router, "nft", "-j", "list", "table", "inet", "bulijie_guard").stdout)
+        table = json.loads(nsrun(self.router, "nft", "-j", "list", "table", "inet", "linkora_guard").stdout)
         for item in table["nftables"]:
             rule = item.get("rule", {})
             if rule.get("comment") == comment:
@@ -367,7 +367,7 @@ table inet simulated_openclash {
         self.denied("lan", "192.168.19.254", 7890)
 
     def test_preexisting_unauthorized_proxy_connection_is_cut_off(self):
-        nsrun(self.router, "nft", "delete", "table", "inet", "bulijie_guard")
+        nsrun(self.router, "nft", "delete", "table", "inet", "linkora_guard")
         process = subprocess.Popen(["ip", "netns", "exec", self.lan,
                                     sys.executable, SCRIPT, "--hold"],
                                    stdin=subprocess.PIPE, stdout=subprocess.PIPE,

@@ -53,7 +53,7 @@ jobs:
           KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
           KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
         run: |
-          export KEYSTORE_FILE="$RUNNER_TEMP/bulijie-release.jks"
+          export KEYSTORE_FILE="$RUNNER_TEMP/linkora-vpn-release.jks"
           trap 'rm -f "$KEYSTORE_FILE"' EXIT
           if [[ "$BUILD_TYPE" == release ]]; then
             test -n "$ANDROID_KEYSTORE_BASE64"

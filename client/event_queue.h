@@ -3,7 +3,7 @@
 #include <algorithm>
 #include <deque>
 
-namespace bulijie {
+namespace vpn {
 // Only the UI consumes events. The worker must never wait for it to catch up.
 class EventQueue {
 public:
@@ -45,4 +45,4 @@ private:
     std::deque<Event> events_;
     size_t characters_ = 0, logs_ = 0;
 };
-} // namespace bulijie
+} // namespace vpn

@@ -181,7 +181,7 @@ test('failed connection setup rolls back the external routes it created', () => 
     assert.equal(storage.stateFiles.size, 0);
 });
 test('session logs use UTF-16 and the application-selected path', () => {
-    const result = execute({ BULIJIE_SCRIPT_LOG: 'C:\\Temp\\中文-session.log' });
+    const result = execute({ VPN_SCRIPT_LOG: 'C:\\Temp\\中文-session.log' });
     assert.deepEqual(result.files[0], ['C:\\Temp\\中文-session.log', 8, true, -1]);
     assert(result.logs.length > 0);
 });
@@ -192,18 +192,18 @@ test('error-only logging stays at level zero', () => {
 test('repeated script invocations share one bounded log budget', () => {
     const storage = { text: 'x'.repeat(1024 * 1024 - 256) };
     for (let i = 0; i < 1000; ++i) {
-        const result = execute({ BULIJIE_SCRIPT_LOG: 'C:\\Temp\\session.log' }, () => 0, storage);
+        const result = execute({ VPN_SCRIPT_LOG: 'C:\\Temp\\session.log' }, () => 0, storage);
         assert.equal(result.exitCode, 0);
         assert(storage.text.length <= 1024 * 1024);
     }
     // The client's drain resets the budget; new diagnostics must be retained.
     storage.text = '';
-    execute({ BULIJIE_SCRIPT_LOG: 'C:\\Temp\\session.log' }, () => 0, storage);
+    execute({ VPN_SCRIPT_LOG: 'C:\\Temp\\session.log' }, () => 0, storage);
     assert(storage.text.length > 0);
 });
 test('huge banner and script exception cannot exceed the log budget', () => {
     const storage = { text: '' };
-    const result = execute({ BULIJIE_SCRIPT_LOG: 'C:\\Temp\\session.log', CISCO_BANNER: 'x'.repeat(2 * 1024 * 1024) },
+    const result = execute({ VPN_SCRIPT_LOG: 'C:\\Temp\\session.log', CISCO_BANNER: 'x'.repeat(2 * 1024 * 1024) },
         command => { if (command.includes('route print')) throw new Error('fixture'); return 0; }, storage);
     assert.equal(result.exitCode, 1);
     assert(storage.text.length <= 1024 * 1024);

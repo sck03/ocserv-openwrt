@@ -19,7 +19,7 @@ import uuid
 
 from auth_integration import certificate, PASSWORD, COOKIE
 
-PAYLOAD = b"bulijie-loopback-tunnel"
+PAYLOAD = b"linkora-vpn-loopback-tunnel"
 
 
 def checksum(data):

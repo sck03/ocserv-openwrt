@@ -208,16 +208,16 @@ class SigningTests(unittest.TestCase):
             "ApplicationIdentifierPrefix": ["PREFIX1234"], "TeamIdentifier": ["TEAM123456"],
             "ExpirationDate": datetime.datetime.now() + datetime.timedelta(days=30),
             "UUID": "01234567-89AB-CDEF-0123-456789ABCDEF", "ProvisionedDevices": ["device"],
-            "Entitlements": {"application-identifier": "PREFIX1234.com.bulijie.vpn",
+            "Entitlements": {"application-identifier": "PREFIX1234.io.github.sck03.linkoravpn",
                              "com.apple.developer.networking.networkextension": ["packet-tunnel-provider"],
                              "get-task-allow": False},
         }
 
     def test_accepts_matching_distribution_profile(self):
-        self.assertEqual(signing.validate_profile(self.profile, "com.bulijie.vpn", "TEAM123456"), self.profile["UUID"])
+        self.assertEqual(signing.validate_profile(self.profile, "io.github.sck03.linkoravpn", "TEAM123456"), self.profile["UUID"])
 
     def test_rejects_wrong_app_or_team(self):
-        for bundle, team in (("com.bulijie.vpn.tunnel", "TEAM123456"), ("com.bulijie.vpn", "WRONG")):
+        for bundle, team in (("io.github.sck03.linkoravpn.tunnel", "TEAM123456"), ("io.github.sck03.linkoravpn", "WRONG")):
             with self.assertRaises(ValueError):
                 signing.validate_profile(self.profile, bundle, team)
 
@@ -237,7 +237,7 @@ class SigningTests(unittest.TestCase):
         invalid.append(p)
         for profile in invalid:
             with self.assertRaises(ValueError):
-                signing.validate_profile(profile, "com.bulijie.vpn", "TEAM123456")
+                signing.validate_profile(profile, "io.github.sck03.linkoravpn", "TEAM123456")
 
 
 if __name__ == "__main__":

@@ -3,7 +3,7 @@
 #include <commctrl.h>
 #include <optional>
 
-namespace bulijie::ui {
+namespace vpn::ui {
 enum Control : int {
     Tabs = 100,
     Servers,
@@ -168,4 +168,4 @@ private:
     bool auto_scroll_ = true;
     bool dirty_ = false;
 };
-} // namespace bulijie::ui
+} // namespace vpn::ui

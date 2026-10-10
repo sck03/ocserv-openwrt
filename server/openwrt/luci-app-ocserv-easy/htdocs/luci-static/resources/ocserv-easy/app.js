@@ -126,7 +126,6 @@
     effects.guard_restoring=t('正在关闭并恢复启用前的设置…','Disabling and restoring the previous settings…');
     effects.guard_enabled=t('已开启，仅 VPN 用户可通过 N1 使用 OpenClash。','Enabled. Only VPN clients can use OpenClash through this N1.');
     effects.guard_disabled=t('已关闭，已恢复启用前的设置。','Disabled. Previous settings restored.');
-    effects.accounts_repaired=t('旧账号密码记录已修复。标有“需重设密码”的账号仍需填写新密码。','Legacy password records repaired. Accounts marked “Reset password” still need a new password.');
     async function complete(payload) {
         var result=await mutate(payload); await load();
         if(payload.action==='guard' && state.guard && state.guard.phase==='disabled' && payload.command==='disable')result.effect='guard_disabled';
@@ -203,8 +202,7 @@
         }
         search.addEventListener('input',rows); rows();
         if(array(state.users).some(function(user){return user.needs_password;}))content.appendChild(element('div',{className:'easy-notice error'},[
-            element('p',{text:t('旧页面保存的部分密码记录无效。可先修复旧记录；仍标记异常的账号请点击“重设密码”。','Some password records saved by the old page are invalid. Repair legacy records first, then reset any passwords still marked invalid.')}),
-            mutationButton(t('修复旧密码记录','Repair legacy passwords'),function(){complete({action:'repair_users'}).catch(function(e){notice(errorText(e),true);});})
+            element('p',{text:t('部分账号的密码记录无效，请点击“重设密码”后重新登录。','Some accounts have invalid password records. Reset their passwords before signing in.')}),
         ]));
         content.appendChild(element('section',{className:'easy-card'},[element('div',{className:'easy-heading'},[element('h3',{text:t('登录账号','Accounts')}),mutationButton(t('＋ 添加账号','＋ Add account'),function(){editUser(null);},'cbi-button-add')]),search,list]));
         var online=element('section',{className:'easy-card',id:'easy-online'}); content.appendChild(online); renderOnline();
@@ -317,7 +315,7 @@
             element('option',{value:'address',text:t('首次连接时确认证书','Confirm certificate on first connection')}),
             element('option',{value:'profile',text:t('附带公共 CA 证书','Include the public CA certificate'),disabled:!state.ca_available})
         ]);
-        var profile=element('button',{type:'submit',className:'cbi-button cbi-button-apply',text:t('下载 .bvpn 连接配置','Download .bvpn profile')});
+        var profile=element('button',{type:'submit',className:'cbi-button cbi-button-apply',text:t('下载 .vpn 连接配置','Download .vpn profile')});
         var form=element('form',{},[
             field(t('客户端实际连接的服务器地址','Server address used by clients'),server,t('例如 vpn.example.com:4443 或 [2001:db8::1]:4443。外网请填写实际公网地址和外部端口。','For example vpn.example.com:4443 or [2001:db8::1]:4443. Remote clients need the actual public address and external port.')),
             field(t('证书验证方式','Certificate verification'),trust),
@@ -327,7 +325,7 @@
         form.addEventListener('submit',function(event){event.preventDefault();download(trust.value,server.value.trim());});
         var ca=button(t('下载 ca.pem','Download ca.pem'),function(){download('ca','');});ca.disabled=!state.ca_available;
         content.appendChild(element('section',{className:'easy-card'},[element('h3',{text:t('分发客户端配置','Distribute client profiles')}),form]));
-        content.appendChild(element('section',{className:'easy-card'},[element('h3',{text:t('单独下载 CA 证书','Download the CA certificate')}),element('p',{className:'easy-muted',text:t('适用于已有服务器地址的布利杰VPN，或其他支持导入 CA 的客户端。','For BulijieVPN with a configured server address, or another client that can import a CA.')}),ca]));
+        content.appendChild(element('section',{className:'easy-card'},[element('h3',{text:t('单独下载 CA 证书','Download the CA certificate')}),element('p',{className:'easy-muted',text:t('适用于已有服务器地址的Linkora VPN，或其他支持导入 CA 的客户端。','For Linkora VPN with a configured server address, or another client that can import a CA.')}),ca]));
         content.appendChild(element('section',{className:'easy-card'},[
             element('h3',{text:t('从外网连接','Connecting over the Internet')}),
             element('p',{text:t('域名需要解析到可达的公网 IP。IPv4 旁路由部署需要在主路由转发 VPN 的 TCP/UDP 端口；IPv6 需要两端都有 IPv6，并在主路由放行 N1 的 VPN 端口。','The hostname must resolve to a reachable public IP. An IPv4 side router needs TCP/UDP forwarding on the main router. IPv6 requires connectivity on both ends and a firewall rule allowing the N1 VPN ports.')}),
@@ -353,7 +351,7 @@
             }),
             mutationButton(state.autostart?t('关闭开机启动','Disable autostart'):t('开机自动启动','Enable autostart'),function(){complete({action:'service',command:state.autostart?'disable':'enable'}).catch(function(e){notice(errorText(e),true);});})
         ]);
-        root.appendChild(element('div',{className:'easy-heading'},[element('div',{},[element('h2',{text:'布利杰VPN'}),element('span',{className:'easy-muted',text:t('管理页 ','UI ')+(state.ui_version || '0.4.1')+' · ocserv '+state.version})]),actions]));
+        root.appendChild(element('div',{className:'easy-heading'},[element('div',{},[element('h2',{text:'Linkora VPN'}),element('span',{className:'easy-muted',text:t('管理页 ','UI ')+(state.ui_version || '0.5.0')+' · ocserv '+state.version})]),actions]));
         messageBox=element('div',{className:'easy-notice',hidden:true});root.appendChild(messageBox);
         statusBox=element('div',{className:'easy-summary'});root.appendChild(statusBox);renderStatus();
         if(!state.supported)notice(state.version==='unknown'?errors.version_unavailable:errors.upgrade_required,true);

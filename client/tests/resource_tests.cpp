@@ -5,7 +5,7 @@
 #include <iostream>
 #include <stdexcept>
 
-using namespace bulijie;
+using namespace vpn;
 namespace {
 void check(bool ok, const char *message) {
     if (!ok)

@@ -115,28 +115,28 @@ with sync_playwright() as pw:
         expect(page.get_by_label('证书验证方式',exact=True)).to_have_value('pin')
         page.get_by_label('客户端实际连接的服务器地址',exact=True).fill('vpn.example.com:4443')
         with page.expect_download() as pending:
-            page.get_by_role('button',name='下载 .bvpn 连接配置',exact=True).click()
-        pending.value.save_as(str(args.output/'domain-pin.bvpn'))
-        pinned=(args.output/'domain-pin.bvpn').read_text()
+            page.get_by_role('button',name='下载 .vpn 连接配置',exact=True).click()
+        pending.value.save_as(str(args.output/'domain-pin.vpn'))
+        pinned=(args.output/'domain-pin.vpn').read_text()
         assert 'Server=https://vpn.example.com:4443\nServerPin=pin-sha256:' in pinned
         assert 'CABase64=' not in pinned
         page.get_by_label('客户端实际连接的服务器地址',exact=True).fill('[2001:db8::1]:4443')
         with page.expect_download() as pending:
-            page.get_by_role('button',name='下载 .bvpn 连接配置',exact=True).click()
-        pending.value.save_as(str(args.output/'ipv6-pin.bvpn'))
-        assert 'Server=https://[2001:db8::1]:4443\nServerPin=pin-sha256:' in (args.output/'ipv6-pin.bvpn').read_text()
+            page.get_by_role('button',name='下载 .vpn 连接配置',exact=True).click()
+        pending.value.save_as(str(args.output/'ipv6-pin.vpn'))
+        assert 'Server=https://[2001:db8::1]:4443\nServerPin=pin-sha256:' in (args.output/'ipv6-pin.vpn').read_text()
         checks.append('public hostname and IPv6 profiles include the configured server public-key pin by default')
         page.get_by_label('证书验证方式',exact=True).select_option('address')
         page.get_by_label('客户端实际连接的服务器地址',exact=True).fill('192.168.19.253:4443')
         with page.expect_download() as pending:
-            page.get_by_role('button',name='下载 .bvpn 连接配置',exact=True).click()
-        pending.value.save_as(str(args.output/'address.bvpn'))
-        assert (args.output/'address.bvpn').read_text()=='[VPN]\nServer=https://192.168.19.253:4443\n'
+            page.get_by_role('button',name='下载 .vpn 连接配置',exact=True).click()
+        pending.value.save_as(str(args.output/'address.vpn'))
+        assert (args.output/'address.vpn').read_text()=='[VPN]\nServer=https://192.168.19.253:4443\n'
         page.get_by_label('证书验证方式',exact=True).select_option('profile')
         with page.expect_download() as pending:
-            page.get_by_role('button',name='下载 .bvpn 连接配置',exact=True).click()
-        pending.value.save_as(str(args.output/'ca.bvpn'))
-        assert 'CABase64=' in (args.output/'ca.bvpn').read_text()
+            page.get_by_role('button',name='下载 .vpn 连接配置',exact=True).click()
+        pending.value.save_as(str(args.output/'ca.vpn'))
+        assert 'CABase64=' in (args.output/'ca.vpn').read_text()
         page.screenshot(path=str(args.output/'profile-export.png'),full_page=True)
         checks.append('address and CA profiles download through the real export handler')
         page.get_by_role('tab',name='VPN 专用上网',exact=True).click()

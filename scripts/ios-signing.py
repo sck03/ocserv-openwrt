@@ -32,7 +32,7 @@ def validate_profile(values, bundle, team):
 
 
 def prepare(work):
-    bundle = os.environ["BVPN_BUNDLE_ID"]
+    bundle = os.environ["VPN_BUNDLE_ID"]
     team = os.environ["IOS_TEAM_ID"]
     profiles = {}
     installed = []

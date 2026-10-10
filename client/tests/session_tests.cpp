@@ -7,7 +7,7 @@
 #include <cstring>
 #include <iphlpapi.h>
 
-using namespace bulijie;
+using namespace vpn;
 using Json = nlohmann::json;
 namespace {
 bool adapter_present(const std::wstring &name) {
@@ -228,7 +228,7 @@ int wmain(int argc, wchar_t **argv) {
                             output.erase("probe_bind_error");
                         }
                     }
-                    constexpr char payload[] = "bulijie-loopback-tunnel";
+                    constexpr char payload[] = "linkora-vpn-loopback-tunnel";
                     if (probe.socket != INVALID_SOCKET && elapsed - probe_sent_at >= 250) {
                         sockaddr_in peer{};
                         peer.sin_family = AF_INET;
@@ -268,7 +268,7 @@ int wmain(int argc, wchar_t **argv) {
                 probe.socket = INVALID_SOCKET;
             }
             output["udp_probe"] = probe_answered;
-            auto name = L"BulijieVPN-" + wide(profile.id.substr(0, 12));
+            auto name = L"LinkoraVPN-" + wide(profile.id.substr(0, 12));
             for (unsigned attempt = 0; attempt < 100 && adapter_present(name); ++attempt)
                 Sleep(100);
             output["adapter_removed"] = !adapter_present(name);

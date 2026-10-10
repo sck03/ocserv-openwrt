@@ -101,7 +101,7 @@ end
 function M.data(admin)
     local s=snapshot(); local state=M.status()
     state.version=version()
-    state.ui_version="0.4.1"
+    state.ui_version="0.5.0"
     state.supported=logic.supported_version(state.version)
     state.capabilities=capabilities()
     state.revision=s.revision
@@ -212,18 +212,6 @@ local function change_user(s,request)
         return {effect=effect}
     end)
 end
-local function repair_users(s)
-    logic.require((s.config.auth or "plain")=="plain","plain_auth_required")
-    local was_running=running()
-    if was_running then logic.require(logic.standard_auth(read(runtime_path) or ""),"custom_auth_file") end
-    local users,converted,invalid=logic.repair_users(s.users,hash_password)
-    return transaction(s,was_running,function()
-        if not logic.same_users(users,s.users) then write_users(s,users); commit(s) end
-        if not fs.stat("/var/etc") then logic.require(fs.mkdir("/var/etc","755"),"write_failed") end
-        atomic(passwd_path,logic.passwd(users))
-        return {effect="accounts_repaired",converted=converted,needs_password=invalid}
-    end)
-end
 local managed={"tcp-port","udp-port","max-clients","max-same-clients","dpd","ipv4-network","ipv4-netmask","ipv6-network","dns","route","auth","compression","predictable-ips","cisco-client-compat","default-domain"}
 local function apply_settings(s,request)
     local values,dns,routes=logic.validate_settings(request.settings)
@@ -288,7 +276,6 @@ function M.action(request,admin)
         local changes=s.cursor:changes("ocserv")
         logic.require(not changes or not next(changes.ocserv or changes),"pending_changes")
         if request.action=="save_user" or request.action=="delete_user" then return change_user(s,request) end
-        if request.action=="repair_users" then return repair_users(s) end
         if request.action=="guard" then return guard.begin(request.command,admin,request.token) end
         if request.action=="settings" then
             logic.require(not guard.active(),"guard_settings_locked")
@@ -312,11 +299,6 @@ function M.action(request,admin)
     lock:lock("ulock"); lock:close()
     if not ok then error(result,0) end
     return result
-end
-function M.repair_users()
-    local s=snapshot()
-    if (s.config.auth or "plain")~="plain" then return {effect="unchanged",converted=0,needs_password=0} end
-    return M.action({action="repair_users",revision=s.revision})
 end
 local function server_pin()
     local s=snapshot()
@@ -345,12 +327,12 @@ function M.export(kind,url)
         if type(url)=="string" and not url:find("://",1,true) then url="https://"..url end
         normalized=logic.url(url)
         logic.require(normalized,"invalid_url")
-        if kind=="address" then return "[VPN]\nServer="..normalized.."\n","BulijieVPN.bvpn" end
-        if kind=="pin" then return "[VPN]\nServer="..normalized.."\nServerPin="..server_pin().."\n","BulijieVPN.bvpn" end
+        if kind=="address" then return "[VPN]\nServer="..normalized.."\n","LinkoraVPN.vpn" end
+        if kind=="pin" then return "[VPN]\nServer="..normalized.."\nServerPin="..server_pin().."\n","LinkoraVPN.vpn" end
     end
     local ca=read("/etc/ocserv/ca.pem",65536)
     logic.require(ca and ca:find("-----BEGIN CERTIFICATE-----",1,true) and ca:find("-----END CERTIFICATE-----",1,true) and not ca:find("PRIVATE KEY",1,true),"ca_unavailable")
     if kind=="ca" then return ca,"ca.pem" end
-    return "[VPN]\nServer="..normalized.."\nCABase64="..nixio.bin.b64encode(ca).."\n","BulijieVPN.bvpn"
+    return "[VPN]\nServer="..normalized.."\nCABase64="..nixio.bin.b64encode(ca).."\n","LinkoraVPN.vpn"
 end
 return M

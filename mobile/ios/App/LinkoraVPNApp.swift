@@ -2,7 +2,7 @@ import SwiftUI
 import NetworkExtension
 
 @main
-struct BulijieVPNApp: App {
+struct LinkoraVPNApp: App {
     var body: some Scene { WindowGroup { ConnectionView() } }
 }
 
@@ -50,7 +50,7 @@ final class VPNModel: ObservableObject {
 
     func connect(server: String, username: String, password: String, pin: String) async {
         guard !busy && !connected && !disconnecting else { return }
-        guard let url = BVPNServerURL(server),
+        guard let url = VPNServerURL(server),
               !username.isEmpty, !password.isEmpty else {
             status = "请填写 HTTPS 服务器、用户名和密码"; return
         }
@@ -76,7 +76,7 @@ final class VPNModel: ObservableObject {
             config.includeAllNetworks = true
             config.excludeLocalNetworks = false
             active.protocolConfiguration = config
-            active.localizedDescription = "布利杰VPN"
+            active.localizedDescription = "Linkora VPN"
             active.isEnabled = true
             try await active.saveToPreferences()
             try await active.loadFromPreferences()
@@ -122,7 +122,7 @@ struct ConnectionView: View {
                     }
                 }
                 Section(footer: Text("支持 ocserv 用户名/密码认证和全隧道。首次连接需允许系统添加 VPN 配置。")) { EmptyView() }
-            }.navigationTitle("布利杰VPN")
+            }.navigationTitle("Linkora VPN")
         }.navigationViewStyle(.stack)
     }
 }

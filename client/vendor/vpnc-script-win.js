@@ -35,8 +35,8 @@ var fs = WScript.CreateObject("Scripting.FileSystemObject");
 var ERROR = 0, INFO = 1, DEBUG = 2, TRACE = 3;
 var logLevel = env("LOG_LEVEL") === "" ? INFO : parseInt(env("LOG_LEVEL"));
 if (isNaN(logLevel)) logLevel = INFO;
-// BulijieVPN: isolate each session's log and preserve Chinese Windows output.
-var applicationLogPath = env("BULIJIE_SCRIPT_LOG");
+// LinkoraVPN: isolate each session's log and preserve Chinese Windows output.
+var applicationLogPath = env("VPN_SCRIPT_LOG");
 var logToFile = applicationLogPath || env("LOG2FILE");
 var loggedCharacters = 0;
 var statePath = applicationLogPath ? applicationLogPath + ".routes" :

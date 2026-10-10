@@ -10,7 +10,7 @@ on:
       bundle_id:
         description: Apple App ID；扩展为该 ID 加 .tunnel
         type: string
-        default: com.bulijie.vpn
+        default: io.github.sck03.linkoravpn
 permissions:
   contents: read
 concurrency:
@@ -49,7 +49,7 @@ jobs:
       - name: Compile app and Network Extension
         env:
           SIGNING: ${{ inputs.signing }}
-          BVPN_BUNDLE_ID: ${{ inputs.bundle_id }}
+          VPN_BUNDLE_ID: ${{ inputs.bundle_id }}
           IOS_TEAM_ID: ${{ secrets.IOS_TEAM_ID }}
           IOS_CERTIFICATE_BASE64: ${{ secrets.IOS_CERTIFICATE_BASE64 }}
           IOS_CERTIFICATE_PASSWORD: ${{ secrets.IOS_CERTIFICATE_PASSWORD }}

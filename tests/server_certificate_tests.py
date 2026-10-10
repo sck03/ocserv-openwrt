@@ -19,7 +19,7 @@ for tool in ('certtool','openssl','sh'):
 source=(ROOT/'server/openwrt/ocserv/files/ocserv.init').read_text(encoding='utf-8')
 function=re.search(r'(?ms)^initcerts\(\) \(\n.*?^\)\n',source).group(0)
 checks=[]
-with tempfile.TemporaryDirectory(prefix='bulijie-cert-test-') as temporary:
+with tempfile.TemporaryDirectory(prefix='linkora-vpn-cert-test-') as temporary:
     base=Path(temporary)
     def initialize(folder, certificate=None, private_key=None):
         script=base/'initialize.sh'

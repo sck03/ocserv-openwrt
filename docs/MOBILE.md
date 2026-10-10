@@ -1,6 +1,6 @@
-# Android / iOS 客户端
+# Linkora VPN Android / iOS 客户端
 
-移动端继续使用 **OpenConnect / Cisco AnyConnect 协议**，连接本项目的 ocserv；不使用 OpenVPN 的 `.ovpn` 协议。Windows 客户端与服务端构建流程保持独立。
+Linkora VPN 移动端当前版本为 **0.2.0**，使用 **OpenConnect / Cisco AnyConnect 协议**连接本项目的 ocserv。Android / iOS 默认安装标识为 `io.github.sck03.linkoravpn`，按全新安装使用，重新填写服务器、账号和指纹。Windows 客户端与服务端构建流程保持独立。
 
 ## GitHub Actions 构建
 
@@ -15,9 +15,9 @@ Android 同时编译 `arm64-v8a`、`armeabi-v7a`、`x86_64` 并打入一个 APK�
 
 ## Android
 
-Android 基于 **OpenTunnel** 固定提交 `0535533dfb7d3a656bfdb880d51f731c109135c1`，保留上游界面与连接功能。本仓库设置独立安装包 ID `com.bulijie.vpn` 和中文应用名，界面仍以上游英文/波斯文为主；不是 Windows 界面的完整中文移植。
+Android 基于 **OpenTunnel** 固定提交 `0535533dfb7d3a656bfdb880d51f731c109135c1`，保留上游连接功能。启动器、主页、设置和日志分享统一显示 **Linkora VPN**；界面仍以英文/波斯文为主。
 
-新建服务器，填写 `https://域名:4443`、用户名、密码，使用 AnyConnect 协议。首次证书确认必须核对管理员提供的公钥指纹。允许系统 VPN 授权后连接。不直接导入 Windows `.bvpn` 文件。
+新建服务器，填写 `https://域名:4443`、用户名、密码，使用 AnyConnect 协议。首次证书确认必须核对管理员提供的公钥指纹。允许系统 VPN 授权后连接。不直接导入 Windows `.vpn` 文件。
 
 本仓库加强了上游行为：保存的证书指纹必须是完整、规范的 `pin-sha256`；固定公钥变化时拒绝连接，需向管理员核实后手动更新。已配置指纹优先于系统/自定义 CA。失败后不自动降低 TLS 安全等级；旧服务器兼容模式仅由用户明确选择。应用禁用 Android 系统备份，避免配置和凭据随系统备份迁移。三种架构的 ELF 和 APK 均检查 16 KB 内存页兼容性。
 
@@ -42,7 +42,7 @@ iOS 为本仓库的原生 SwiftUI 界面和 Objective-C `NEPacketTunnelProvider`
 
 填写服务器、用户名、密码和管理员预先核实的完整 `pin-sha256:Base64` 公钥指纹，然后连接并允许系统添加 VPN 配置。必须核实服务器指纹；指纹不匹配不提交密码。密码仅随本次连接传递，不保存到偏好设置，进程退出后再次连接需要重新输入。
 
-首版支持 ocserv 用户名/密码认证、IPv4/IPv6 数据通道、服务端 DNS、全隧道及 OpenConnect 的 TLS/DTLS。服务端必须分配 IPv4 地址和 DNS。服务端未分配 IPv6 时仍将 IPv6 导入隧道，避免绕过 VPN。分流规则暂不使用。尚不支持交互式 MFA、分组选择、客户端证书、自动登录及 `.bvpn` 导入；遇到额外认证字段会取消，不能拿密码填充验证码。
+首版支持 ocserv 用户名/密码认证、IPv4/IPv6 数据通道、服务端 DNS、全隧道及 OpenConnect 的 TLS/DTLS。服务端必须分配 IPv4 地址和 DNS。服务端未分配 IPv6 时仍将 IPv6 导入隧道，避免绕过 VPN。分流规则暂不使用。尚不支持交互式 MFA、分组选择、客户端证书、自动登录及 `.vpn` 导入；遇到额外认证字段会取消，不能拿密码填充验证码。
 
 iOS 要求服务器 MTU 至少为 1280。收包使用最多 32 个数据包的批次，避免持续流量阻塞断开操作；校验 IP 版本、长度和 IPv6 前缀。启动尚未完成时请求停止，也会等待资源清理完成；断开过程中禁用重新连接。
 
@@ -76,7 +76,7 @@ bash scripts/build-android.sh debug
 iOS 使用 macOS、Xcode、XcodeGen、CMake、pkg-config 和 autotools：
 
 ```sh
-export BVPN_BUNDLE_ID=com.bulijie.vpn
+export VPN_BUNDLE_ID=io.github.sck03.linkoravpn
 bash scripts/build-ios.sh unsigned
 ```
 

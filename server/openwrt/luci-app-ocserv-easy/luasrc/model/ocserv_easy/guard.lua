@@ -195,17 +195,17 @@ local function plan(c,info)
     logic.require(has_lan,"guard_requires_lan")
     -- An existing ocvpn zone is updated option-by-option and restored on disable.
     if not zone then
-        zone="bulijie_vpn"
+        zone="linkora_vpn"
         logic.require(not c:get("firewall",zone),"guard_section_conflict")
         whole("firewall",zone,{[".type"]="zone",name="ocvpn",device={"vpns+"},input="ACCEPT",output="ACCEPT",forward="REJECT",mtu_fix="1"})
     else
         for key,value in pairs({device={"vpns+"},input="ACCEPT",output="ACCEPT",forward="REJECT",mtu_fix="1"}) do option("firewall",zone,key,value) end
     end
     for name,values in pairs({
-        bulijie_vpn_to_lan={[".type"]="forwarding",src="ocvpn",dest="lan"},
-        bulijie_ocserv_entry={[".type"]="rule",name="Allow-ocserv-from-LAN",src="lan",dest_ip=info.lan,proto="tcp udp",dest_port=tostring(info.port).." "..tostring(info.udp_port),family="ipv4",target="ACCEPT"},
-        bulijie_ocserv_entry6={[".type"]="rule",name="Allow-ocserv-over-IPv6",src="lan",proto="tcp udp",dest_port=tostring(info.port).." "..tostring(info.udp_port),family="ipv6",target="ACCEPT"},
-        bulijie_guard={[".type"]="include",type="nftables",path=rulefile,position="ruleset-prepend",enabled="1"}
+        linkora_vpn_to_lan={[".type"]="forwarding",src="ocvpn",dest="lan"},
+        linkora_ocserv_entry={[".type"]="rule",name="Allow-ocserv-from-LAN",src="lan",dest_ip=info.lan,proto="tcp udp",dest_port=tostring(info.port).." "..tostring(info.udp_port),family="ipv4",target="ACCEPT"},
+        linkora_ocserv_entry6={[".type"]="rule",name="Allow-ocserv-over-IPv6",src="lan",proto="tcp udp",dest_port=tostring(info.port).." "..tostring(info.udp_port),family="ipv6",target="ACCEPT"},
+        linkora_guard={[".type"]="include",type="nftables",path=rulefile,position="ruleset-prepend",enabled="1"}
     }) do
         logic.require(not c:get("firewall",name),"guard_section_conflict")
         whole("firewall",name,values)
@@ -217,8 +217,8 @@ local function plan(c,info)
     option("ocserv","config","split_dns","0")
     c:foreach("ocserv","dns",function(s) whole("ocserv",s[".name"],false) end)
     c:foreach("ocserv","routes",function(s) whole("ocserv",s[".name"],false) end)
-    logic.require(not c:get("ocserv","bulijie_guard_dns"),"guard_section_conflict")
-    whole("ocserv","bulijie_guard_dns",{[".type"]="dns",ip=info.dns})
+    logic.require(not c:get("ocserv","linkora_guard_dns"),"guard_section_conflict")
+    whole("ocserv","linkora_guard_dns",{[".type"]="dns",ip=info.dns})
     -- OpenClash's firewall redirect (mode 2) catches VPN DNS traffic before
     -- it reaches dnsmasq.  Do not broaden dnsmasq's listeners or rewrite its
     -- upstream servers; keeping that package untouched makes this high-risk
@@ -341,7 +341,7 @@ local function restore(state,boot)
     pending(c)
     for i=#state.ops,1,-1 do
         local op=state.ops[i]; local value=current(c,op)
-        if op.id=="bulijie_guard" and not op.key and op.before==false and c:get(op.package,op.id,"path")==rulefile then put(c,op,false)
+        if op.id=="linkora_guard" and not op.key and op.before==false and c:get(op.package,op.id,"path")==rulefile then put(c,op,false)
         elseif equal(value,op.after) then put(c,op,op.before)
         elseif not equal(value,op.before) then preserved=preserved+1 end
     end
@@ -351,7 +351,7 @@ local function restore(state,boot)
         elseif value~=file.before then preserved=preserved+1 end
     end
     commit(c,state)
-    run({"/usr/sbin/nft","delete","table","inet","bulijie_guard"},5)
+    run({"/usr/sbin/nft","delete","table","inet","linkora_guard"},5)
     if not boot then logic.require(command("firewall_check",{"/sbin/fw4","check"},10)==0,"guard_firewall_failed") end
     reload(state,boot)
     atomic(root.."/last-backup.json",json.stringify(state))
@@ -382,7 +382,7 @@ local function apply(state)
     logic.require(command("firewall_check",{"/sbin/fw4","check"},10)==0,"guard_firewall_failed")
     logic.require(command("nft_apply",{"/usr/sbin/nft","-f",rulefile},10)==0,"guard_firewall_failed")
     reload(state,false)
-    logic.require(run({"/usr/sbin/nft","list","table","inet","bulijie_guard"},5)==0,"guard_firewall_failed")
+    logic.require(run({"/usr/sbin/nft","list","table","inet","linkora_guard"},5)==0,"guard_firewall_failed")
     state.phase="pending"; state.deadline=os.time()+120; save(state)
     log.add("apply","pending")
 end

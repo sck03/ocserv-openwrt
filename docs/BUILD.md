@@ -22,7 +22,7 @@ Actions 使用官方 checkout、cache、setup-node、setup-python、upload-artif
 
 ## 客户端结构
 
-根 CMakeLists.txt 只调用 client/CMakeLists.txt：
+根 CMakeLists.txt 统一维护 Windows 产品名和版本，生成 C++/RC 共用版本头及程序清单，再调用 client/CMakeLists.txt。界面、协议标识、EXE 属性和发行元数据使用同一版本。Release 使用 `-Os`、函数/数据独立节和链接清理，移除未使用代码。
 
 | 文件 | 职责 |
 |---|---|
@@ -107,8 +107,8 @@ Windows 原生回归（下例使用 `-ReleaseVersion 0.5.0` 的包名；请替�
 
 ~~~powershell
 python tests/cleanup_tests.py
-python scripts/test-client.py --build build/client/x64 --package dist/BulijieVPN-0.5.0-windows-x64.zip --output test-results/client-x64
-python scripts/test-client.py --build build/client/x86 --package dist/BulijieVPN-0.5.0-windows-x86.zip --output test-results/client-x86
+python scripts/test-client.py --build build/client/x64 --package dist/LinkoraVPN-0.5.0-windows-x64.zip --output test-results/client-x64
+python scripts/test-client.py --build build/client/x86 --package dist/LinkoraVPN-0.5.0-windows-x86.zip --output test-results/client-x86
 ~~~
 
 测试子进程的 PATH 仅保留 Windows 系统目录。认证测试运行真实 OpenConnect/GnuTLS 回调和临时回环 HTTPS 服务；界面测试只操作自己的窗口并导出截图。包内实际 EXE 分别以中文、英文启动和退出。基础回归不创建网卡或修改主机路由。
@@ -121,11 +121,11 @@ PE 审计要求正确架构、子系统 6.1、允许的系统 DLL，拒绝已知
 
 客户端等待 windows-tests 和 source 全部成功后发布；服务端等待其构建校验完成。任务下载同次运行的产物，检查 ZIP 和 SHA256SUMS，先建草稿，全部上传成功后公开为 Pre-release。仅发布任务获得 contents: write，使用自动提供的 GitHub token。
 
-标签为 `client-版本或时间-运行ID-尝试次数` 或 `server-版本或时间-运行ID-尝试次数`，指向实际提交。重跑创建新条目，不覆盖已有附件。Release 标题始终显示北京时间，例如“布利杰VPN Windows 客户端 v0.5.1（构建 2026-09-29 10:20:59 +08:00）”；留空版本号时标题只显示构建时间。原来的“9.1”是运行次数与尝试次数，不是日期。Release 附件长期保留，地址写入工作流 Summary。
+标签为 `client-版本或时间-运行ID-尝试次数` 或 `server-版本或时间-运行ID-尝试次数`，指向实际提交。重跑创建新条目，不覆盖已有附件。Release 标题始终显示北京时间，例如“Linkora VPN Windows 客户端 v0.5.1（构建 2026-09-29 10:20:59 +08:00）”；留空版本号时标题只显示构建时间。原来的“9.1”是运行次数与尝试次数，不是日期。Release 附件长期保留，地址写入工作流 Summary。
 
 客户端附件包含 x64/x86 便携 ZIP、对应源码 ZIP 和校验文件。打包只 strip 本项目 EXE，Wintun 保持原样；附带许可证、使用说明和 BUILDINFO。源码包包含项目源码、配方、补丁及全部锁定第三方归档；在 Git 工作区中仅收录受版本控制的项目文件，排除未跟踪备份、本机工具、测试数据和旧代码。客户端与服务端均在临时目录生成 ZIP，完成后替换目标文件，失败不会覆盖之前的完整包。
 
-移动端对应源码包同样只收录 Git 跟踪文件的当前内容，完整生成后替换旧包；上游压缩归档直接存入 ZIP，避免重复压缩。移动端与桌面端共用下载校验、网络重试和独立临时文件清理逻辑。
+移动端和桌面端共用源码清单函数，直接从 Git 收集跟踪文件的当前内容，避免遍历无关缓存；完整生成后替换旧包，上游压缩归档直接存入 ZIP。两端也共用下载校验、网络重试和独立临时文件清理逻辑。
 
 ## OpenWrt 多架构服务端
 

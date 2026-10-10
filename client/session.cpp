@@ -8,7 +8,7 @@
 #include <cstring>
 #include <cerrno>
 
-namespace bulijie {
+namespace vpn {
 namespace {
 std::mutex script_environment_mutex;
 bool is_field(const char *value, const char *expected) {
@@ -23,7 +23,7 @@ std::string system_proxy(const std::wstring &url) {
         return {};
     std::wstring selected = config.lpszProxy ? config.lpszProxy : L"";
     if (config.fAutoDetect || config.lpszAutoConfigUrl) {
-        HINTERNET session = WinHttpOpen(L"BulijieVPN", WINHTTP_ACCESS_TYPE_NO_PROXY, nullptr, nullptr, 0);
+        HINTERNET session = WinHttpOpen(L"LinkoraVPN", WINHTTP_ACCESS_TYPE_NO_PROXY, nullptr, nullptr, 0);
         if (session) {
             WinHttpSetTimeouts(session, 5000, 5000, 5000, 5000);
             WINHTTP_AUTOPROXY_OPTIONS options{};
@@ -493,7 +493,7 @@ void Session::setup_tun_callback(void *context) {
         auto script = self->profile_.script.empty() ? executable_directory() / L"vpnc-script-win.js"
                                                     : std::filesystem::path(self->profile_.script);
         std::string interface_name = self->profile_.interface_name.empty()
-                                         ? "BulijieVPN-" + self->profile_.id.substr(0, 12)
+                                         ? "LinkoraVPN-" + self->profile_.id.substr(0, 12)
                                          : utf8(self->profile_.interface_name);
         int result = openconnect_setup_tun_device(self->vpn_, utf8(script.wstring()).c_str(),
                                                 interface_name.c_str());
@@ -558,15 +558,15 @@ bool Session::prepare_script_log() {
     if (!length || length >= 32768) { error_ = system_error(GetLastError()); return false; }
     auto id = random_id();
     if (id.empty()) return false;
-    script_log_ = std::filesystem::path(temporary) / (L"BulijieVPN-" + wide(id) + L".log");
+    script_log_ = std::filesystem::path(temporary) / (L"LinkoraVPN-" + wide(id) + L".log");
     if (!write_atomic(script_log_, "", error_)) return false;
-    DWORD needed = GetEnvironmentVariableW(L"BULIJIE_SCRIPT_LOG", nullptr, 0);
+    DWORD needed = GetEnvironmentVariableW(L"VPN_SCRIPT_LOG", nullptr, 0);
     if (needed) {
         std::vector<wchar_t> previous(needed);
-        GetEnvironmentVariableW(L"BULIJIE_SCRIPT_LOG", previous.data(), needed);
+        GetEnvironmentVariableW(L"VPN_SCRIPT_LOG", previous.data(), needed);
         previous_script_log_ = previous.data();
     }
-    script_environment_set_ = SetEnvironmentVariableW(L"BULIJIE_SCRIPT_LOG", script_log_.c_str()) != FALSE;
+    script_environment_set_ = SetEnvironmentVariableW(L"VPN_SCRIPT_LOG", script_log_.c_str()) != FALSE;
     if (!script_environment_set_) error_ = system_error(GetLastError());
     return script_environment_set_;
 }
@@ -601,7 +601,7 @@ void Session::cleanup() {
     }
     read_script_log();
     if (script_environment_set_) {
-        SetEnvironmentVariableW(L"BULIJIE_SCRIPT_LOG", previous_script_log_.empty() ? nullptr : previous_script_log_.c_str());
+        SetEnvironmentVariableW(L"VPN_SCRIPT_LOG", previous_script_log_.empty() ? nullptr : previous_script_log_.c_str());
         script_environment_set_ = false;
     }
     if (!script_log_.empty()) {
@@ -618,7 +618,7 @@ void Session::cleanup() {
 }
 void Session::run() {
     Handle session_lock(
-        CreateMutexW(nullptr, FALSE, (L"Local\\BulijieVPN.Session." + wide(profile_.id)).c_str()));
+        CreateMutexW(nullptr, FALSE, (L"Local\\LinkoraVPN.Session." + wide(profile_.id)).c_str()));
     DWORD acquired = session_lock ? WaitForSingleObject(session_lock.get(), 0) : WAIT_FAILED;
     if (acquired != WAIT_OBJECT_0 && acquired != WAIT_ABANDONED) {
         state(State::Failed, true,
@@ -658,7 +658,7 @@ void Session::run() {
             if (!prepare_script_log()) return false;
         }
         state(State::Connecting);
-        const std::string user_agent = std::string("BulijieVPN/") + Version;
+        const std::string user_agent = std::string("LinkoraVPN/") + Version;
         vpn_ = openconnect_vpninfo_new(user_agent.c_str(), certificate_callback, nullptr,
                                        authentication_callback, progress_callback, this);
         if (!vpn_) {
@@ -760,4 +760,4 @@ void Session::run() {
                                   L"Connection failed. Check the server response in the log.")
                              : error_);
 }
-} // namespace bulijie
+} // namespace vpn

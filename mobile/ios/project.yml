@@ -1,29 +1,29 @@
-name: BulijieVPN
+name: LinkoraVPN
 options:
   deploymentTarget:
     iOS: '15.0'
 settings:
   base:
     SWIFT_VERSION: '5.0'
-    MARKETING_VERSION: '0.1.1'
-    CURRENT_PROJECT_VERSION: '2'
+    MARKETING_VERSION: '0.2.0'
+    CURRENT_PROJECT_VERSION: '3'
     TARGETED_DEVICE_FAMILY: '1,2'
     CODE_SIGN_STYLE: Manual
 targets:
-  BulijieVPN:
+  LinkoraVPN:
     type: application
     platform: iOS
     sources: [App]
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: $(BVPN_BUNDLE_ID)
-        PROVISIONING_PROFILE_SPECIFIER: $(BVPN_APP_PROFILE)
+        PRODUCT_BUNDLE_IDENTIFIER: $(VPN_BUNDLE_ID)
+        PROVISIONING_PROFILE_SPECIFIER: $(VPN_APP_PROFILE)
         CODE_SIGN_ENTITLEMENTS: App/App.entitlements
         SWIFT_OBJC_BRIDGING_HEADER: Shared/ServerAddress.h
     info:
       path: App/Info.plist
       properties:
-        CFBundleDisplayName: 布利杰VPN
+        CFBundleDisplayName: Linkora VPN
         UILaunchScreen: {}
         UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait, UIInterfaceOrientationLandscapeLeft, UIInterfaceOrientationLandscapeRight]
     dependencies:
@@ -34,8 +34,8 @@ targets:
     sources: [Tunnel]
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: $(BVPN_BUNDLE_ID).tunnel
-        PROVISIONING_PROFILE_SPECIFIER: $(BVPN_TUNNEL_PROFILE)
+        PRODUCT_BUNDLE_IDENTIFIER: $(VPN_BUNDLE_ID).tunnel
+        PROVISIONING_PROFILE_SPECIFIER: $(VPN_TUNNEL_PROFILE)
         CODE_SIGN_ENTITLEMENTS: Tunnel/Tunnel.entitlements
         HEADER_SEARCH_PATHS: $(SRCROOT)/../../build/mobile/ios/prefix/include
         LIBRARY_SEARCH_PATHS: $(SRCROOT)/../../build/mobile/ios/prefix/lib
@@ -44,7 +44,7 @@ targets:
     info:
       path: Tunnel/Info.plist
       properties:
-        CFBundleDisplayName: 布利杰VPN隧道
+        CFBundleDisplayName: Linkora VPN 隧道
         NSExtension:
           NSExtensionPointIdentifier: com.apple.networkextension.packet-tunnel
           NSExtensionPrincipalClass: PacketTunnelProvider
@@ -52,7 +52,7 @@ targets:
       - sdk: NetworkExtension.framework
       - sdk: Security.framework
 schemes:
-  BulijieVPN:
+  LinkoraVPN:
     build:
       targets:
-        BulijieVPN: all
+        LinkoraVPN: all

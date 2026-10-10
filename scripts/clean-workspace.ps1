@@ -10,7 +10,7 @@ $cleanupRoot = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot '..')).Path.T
 $cleanupPrefix = $cleanupRoot + '\'
 if (!(Test-Path -LiteralPath (Join-Path $cleanupRoot 'client\CMakeLists.txt')) -or
     !(Test-Path -LiteralPath (Join-Path $cleanupRoot 'scripts\sources.json'))) {
-    throw 'Run this script from the OpenVPN project scripts directory.'
+    throw 'Run this script from the project scripts directory.'
 }
 
 function Assert-WorkspacePath([string]$Path) {

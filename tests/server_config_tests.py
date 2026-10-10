@@ -39,7 +39,7 @@ class ConfigTests(unittest.TestCase):
     def shell(self, configs, dns=("1.1.1.1",), routes=()):
         if not SH:
             self.skipTest("sh is needed to exercise the packaged init script")
-        with tempfile.TemporaryDirectory(prefix="bulijie-config-") as directory:
+        with tempfile.TemporaryDirectory(prefix="linkora-vpn-config-") as directory:
             root = Path(directory)
             (root / "etc").mkdir()
             (root / "etc/ocserv.conf.template").write_text(self.template, encoding="utf-8")

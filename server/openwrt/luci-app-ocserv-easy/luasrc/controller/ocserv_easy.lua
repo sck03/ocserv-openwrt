@@ -5,13 +5,9 @@ function index()
     if not require("nixio.fs").access("/etc/config/ocserv") then return end
     entry({"admin","vpn"},firstchild(),"VPN",45).dependent=false
     local base={"admin","vpn","ocserv"}
-    local page=entry(base,call("page"),"布利杰VPN",50)
+    local page=entry(base,call("page"),"Linkora VPN",50)
     page.dependent=false
     page.acl_depends={"luci-app-ocserv-easy"}
-    -- Old bookmarks lead to the one maintained page, without duplicate tabs.
-    for _,name in ipairs({"easy","main","user-config","users"}) do
-        entry({"admin","vpn","ocserv",name},alias("admin","vpn","ocserv")).acl_depends={"luci-app-ocserv-easy"}
-    end
     for _,item in ipairs({{"data",call("data")},{"status",call("status")},{"guard-log",call("guard_log")},{"action",post("action")},{"download",post("download")}}) do
         local child=entry({"admin","vpn","ocserv",item[1]},item[2])
         child.leaf=true

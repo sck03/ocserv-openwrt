@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 import re
 import shutil
+import subprocess
 import tempfile
 import time
 import urllib.request
@@ -11,9 +12,30 @@ import urllib.request
 ROOT = Path(__file__).resolve().parents[1]
 
 
+def source_files(root, directories, names):
+    """Select current project sources without walking ignored build trees."""
+    root = root.resolve()
+    if (root / ".git").exists():
+        paths = subprocess.check_output(
+            ["git", "ls-files", "-z", "--cached", "--", *directories, *names], cwd=root
+        ).decode("utf-8").split("\0")
+        candidates = (root / name for name in paths if name)
+    else:
+        candidates = [root / name for name in names]
+        for directory in directories:
+            candidates.extend((root / directory).rglob("*"))
+    selected = []
+    for path in candidates:
+        if path.is_symlink() or not path.resolve().is_relative_to(root):
+            raise ValueError(f"Source file must stay in the workspace: {path}")
+        if path.is_file() and "__pycache__" not in path.parts and path.suffix not in (".pyc", ".pyo"):
+            selected.append(path)
+    return sorted(set(selected))
+
+
 def version():
     source = (ROOT / "CMakeLists.txt").read_text(encoding="utf-8")
-    match = re.search(r"project\(BridgeVPN VERSION (\d+\.\d+\.\d+)", source)
+    match = re.search(r"project\(LinkoraVPN VERSION (\d+\.\d+\.\d+)", source)
     if not match:
         raise RuntimeError("Cannot determine application version")
     return match.group(1)

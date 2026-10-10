@@ -5,8 +5,8 @@ root="$PWD"
 mode="${1:-unsigned}"
 [[ "$mode" == unsigned || "$mode" == signed ]] || { echo 'Expected unsigned or signed'; exit 2; }
 test ! -e dist/ios || { echo 'Move dist/ios before rebuilding'; exit 2; }
-export BVPN_BUNDLE_ID="${BVPN_BUNDLE_ID:-com.bulijie.vpn}"
-[[ "$BVPN_BUNDLE_ID" =~ ^[A-Za-z0-9]+([.-][A-Za-z0-9]+)+$ ]] || { echo 'Invalid bundle identifier'; exit 2; }
+export VPN_BUNDLE_ID="${VPN_BUNDLE_ID:-io.github.sck03.linkoravpn}"
+[[ "$VPN_BUNDLE_ID" =~ ^[A-Za-z0-9]+([.-][A-Za-z0-9]+)+$ ]] || { echo 'Invalid bundle identifier'; exit 2; }
 if [[ "$mode" == signed ]]; then
   : "${IOS_CERTIFICATE_BASE64:?Missing signing certificate}"
   : "${IOS_CERTIFICATE_PASSWORD:?Missing certificate password}"
@@ -17,16 +17,16 @@ fi
 bash scripts/build-ios-core.sh
 xcodegen generate --spec mobile/ios/project.yml
 mkdir -p dist/ios
-archive="$root/build/mobile/ios/BulijieVPN.xcarchive"
-args=(-project mobile/ios/BulijieVPN.xcodeproj -scheme BulijieVPN -configuration Release
+archive="$root/build/mobile/ios/LinkoraVPN.xcarchive"
+args=(-project mobile/ios/LinkoraVPN.xcodeproj -scheme LinkoraVPN -configuration Release
       -sdk iphoneos -destination 'generic/platform=iOS' -archivePath "$archive"
-      "BVPN_BUNDLE_ID=$BVPN_BUNDLE_ID")
+      "VPN_BUNDLE_ID=$VPN_BUNDLE_ID")
 if [[ "$mode" == unsigned ]]; then
   xcodebuild "${args[@]}" CODE_SIGNING_ALLOWED=NO archive
-  test -d "$archive/Products/Applications/BulijieVPN.app/PlugIns/PacketTunnel.appex"
-  ditto -c -k --keepParent "$archive" dist/ios/BulijieVPN-ios-unsigned.xcarchive.zip
+  test -d "$archive/Products/Applications/LinkoraVPN.app/PlugIns/PacketTunnel.appex"
+  ditto -c -k --keepParent "$archive" dist/ios/LinkoraVPN-ios-unsigned.xcarchive.zip
 else
-  signing="$(mktemp -d "${RUNNER_TEMP:-${TMPDIR:-/tmp}}/bvpn-signing.XXXXXX")"
+  signing="$(mktemp -d "${RUNNER_TEMP:-${TMPDIR:-/tmp}}/vpn-signing.XXXXXX")"
   keychain="$signing/build.keychain-db"
   cleanup() {
     security delete-keychain "$keychain" >/dev/null 2>&1 || true
@@ -45,11 +45,11 @@ else
   app_profile="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["app"])' "$signing/profiles.json")"
   tunnel_profile="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["tunnel"])' "$signing/profiles.json")"
   xcodebuild "${args[@]}" "DEVELOPMENT_TEAM=$IOS_TEAM_ID" \
-    "BVPN_APP_PROFILE=$app_profile" "BVPN_TUNNEL_PROFILE=$tunnel_profile" \
+    "VPN_APP_PROFILE=$app_profile" "VPN_TUNNEL_PROFILE=$tunnel_profile" \
     CODE_SIGN_IDENTITY='Apple Distribution' "OTHER_CODE_SIGN_FLAGS=--keychain $keychain" archive
   xcodebuild -exportArchive -archivePath "$archive" -exportPath "$root/dist/ios/export" \
     -exportOptionsPlist "$signing/ExportOptions.plist"
-  cp dist/ios/export/*.ipa dist/ios/BulijieVPN-ios.ipa
+  cp dist/ios/export/*.ipa dist/ios/LinkoraVPN-ios.ipa
 fi
 cp build/mobile/ios/BUILDINFO.json dist/ios/BUILDINFO.json
 python3 scripts/package-mobile.py ios

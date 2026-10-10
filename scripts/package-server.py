@@ -34,7 +34,7 @@ def main():
     metadata = build_metadata()
     dist = ROOT / "dist"
     dist.mkdir(exist_ok=True)
-    name = (f"ocserv-{ocserv_version}-r{ocserv_release}-openwrt-{entry['version']}-{architecture}-"
+    name = (f"LinkoraVPN-server-ocserv-{ocserv_version}-r{ocserv_release}-openwrt-{entry['version']}-{architecture}-"
             f"ui-{ui_version}-r{ui_release}-{metadata['release_label']}")
     with tempfile.TemporaryDirectory(prefix="server-", dir=dist) as temporary:
         output = Path(temporary) / name
@@ -69,10 +69,10 @@ def main():
         ui_roots = list((sdk / "build_dir").glob("target-*/luci-app-ocserv-easy/.pkgdir/luci-app-ocserv-easy"))
         if len(ui_roots) != 1:
             raise RuntimeError("Cannot locate the staged management package")
-        for relative in ("etc/init.d/ocserv-easy-guard", "usr/libexec/ocserv-easy-guard", "usr/libexec/ocserv-easy-repair-users", "usr/share/ocserv-easy/guard.nft.in"):
+        for relative in ("etc/init.d/ocserv-easy-guard", "usr/libexec/ocserv-easy-guard", "usr/share/ocserv-easy/guard.nft.in"):
             if sha256(ui_roots[0] / relative) != sha256(ROOT / "server/openwrt/luci-app-ocserv-easy/root" / relative):
                 raise RuntimeError("Stale guard runtime file: " + relative)
-        for relative in ("etc/init.d/ocserv-easy-guard", "usr/libexec/ocserv-easy-guard", "usr/libexec/ocserv-easy-repair-users"):
+        for relative in ("etc/init.d/ocserv-easy-guard", "usr/libexec/ocserv-easy-guard"):
             if not (ui_roots[0] / relative).stat().st_mode & 0o111:
                 raise RuntimeError("Guard runtime is not executable: " + relative)
         for name in ("guard.lua", "guard_log.lua", "process.lua", "backend.lua", "logic.lua"):

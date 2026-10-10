@@ -23,7 +23,7 @@ if not ok then
 else
     local invalid=0
     for _,user in ipairs(result.users or {})do if user.needs_password then invalid=invalid+1 end end
-    print("Management UI: "..tostring(result.ui_version or "older than 0.4.1"))
+    print("Management UI: "..tostring(result.ui_version or "older than 0.5.0"))
     print("Detected ocserv: "..tostring(result.version).."; supported: "..tostring(result.supported))
     print("Running: "..tostring(result.running).."; accounts: "..tostring(#(result.users or {})).."; need password reset: "..invalid)
     print("Authentication mode: "..tostring(result.auth))

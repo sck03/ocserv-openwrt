@@ -151,7 +151,7 @@ jobs:
         with:
           name: windows-${{ matrix.arch }}
           path: |
-            dist/BulijieVPN-*-windows-*.zip
+            dist/LinkoraVPN-*-windows-*.zip
             dist/SHA256SUMS-windows-*.txt
             dist/validation-*/
           if-no-files-found: error
@@ -198,7 +198,7 @@ jobs:
           TARGET_ARCH: ${{ matrix.arch }}
         run: |
           $arch = $env:TARGET_ARCH
-          $packages = @(Get-ChildItem -Path "dist/BulijieVPN-*-windows-$arch.zip")
+          $packages = @(Get-ChildItem -Path "dist/LinkoraVPN-*-windows-$arch.zip")
           if ($packages.Count -ne 1) { throw "Expected one $arch package" }
           $testArguments = @('--build', "dist/validation-$arch", '--package', $packages[0].FullName,
                              '--output', "test-results/client-$arch")
@@ -241,7 +241,7 @@ jobs:
         with:
           name: corresponding-source
           path: |
-            dist/BulijieVPN-*-source.zip
+            dist/LinkoraVPN-*-source.zip
             dist/SHA256SUMS-source.txt
           if-no-files-found: error
           compression-level: 0
@@ -278,8 +278,8 @@ jobs:
       - name: Collect both architectures and corresponding source
         run: |
           mkdir -p release-assets
-          cp dist/BulijieVPN-*-windows-x64.zip dist/BulijieVPN-*-windows-x86.zip \
-            dist/BulijieVPN-*-source.zip release-assets/
+          cp dist/LinkoraVPN-*-windows-x64.zip dist/LinkoraVPN-*-windows-x86.zip \
+            dist/LinkoraVPN-*-source.zip release-assets/
           cat dist/SHA256SUMS-windows-x64.txt dist/SHA256SUMS-windows-x86.txt \
             dist/SHA256SUMS-source.txt > release-assets/SHA256SUMS.txt
       - name: Publish verified client assets

@@ -28,7 +28,7 @@
 @end
 
 static NSError *VPNError(NSString *message) {
-    return [NSError errorWithDomain:@"com.bulijie.vpn" code:1
+    return [NSError errorWithDomain:@"io.github.sck03.linkoravpn" code:1
                           userInfo:@{NSLocalizedDescriptionKey: message}];
 }
 
@@ -98,7 +98,7 @@ static void Reconnected(void *data) {
     self.username = [values[@"username"] isKindOfClass:NSString.class] ? values[@"username"] : @"";
     self.pin = [values[@"pin"] isKindOfClass:NSString.class] ? values[@"pin"] : @"";
     self.password = [options[@"password"] isKindOfClass:NSString.class] ? (NSString *)options[@"password"] : @"";
-    NSURL *server = BVPNServerURL(config.serverAddress);
+    NSURL *server = VPNServerURL(config.serverAddress);
     NSData *hash = [self.pin hasPrefix:@"pin-sha256:"] ?
         [[NSData alloc] initWithBase64EncodedString:[self.pin substringFromIndex:11] options:0] : nil;
     if (!server || hash.length != 32 ||
@@ -115,7 +115,7 @@ static void Reconnected(void *data) {
         if (stopped) stopped();
         return;
     }
-    self.packets = dispatch_queue_create("com.bulijie.vpn.packets", DISPATCH_QUEUE_SERIAL);
+    self.packets = dispatch_queue_create("io.github.sck03.linkoravpn.packets", DISPATCH_QUEUE_SERIAL);
     dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
         @autoreleasepool {
             [self runServer:server.absoluteString completion:completionHandler];
@@ -129,7 +129,7 @@ static void Reconnected(void *data) {
     int coreTunFD = -1;
     int sslResult = openconnect_init_ssl();
     @synchronized (self) {
-        if (!self.stopping && !sslResult) self.vpn = openconnect_vpninfo_new("BulijieVPN-iOS", ValidateCertificate, NULL,
+        if (!self.stopping && !sslResult) self.vpn = openconnect_vpninfo_new("LinkoraVPN-iOS", ValidateCertificate, NULL,
                                          Authenticate, Progress, (__bridge void *)self);
         if (self.vpn) self.commandFD = openconnect_setup_cmd_pipe(self.vpn);
     }
@@ -208,7 +208,7 @@ static void Reconnected(void *data) {
     NSArray<NSString *> *parts = info->netmask6 ? [@(info->netmask6) componentsSeparatedByString:@"/"] : @[];
     NSString *v6 = info->addr6 ? @(info->addr6) : (parts.count == 2 ? parts[0] : @"fd00::2");
     if ([v6 containsString:@"/"]) v6 = [v6 componentsSeparatedByString:@"/"][0];
-    int prefixLength = parts.count == 2 ? bvpn_prefix6(parts[1].UTF8String) : 128;
+    int prefixLength = parts.count == 2 ? vpn_prefix6(parts[1].UTF8String) : 128;
     struct in6_addr parsedV6;
     if (parts.count > 2 || prefixLength < 0 || inet_pton(AF_INET6, v6.UTF8String, &parsedV6) != 1)
         return VPNError(@"服务器 IPv6 前缀无效");
@@ -251,7 +251,7 @@ static void Reconnected(void *data) {
             memcpy(&family, bytes, 4);
             family = ntohl(family);
             if (family != AF_INET && family != AF_INET6) continue;
-            if (!bvpn_packet_valid(bytes + 4, (size_t)count - 4, family == AF_INET ? 4 : 6)) continue;
+            if (!vpn_packet_valid(bytes + 4, (size_t)count - 4, family == AF_INET ? 4 : 6)) continue;
             NSData *packet = [NSData dataWithBytes:bytes + 4 length:(NSUInteger)count - 4];
             [packets addObject:packet];
             [protocols addObject:@(family)];
@@ -275,7 +275,7 @@ static void Reconnected(void *data) {
             for (NSUInteger i = 0; i < packets.count; i++) {
                 unsigned protocol = protocols[i].unsignedIntValue;
                 if (protocol != AF_INET && protocol != AF_INET6) continue;
-                if (!bvpn_packet_valid(packets[i].bytes, packets[i].length, protocol == AF_INET ? 4 : 6)) continue;
+                if (!vpn_packet_valid(packets[i].bytes, packets[i].length, protocol == AF_INET ? 4 : 6)) continue;
                 uint32_t family = htonl(protocols[i].unsignedIntValue);
                 struct iovec vectors[2] = {{&family, sizeof(family)}, {(void *)packets[i].bytes, packets[i].length}};
                 struct msghdr message = {0};

@@ -3,7 +3,7 @@
 #include <algorithm>
 #include <cstdio>
 
-namespace bulijie::ui {
+namespace vpn::ui {
 Window::~Window() {
     if (window_)
         DestroyWindow(window_);
@@ -241,7 +241,7 @@ void LogWindow::language(Language value) {
     language_ = value;
     if (!window_)
         return;
-    SetWindowTextW(window_, tr(value, L"连接日志 — 布利杰VPN", L"Connection log — BulijieVPN"));
+    SetWindowTextW(window_, tr(value, L"连接日志 — Linkora VPN", L"Connection log — Linkora VPN"));
     label(LogCopy, tr(value, L"复制", L"Copy"));
     label(LogSelectAll, tr(value, L"全选", L"Select all"));
     label(LogClear, tr(value, L"清空", L"Clear"));
@@ -251,7 +251,7 @@ void LogWindow::language(Language value) {
 void LogWindow::show(HWND owner, Language value) {
     language_ = value;
     if (!window_)
-        create(owner, L"BulijieVPN.Log", L"", 740, 430, WS_OVERLAPPEDWINDOW, WS_EX_CONTROLPARENT);
+        create(owner, L"LinkoraVPN.Log", L"", 740, 430, WS_OVERLAPPEDWINDOW, WS_EX_CONTROLPARENT);
     language(value);
     if (dirty_)
         update_text();
@@ -367,4 +367,4 @@ LRESULT LogWindow::message(UINT message, WPARAM wparam, LPARAM lparam) {
     }
     return Window::message(message, wparam, lparam);
 }
-} // namespace bulijie::ui
+} // namespace vpn::ui

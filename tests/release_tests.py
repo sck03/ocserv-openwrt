@@ -103,7 +103,7 @@ fi
         call = self.calls()[0]
         self.assertEqual(call[2], "client-v0.5.1-12345-1")
         self.assertEqual(call[call.index("--title") + 1],
-                         "布利杰VPN Windows 客户端 v0.5.1（构建 2026-09-29 09:02:03 +08:00）")
+                         "Linkora VPN Windows 客户端 v0.5.1（构建 2026-09-29 09:02:03 +08:00）")
 
     def test_unsafe_version_is_rejected_before_github_calls(self):
         result = self.publish(RELEASE_VERSION="../bad;echo unsafe")

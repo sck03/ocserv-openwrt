@@ -17,7 +17,7 @@ config_load ocserv
 config_foreach find_account ocservusers
 [ "$matches" -le 1 ] || { printf '%s\n' 'Duplicate account entries: resolve them in LuCI first.' >&2; exit 1; }
 umask 077
-scratch=$(mktemp /tmp/bulijie-ocpasswd.XXXXXX)
+scratch=$(mktemp /tmp/linkora-vpn-ocpasswd.XXXXXX)
 trap 'rm -f "$scratch"' EXIT HUP INT TERM
 ocpasswd -c "$scratch" "$account"
 IFS=: read -r generated_name generated_group password_hash < "$scratch"

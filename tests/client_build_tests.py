@@ -85,7 +85,7 @@ class SourceBundleTests(unittest.TestCase):
             shutil.copyfile(ROOT / "scripts" / name, self.root / "scripts" / name)
         (self.root / "client/main.cpp").write_text("// fixture source\n", encoding="utf-8")
         (self.root / "src/main.cpp").write_text("obsolete code", encoding="utf-8")
-        (self.root / "config/BridgeVPN.ini").write_text("obsolete defaults", encoding="utf-8")
+        (self.root / "config/obsolete.ini").write_text("obsolete defaults", encoding="utf-8")
         for name in (".tools/private.key", ".deps/private.key", "test-results/private.key"):
             (self.root / name).write_text("synthetic private test data", encoding="utf-8")
         self.archive = self.root / ".tools/downloads/fixture-1.0.tar.gz"
@@ -107,10 +107,10 @@ class SourceBundleTests(unittest.TestCase):
         package = next((self.root / "dist").glob("*-source.zip"))
         with zipfile.ZipFile(package) as source:
             names = source.namelist()
-            self.assertIn("BulijieVPN/client/main.cpp", names)
-            metadata = json.loads(source.read("BulijieVPN/BUILDINFO.json"))
+            self.assertIn("LinkoraVPN/client/main.cpp", names)
+            metadata = json.loads(source.read("LinkoraVPN/BUILDINFO.json"))
             self.assertEqual(metadata["build_time"], "2026-09-29 09:02:03 +08:00")
-            self.assertIn("BulijieVPN/.tools/downloads/fixture-1.0.tar.gz", names)
+            self.assertIn("LinkoraVPN/.tools/downloads/fixture-1.0.tar.gz", names)
             self.assertFalse(any("private.key" in name or "/src/" in name or "/config/" in name for name in names))
         checksum = (self.root / "dist/SHA256SUMS-source.txt").read_text()
         self.assertIn(hashlib.sha256(package.read_bytes()).hexdigest(), checksum)
@@ -134,8 +134,8 @@ class SourceBundleTests(unittest.TestCase):
         (self.root / "client/private.key").write_text("synthetic untracked backup")
         self.assertEqual(self.bundle().returncode, 0)
         with zipfile.ZipFile(next((self.root / "dist").glob("*-source.zip"))) as source:
-            self.assertIn("BulijieVPN/client/main.cpp", source.namelist())
-            self.assertNotIn("BulijieVPN/client/private.key", source.namelist())
+            self.assertIn("LinkoraVPN/client/main.cpp", source.namelist())
+            self.assertNotIn("LinkoraVPN/client/private.key", source.namelist())
 
 
 if __name__ == "__main__":

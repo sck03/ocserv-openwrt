@@ -13,16 +13,15 @@ feed=$(cd "$(dirname "$0")/../openwrt" && pwd)
 [[ -f "$sdk/include/toplevel.mk" && -x "$sdk/scripts/feeds" ]] || { printf '%s\n' 'Not an OpenWrt SDK directory.' >&2; exit 1; }
 [[ "$feed" != *' '* && "$sdk" != *' '* ]] || { printf '%s\n' 'OpenWrt SDK paths cannot contain spaces.' >&2; exit 1; }
 cd "$sdk"
-[[ ! -e package/bulijie ]] || { printf '%s\n' 'Use a fresh SDK: package/bulijie already exists.' >&2; exit 1; }
+[[ ! -e package/ocserv-easy ]] || { printf '%s\n' 'Use a fresh SDK: package/ocserv-easy already exists.' >&2; exit 1; }
 [[ -f feeds.conf ]] || cp feeds.conf.default feeds.conf
 ./scripts/feeds update base packages luci
 # Keep project recipes inside the SDK package tree. A src-link into a different
 # Git checkout can produce an empty package index with SDK metadata scanning.
-mkdir -p package/bulijie
-cp -a "$feed/ocserv" "$feed/luci-app-ocserv-easy" package/bulijie/
-chmod 0755 package/bulijie/luci-app-ocserv-easy/root/etc/init.d/ocserv-easy-guard
-chmod 0755 package/bulijie/luci-app-ocserv-easy/root/usr/libexec/ocserv-easy-guard
-chmod 0755 package/bulijie/luci-app-ocserv-easy/root/usr/libexec/ocserv-easy-repair-users
+mkdir -p package/ocserv-easy
+cp -a "$feed/ocserv" "$feed/luci-app-ocserv-easy" package/ocserv-easy/
+chmod 0755 package/ocserv-easy/luci-app-ocserv-easy/root/etc/init.d/ocserv-easy-guard
+chmod 0755 package/ocserv-easy/luci-app-ocserv-easy/root/usr/libexec/ocserv-easy-guard
 # Install only needed build recipes and their dependencies. Installing every
 # feed package introduces unrelated Kconfig/provider conflicts into an SDK.
 ./scripts/feeds install libgnutls certtool libev libncurses libreadline libprotobuf-c \
@@ -50,8 +49,8 @@ grep -q '^CONFIG_USE_APK=y$' .config || { printf '%s\n' 'Use an OpenWrt 25.12 AP
 grep -Eq '^CONFIG_PACKAGE_ocserv=(y|m)$' .config
 grep -Eq '^CONFIG_PACKAGE_luci-app-ocserv-easy=(y|m)$' .config
 python3 "$feed/../../scripts/validate_sdk.py" "$sdk"
-make package/bulijie/ocserv/download V=s
-make -j"$build_jobs" package/bulijie/ocserv/compile V=s
-make -j"$build_jobs" package/bulijie/luci-app-ocserv-easy/compile V=s
+make package/ocserv-easy/ocserv/download V=s
+make -j"$build_jobs" package/ocserv-easy/ocserv/compile V=s
+make -j"$build_jobs" package/ocserv-easy/luci-app-ocserv-easy/compile V=s
 printf '%s\n' 'ocserv and LuCI output packages (match firmware ABI before installation):'
 find bin -type f \( -name 'ocserv-*.apk' -o -name 'luci-*ocserv*.apk' \) -print

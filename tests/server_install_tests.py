@@ -84,12 +84,10 @@ elif name=='ocserv' and args==['initcerts']:
     if fail('fail_cert'): sys.exit(1)
 elif name=='firewall':
     if fail('fail_reload'): sys.exit(1)
-elif name=='ocserv-easy-repair-users':
-    if fail('fail_accounts'): sys.exit(1)
 '''
 
 checks = []
-with tempfile.TemporaryDirectory(prefix='bulijie-install-test-') as temporary:
+with tempfile.TemporaryDirectory(prefix='linkora-vpn-install-test-') as temporary:
     base = Path(temporary)
 
     def fixture(name, existing=False, architectures='aarch64_generic\naarch64\n'):
@@ -104,8 +102,6 @@ with tempfile.TemporaryDirectory(prefix='bulijie-install-test-') as temporary:
             path = root / 'etc/init.d' / service
             path.write_text(MOCK, encoding='utf-8')
             path.chmod(0o755)
-        repair=root/'usr/libexec/ocserv-easy-repair-users'
-        repair.write_text(MOCK,encoding='utf-8');repair.chmod(0o755)
         (root / 'etc/config/firewall').write_text(json.dumps({'lan': 'zone', 'lan.name': 'lan'}))
         (root / 'etc/config/openclash').write_text('existing subscription and rules\n')
         (root / 'etc/config/dhcp').write_text('existing dns settings\n')
@@ -142,7 +138,7 @@ with tempfile.TemporaryDirectory(prefix='bulijie-install-test-') as temporary:
     assert firewall['ocserv_vpn.name'] == 'ocvpn' and firewall['ocserv_vpn_nat.src_ip'] == '10.77.0.0/24'
     assert firewall['ocserv_vpn_entry.dest_port'] == '4443'
     assert not (root / 'etc/ocserv/easy-install-pending').exists()
-    assert len(list((root / 'root').glob('bulijie-before-install-*'))) == 1
+    assert len(list((root / 'root').glob('linkora-vpn-before-install-*'))) == 1
     checks.append('fresh install prepares VPN forwarding and keeps OpenClash/DNS settings')
     previous = (root / 'etc/config/firewall').read_bytes()
     assert run(root).returncode == 0 and (root / 'etc/config/firewall').read_bytes() == previous
@@ -189,7 +185,7 @@ with tempfile.TemporaryDirectory(prefix='bulijie-install-test-') as temporary:
     assert run(root).returncode!=0 and not (root/'installed').exists()
     checks.append('a mixture of old and new APKs is rejected before installing')
 
-    for fault in ('fail_apk', 'fail_accounts', 'fail_cert', 'fail_uci', 'fail_fw4', 'fail_reload'):
+    for fault in ('fail_apk', 'fail_cert', 'fail_uci', 'fail_fw4', 'fail_reload'):
         root = fixture(fault)
         previous = (root / 'etc/config/firewall').read_bytes()
         (root / fault).touch()

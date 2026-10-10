@@ -2,7 +2,7 @@
 #include "ui.h"
 #include <algorithm>
 
-namespace bulijie::ui {
+namespace vpn::ui {
 namespace {
 constexpr wchar_t CertificateFilter[] =
     L"Certificates / 证书 (*.pem;*.crt;*.cer;*.p12;*.pfx)\0*.pem;*.crt;*.cer;*.p12;*.pfx\0All files / "
@@ -320,7 +320,7 @@ private:
             }
             if (id == SystemStore) {
                 CertificatePicker picker(language_);
-                if (picker.run(window_, L"BulijieVPN.Certificates",
+                if (picker.run(window_, L"LinkoraVPN.Certificates",
                                t(L"Windows 用户证书", L"Windows client certificates"), 540, 206) &&
                     picker.selected) {
                     label(Certificate, picker.selected->certificate);
@@ -462,7 +462,7 @@ bool edit_profile(HWND owner, ProfileStore &store, Profile &profile, Language la
         ProfileEditor dialog(store, candidate, language, advanced);
         auto title = profile.id.empty() ? tr(language, L"新建配置", L"New profile")
                                         : tr(language, L"编辑配置", L"Edit profile");
-        if (!dialog.run(owner, L"BulijieVPN.Profile", title, 616, advanced ? 624 : 224))
+        if (!dialog.run(owner, L"LinkoraVPN.Profile", title, 616, advanced ? 624 : 224))
             return false;
         candidate = std::move(dialog.result);
         if (dialog.customize) {
@@ -480,7 +480,7 @@ void show_prompt(HWND owner, const std::shared_ptr<Prompt> &prompt, Language lan
         return;
     }
     AuthenticationDialog dialog(prompt, language, canceled);
-    dialog.run(owner, L"BulijieVPN.Authentication", prompt->title, 620,
+    dialog.run(owner, L"LinkoraVPN.Authentication", prompt->title, 620,
                prompt->kind == Prompt::Kind::Certificate ? 504 : 332);
     if (!prompt->done.load())
         prompt->answer(false);
@@ -504,8 +504,8 @@ void show_about(HWND owner, Language language, bool license) {
                    L"Qt, .NET or VC runtime installation required.\nCreating a VPN connection requires "
                    L"Windows administrator approval.");
     MessageBoxW(owner, text.c_str(),
-                tr(language, license ? L"许可证信息" : L"关于布利杰VPN",
-                   license ? L"License information" : L"About BulijieVPN"),
+                tr(language, license ? L"许可证信息" : L"关于 Linkora VPN",
+                   license ? L"License information" : L"About Linkora VPN"),
                 MB_OK | MB_ICONINFORMATION);
 }
-} // namespace bulijie::ui
+} // namespace vpn::ui

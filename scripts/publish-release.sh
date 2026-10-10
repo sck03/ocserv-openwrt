@@ -9,8 +9,8 @@ fi
 component="$1"
 asset_directory="$2"
 case "$component" in
-  client) title="布利杰VPN Windows 客户端" ;;
-  server) title="ocserv OpenWrt 服务端与中文管理页" ;;
+  client) title="Linkora VPN Windows 客户端" ;;
+  server) title="Linkora VPN OpenWrt 服务端与中文管理页" ;;
   *) echo "Unknown release component: $component" >&2; exit 2 ;;
 esac
 
@@ -54,7 +54,7 @@ trap 'rm -f -- "$notes"' EXIT
   if [[ "$component" == client ]]; then
     printf '%s\n\n' '包含 Windows x64/x86 便携客户端和对应源码包（含第三方源码）。组件版本见包内 BUILDINFO.json。'
   else
-    printf '%s\n\n' '每个 SDK 套装包含 ocserv 和独立中文管理页两个 APK，以及对应源码、安装工具和逐文件校验值。安装脚本会修复旧密码记录并移除重复界面。SDK 与管理页版本见文件名及 BUILDINFO.json。'
+    printf '%s\n\n' '每个 SDK 套装包含 ocserv 和独立中文管理页两个 APK，以及对应源码、安装工具和逐文件校验值。安装脚本按全新安装准备网络，并移除重复界面。SDK 与管理页版本见文件名及 BUILDINFO.json。'
   fi
   printf '%s\n' '本次附件：'
   for archive in "${archives[@]}"; do

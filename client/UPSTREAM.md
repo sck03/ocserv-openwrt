@@ -37,4 +37,4 @@ The JScript helper records only the external routes it creates. Reconnection upd
 
 ## Source layout and migration
 
-client/ is the sole client implementation. The old src/ network/WFP layer, Credential Manager store, default INI and OpenSSL recipe are retired. Profiles use application-local JSON and current-user DPAPI. Legacy public .bvpn files can be imported; credentials and settings outside this repository are not automatically migrated or deleted.
+client/ is the sole client implementation. Linkora VPN uses application-local JSON (schema 2), current-user DPAPI and public .vpn connection exports. Install in a new directory and create new profiles; earlier product data is not migrated.
