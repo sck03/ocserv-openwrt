@@ -4,6 +4,13 @@ local M = {}
 
 function M.fail(code) error({ code = code }, 0) end
 function M.require(ok, code) if not ok then M.fail(code) end return ok end
+function M.equal(a,b)
+    if type(a)~=type(b) then return false end
+    if type(a)~="table" then return a==b end
+    for k,v in pairs(a) do if not M.equal(v,b[k]) then return false end end
+    for k in pairs(b) do if a[k]==nil then return false end end
+    return true
+end
 function M.supported_version(value)
     if type(value)~="string" then return false end
     local major,minor=value:match("^(%d+)%.(%d+)%.%d+")

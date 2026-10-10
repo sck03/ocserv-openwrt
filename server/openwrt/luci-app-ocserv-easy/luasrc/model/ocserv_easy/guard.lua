@@ -5,6 +5,7 @@ local fs=require "nixio.fs"
 local uci=require "luci.model.uci"
 local json=require "luci.jsonc"
 local logic=require "luci.model.ocserv_easy.logic"
+local equal=logic.equal
 local run=require("luci.model.ocserv_easy.process").run
 local log=require "luci.model.ocserv_easy.guard_log"
 local function command(step,args,timeout)
@@ -58,13 +59,6 @@ local function saved()
     return state
 end
 local function save(state) atomic(statefile,json.stringify(state)) end
-local function equal(a,b)
-    if type(a)~=type(b) then return false end
-    if type(a)~="table" then return a==b end
-    for k,v in pairs(a) do if not equal(v,b[k]) then return false end end
-    for k in pairs(b) do if a[k]==nil then return false end end
-    return true
-end
 local function section(c,package,id)
     local value=c:get_all(package,id); if not value then return false end
     local clean={[".type"]=value[".type"]}

@@ -1,6 +1,7 @@
 package dev.opentunnel.vpn.core
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertThrows
 import org.junit.Test
 
@@ -30,5 +31,23 @@ class ConnectionPolicyTest {
             assertThrows(IllegalArgumentException::class.java) { ConnectionPolicy.tunnelMtu(mtu, 0, false) }
         }
         assertThrows(IllegalArgumentException::class.java) { ConnectionPolicy.tunnelMtu(1200, 1500, true) }
+    }
+
+    @Test fun ipv4OnlyServerWorksWithIpv6PreferenceEnabled() {
+        for ((address, netmask) in listOf(null to null, "" to "", "10.77.0.2" to "")) {
+            val ipv6 = ConnectionPolicy.ipv6Address(true, address, netmask)
+            assertNull(ipv6)
+            assertEquals(1200, ConnectionPolicy.tunnelMtu(1200, 0, ipv6 != null))
+        }
+    }
+
+    @Test fun negotiatedIpv6RequiresItsOwnAddressAndMinimumMtu() {
+        val ipv6 = ConnectionPolicy.ipv6Address(true, "fd77::2", "fd77::2/64")
+        assertEquals("fd77::2", ipv6?.address)
+        assertEquals(64, ipv6?.prefixLength)
+        assertThrows(IllegalArgumentException::class.java) { ConnectionPolicy.tunnelMtu(1200, 0, ipv6 != null) }
+        assertNull(ConnectionPolicy.ipv6Address(false, "fd77::2", "fd77::2/64"))
+        assertNull(ConnectionPolicy.ipv6Address(true, "invalid::address", null))
+        assertEquals(128, ConnectionPolicy.ipv6Address(true, "fd77::2", "")?.prefixLength)
     }
 }

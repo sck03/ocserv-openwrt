@@ -8,6 +8,7 @@ EXTRA_HELP="        initcerts  Generate missing server certificates without star
 . $IPKG_INSTROOT/lib/functions/network.sh
 
 setup_config() {
+	local enable_ipv6="" authsuffix=""
 	config_get port         $1 port "4443"
 	config_get max_clients  $1 max_clients "8"
 	config_get max_same     $1 max_same "2"

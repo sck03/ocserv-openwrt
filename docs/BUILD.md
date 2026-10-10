@@ -86,7 +86,7 @@ python -m pip install -r client/tests/requirements.txt
 .\scripts\clean-workspace.ps1 -Apply
 ~~~
 
-默认清理 `build/` 和项目 Python 字节码缓存。添加 `-IncludeDependencies` 可清理 `.deps/`；添加 `-IncludeTestResults` 可清理 `test-results/`。发行包、备份、临时虚拟机、工具链和锁定的第三方源码归档保留，不再按某次开发日期或提交号选择文件。
+默认清理 `build/`、`.ruff_cache/` 和项目 Python 字节码缓存。添加 `-IncludeDependencies` 可清理 `.deps/`；添加 `-IncludeTestResults` 可清理 `test-results/`。发行包、备份、临时虚拟机、工具链和锁定的第三方源码归档保留，不再按某次开发日期或提交号选择文件。
 
 脚本拒绝删除 Git 跟踪的源码、链接到其他目录的路径及运行中进程引用的文件。清理 `.deps` 后，下次按上述构建流程重新生成依赖。默认只显示清单，只有 `-Apply` 才执行删除。
 
@@ -140,3 +140,5 @@ python3 scripts/package-server.py /tmp/sdk-25.12
 服务端 ZIP 包含 ocserv 源码、配方、LuCI feed 源码、BUILDINFO、安装工具、架构白名单和逐文件校验。文件名和外部校验文件均包含架构，合并矩阵产物时不会互相覆盖。SDK 下载校验官方 SHA-256，构建和打包核对实际 SDK target 与软件包架构，包审计按目标检查 ELF 位数、字节序与机器类型。管理页保留原始 CSS，附带 validation/ui 供复核。目标列表和安装边界见 [OpenWrt 说明](OPENWRT.md)。
 
 安装 `lupa==2.8` 后，事务回归运行 `python tests/guard_integration.py`，命令执行边界回归运行 `python tests/process_tests.py`；网络隔离验证在 Linux 网络命名空间运行 sudo python3 tests/vpn_guard_tests.py。SDK/架构检查不替代 OPL 定制固件验收，不用官方模块替换 Flippy 内核模块。
+
+`python tests/server_config_tests.py` 使用 Lua 5.1 和 `sh` 在临时目录比较管理页与实际启动脚本生成的配置，覆盖默认 IPv4、公网地址变更、IPv6 开关切换及双栈分流。Windows 可使用 MSYS2 的 `sh`，将其加入测试进程 PATH；测试不启动 VPN、不改主机网络。

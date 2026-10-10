@@ -21,8 +21,8 @@ def prepare(app, root):
     gradle = app / "app/build.gradle.kts"
     value = once(gradle.read_text(encoding="utf-8"), 'applicationId = "dev.opentunnel.vpn"',
                  'applicationId = "com.bulijie.vpn"')
-    value = once(value, '        versionCode = 16', '        versionCode = 17')
-    value = section(value, '        versionName =', '\n\n        ndk {', '        versionName = "0.1.1"')
+    value = once(value, '        versionCode = 16', '        versionCode = 18')
+    value = section(value, '        versionName =', '\n\n        ndk {', '        versionName = "0.1.2"')
     gradle.write_text(value, encoding="utf-8")
     resources = app / "app/src/main/res/values-zh-rCN"
     resources.mkdir(exist_ok=True)
@@ -69,23 +69,29 @@ def prepare(app, root):
                     '    private fun establishTun(',
                     '    private fun normaliseServer(raw: String) = ConnectionPolicy.serverUrl(raw)\n\n')
     value = section(value, '        private data class DnsCacheEntry(', '    }\n}', '')
-    value = section(value, '        val mtu = when {', '        builder.setMtu(mtu)',
-                    '        val mtu = ConnectionPolicy.tunnelMtu(ip.MTU, profile.mtu, profile.enableIpv6)\n')
-    value = once(value, '        mtu = if (profile.mtu > 0) profile.mtu else ip.MTU,',
-                 '        mtu = ConnectionPolicy.tunnelMtu(ip.MTU, profile.mtu, profile.enableIpv6),')
-    value = once(value, '        const val MIN_MTU                   = 1280\n', '')
-    value = once(value, '        const val DEFAULT_MTU               = 1350\n', '')
-    value = section(value, '        runCatching { builder.addRoute(route.address, route.prefixLength) }',
-                    '    private fun applyDns(', '''        // A missing required route must fail setup, not report a connected tunnel.
-        if (route.isIpv6 && !profile.enableIpv6) return
-        builder.addRoute(route.address, route.prefixLength)
-    }
+    value = section(value, '        if (profile.enableIpv6) {', '        if (!haveAddress) {', '''        val ipv6 = ConnectionPolicy.ipv6Address(profile.enableIpv6, ip.addr6, ip.netmask6)
+        if (ipv6 != null) {
+            builder.addAddress(ipv6.address, ipv6.prefixLength)
+            haveAddress = true
+        }
 
 ''')
+    value = section(value, '        val mtu = when {', '        builder.setMtu(mtu)',
+                    '        val mtu = ConnectionPolicy.tunnelMtu(ip.MTU, profile.mtu, ipv6 != null)\n')
+    value = once(value, '        mtu = if (profile.mtu > 0) profile.mtu else ip.MTU,',
+                 '        mtu = ConnectionPolicy.tunnelMtu(ip.MTU, profile.mtu,\n'
+                 '            ConnectionPolicy.ipv6Address(profile.enableIpv6, ip.addr6, ip.netmask6) != null),')
+    value = once(value, '        const val MIN_MTU                   = 1280\n', '')
+    value = once(value, '        const val DEFAULT_MTU               = 1350\n', '')
+    value = section(value, '    private fun addRoute(', '    private fun applyDns(', '')
+    for name in ('applyRoutes', 'applyDns'):
+        value = once(value, f'        {name}(builder, ip)', f'        {name}(builder, ip, ipv6 != null)')
+        value = once(value, f'    private fun {name}(builder: VpnService.Builder, ip: LibOpenConnect.IPInfo)',
+                     f'    private fun {name}(builder: VpnService.Builder, ip: LibOpenConnect.IPInfo, ipv6: Boolean)')
     value = once(value, 'import dev.opentunnel.vpn.util.Net',
                  'import dev.opentunnel.vpn.util.Net\nimport dev.opentunnel.vpn.util.RoutePolicy')
     value = section(value, '\n        if (settings.splitTunnelNetworksEnabled &&\n',
-                    '    private fun addRoute(', '''
+                    '    private fun applyDns(', '''
         val includes = when {
             settings.splitTunnelNetworksEnabled &&
                 settings.splitTunnelNetworksMode == SplitTunnelMode.INCLUDE_SELECTED && customCidrs.isNotEmpty() -> customCidrs
@@ -98,18 +104,19 @@ def prepare(app, root):
             if (settings.splitTunnelNetworksEnabled &&
                 settings.splitTunnelNetworksMode == SplitTunnelMode.EXCLUDE_SELECTED) addAll(customCidrs)
         }
-        val routes = RoutePolicy.routes(includes.filter { profile.enableIpv6 || !it.isIpv6 }, excludes)
-        routes.forEach { addRoute(builder, it) }
+        val routes = RoutePolicy.routes(includes.filter { ipv6 || !it.isIpv6 }, excludes.filter { ipv6 || !it.isIpv6 })
+        // A missing required route must fail setup, not report a connected tunnel.
+        routes.forEach { builder.addRoute(it.address, it.prefixLength) }
         VpnBus.info("Installed ${routes.size} tunnel route(s)")
     }
 
 ''')
     # A DNS server also enables its address family in VpnService.Builder.
-    # Do not reopen IPv6 through DNS when the profile explicitly disabled it.
+    # Only configure families negotiated for the tunnel, regardless of the uplink.
     for loop in ('            for (server in customDnsList) {',
                  '            for (server in ip.DNS.orEmpty()) {'):
         value = once(value, loop + '\n                if (Net.isValidIp(server)) {',
-                     loop + "\n                if (Net.isValidIp(server) && (profile.enableIpv6 || ':' !in server)) {")
+                     loop + "\n                if (Net.isValidIp(server) && (ipv6 || ':' !in server)) {")
     value = once(value, '    private var passwordConsumed = false',
                  '    private var connectionFailure: String? = null\n    private var passwordConsumed = false')
     value = section(value, '        val ipInfo = lib.getIPInfo()', '        if (profile.enableDtls)',
@@ -192,11 +199,15 @@ def prepare(app, root):
     value = once(value, "        val ipv6 = value.contains(':')", "        if (!isValidIp(value)) return null\n        val ipv6 = value.contains(':')")
     value = once(value, '            else -> maskToPrefix(netmask) ?: if (ipv6) 128 else 32',
                  '            else -> maskToPrefix(netmask) ?: return null')
-    value = section(value, '    fun ipv4DefaultMinus(', '    fun ipv4ToLong(', '''    fun ipv4DefaultMinus(excluded: List<Cidr>): List<Cidr> =
-        RoutePolicy.routes(listOf(Cidr("0.0.0.0", 0, false)), excluded)
-
-''')
+    # The old IPv4 complement implementation and conversion helpers have no callers.
+    value = section(value, '    /**\n     * Subtracts [excluded]', '\n}', '')
     net.write_text(value, encoding="utf-8")
+    net_test = app / "app/src/test/java/dev/opentunnel/vpn/NetTest.kt"
+    value = once(net_test.read_text(encoding="utf-8"), 'import dev.opentunnel.vpn.util.Net',
+                 'import dev.opentunnel.vpn.util.Net\nimport dev.opentunnel.vpn.util.RoutePolicy')
+    value = once(value, 'Net.ipv4DefaultMinus(excluded)',
+                 'RoutePolicy.routes(listOf(Net.parseCidr("0.0.0.0/0")!!), excluded)')
+    net_test.write_text(value, encoding="utf-8")
     service = app / "app/src/main/java/dev/opentunnel/vpn/service/OpenTunnelVpnService.kt"
     value = once(service.read_text(encoding="utf-8"), '            override fun onLost(network: Network) {',
                  '            override fun onLost(network: Network) {\n                if (network.networkHandle != lastNetworkId) return')

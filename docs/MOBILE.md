@@ -23,6 +23,8 @@ Android 基于 **OpenTunnel** 固定提交 `0535533dfb7d3a656bfdb880d51f731c1091
 
 `0.1.1` 保留完整域名、IPv6 地址、端口和认证路径，由 OpenConnect 解析 A/AAAA 并按服务端 DDNS 设置重新解析，移除独立的 IPv4 DoH 缓存。隧道 MTU 不超过服务器协商值；重连后刷新 MTU、DNS 和路由，配置失败时结束连接。Android 8.0 起均支持 IPv4/IPv6 排除路由，并在分流路由中应用排除项。
 
+Android `0.1.2` 根据服务器实际分配的隧道地址配置 IPv6 路由、DNS 和 MTU。服务器只分配 IPv4 时，即使“允许 IPv6”保持默认开启，也可使用小于 1280 的合法 IPv4 MTU；公网入口使用 IPv6 不会强制隧道内启用 IPv6。未协商的 IPv6 家族保持 Android VPN 的默认阻断行为。旧 IPv4 路由补集与地址转换工具函数已移除，路由统一由双栈策略处理。
+
 默认 `build_type=debug` 无需 Secrets，适合测试。GitHub 临时运行器每次可能生成不同的 debug 密钥；不能保证覆盖安装前一次 debug 包，必要时先卸载。正式使用选择 `release`，在仓库 **Settings → Secrets and variables → Actions** 配置：
 
 | Secret | 内容 |

@@ -21,7 +21,7 @@ class CleanupTests(unittest.TestCase):
         self.addCleanup(temporary.cleanup)
         self.root = Path(temporary.name)
         for name in ("client/CMakeLists.txt", "scripts/sources.json", "build/cache.bin",
-                     "scripts/__pycache__/cache.pyc", ".deps/library.a", "test-results/report.json",
+                     "scripts/__pycache__/cache.pyc", ".ruff_cache/result", ".deps/library.a", "test-results/report.json",
                      "dist/release.zip", "artifacts/backups/config.zip", ".tools/tool.exe"):
             path = self.root / name
             path.parent.mkdir(parents=True, exist_ok=True)
@@ -49,6 +49,7 @@ class CleanupTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertFalse((self.root / "build").exists())
         self.assertFalse((self.root / "scripts/__pycache__").exists())
+        self.assertFalse((self.root / ".ruff_cache").exists())
         for name in (".deps/library.a", "test-results/report.json", "dist/release.zip",
                      "artifacts/backups/config.zip", ".tools/tool.exe", "client/CMakeLists.txt"):
             self.assertTrue((self.root / name).is_file(), name)

@@ -1,6 +1,6 @@
 # 布利杰VPN
 
-原生 Win32 / C++17 的 OpenConnect 客户端 0.5.2，配套 ocserv 1.5.0-r5 服务端和中文管理页 0.4.1-r6。Windows 提供 x86/x64 便携包；服务端支持 **OpenWrt 25.12 / APK** 的六个目标，覆盖 x86_64、AArch64、ARMv7、MIPS 和 MIPSEL，保留 N1/OPL 支持。具体架构与安装方法见 [OpenWrt 多架构说明](docs/OPENWRT.md)。
+原生 Win32 / C++17 的 OpenConnect 客户端 0.5.2，配套 ocserv 1.5.0-r6 服务端和中文管理页 0.4.1-r7。Windows 提供 x86/x64 便携包；服务端支持 **OpenWrt 25.12 / APK** 的六个目标，覆盖 x86_64、AArch64、ARMv7、MIPS 和 MIPSEL，保留 N1/OPL 支持。具体架构与安装方法见 [OpenWrt 多架构说明](docs/OPENWRT.md)。
 
 客户端按官方 OpenConnect GUI 1.6.2 的交互重写：服务器配置列表、主界面 / VPN 信息页、独立日志、服务器认证弹窗和托盘，默认中文，可切换英文。静态合并 OpenConnect 9.21、GnuTLS、软件令牌和 XML/压缩库，无需安装 Qt、.NET 或 VC 运行库。完整保留随包的 `wintun.dll` 和 `vpnc-script-win.js`；Windows 7 SP1 是兼容目标，仍需实机验收。
 

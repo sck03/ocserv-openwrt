@@ -87,6 +87,7 @@ jobs:
           python tests/server_package_tests.py
           python scripts/prepare-build.py server --version "$OCSERV_VERSION" --sha256 "$OCSERV_SHA256"
           python tests/server_integration.py
+          python tests/server_config_tests.py
           python tests/guard_integration.py
           python tests/process_tests.py
           python tests/server_install_tests.py

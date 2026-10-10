@@ -2,7 +2,7 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=luci-app-ocserv-easy
 PKG_VERSION:=0.4.1
-PKG_RELEASE:=6
+PKG_RELEASE:=7
 PKG_LICENSE:=GPL-3.0-or-later
 
 LUCI_TITLE:=Simple ocserv administration for BulijieVPN

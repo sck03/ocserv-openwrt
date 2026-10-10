@@ -1,5 +1,7 @@
 package dev.opentunnel.vpn.core
 
+import dev.opentunnel.vpn.util.Cidr
+import dev.opentunnel.vpn.util.Net
 import java.net.IDN
 import java.net.URI
 import java.net.URISyntaxException
@@ -44,6 +46,12 @@ internal object ConnectionPolicy {
             (uri.rawQuery?.let { "?$it" } ?: "")
         require(runCatching { URI(result).parseServerAuthority() }.isSuccess) { "Invalid server address" }
         return result
+    }
+
+    fun ipv6Address(enabled: Boolean, address: String?, netmask: String?): Cidr? {
+        if (!enabled) return null
+        val value = netmask?.takeIf { it.isNotBlank() } ?: address.orEmpty()
+        return Net.parseCidr(value)?.takeIf { it.isIpv6 }
     }
 
     fun tunnelMtu(negotiated: Int, requested: Int, ipv6: Boolean): Int {

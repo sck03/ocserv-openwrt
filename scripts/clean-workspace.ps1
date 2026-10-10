@@ -40,7 +40,7 @@ function Add-Candidate([string]$Relative) {
 
 # Keep release packages, backups, test environments, toolchains and source archives.
 foreach ($relative in @(
-    'build', 'scripts\__pycache__', 'tests\__pycache__', 'client\tests\__pycache__'
+    'build', '.ruff_cache', 'scripts\__pycache__', 'tests\__pycache__', 'client\tests\__pycache__'
 )) { Add-Candidate $relative }
 if ($IncludeDependencies) { Add-Candidate '.deps' }
 if ($IncludeTestResults) { Add-Candidate 'test-results' }

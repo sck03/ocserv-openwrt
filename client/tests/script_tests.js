@@ -69,6 +69,24 @@ test('empty DNS and WINS cleanup is nonfatal', () => {
 test('an unavailable IPv6 stack does not break an IPv4 connection', () => {
     assert.equal(execute({}, c => c.includes('ipv6 show route') ? 1 : 0).exitCode, 0);
 });
+test('LAN IPv4 full tunnel keeps its address pool, DNS and uplink gateway', () => {
+    const result = execute({ VPNGATEWAY: '192.168.19.253', INTERNAL_IP4_ADDRESS: '10.77.0.2',
+        INTERNAL_IP4_DNS: '10.77.0.1', CISCO_SPLIT_INC: '' },
+        c => c.includes('ipv6') ? 1 : 0, { text: '' },
+        { ipv4: '0.0.0.0 0.0.0.0 192.168.19.1 192.168.19.2 25\n', ipv6: '' });
+    assert.equal(result.exitCode, 0);
+    assert(result.commands.some(c => c.includes('static 10.77.0.2 255.255.255.0 10.77.0.2 gwmetric=1')));
+    assert(result.commands.some(c => c.includes('ipv4 add dnsservers 42 10.77.0.1 validate=no')));
+    assert(result.commands.some(c => c.includes('route add 192.168.19.253 mask 255.255.255.255 192.168.19.1')));
+    assert(!result.commands.some(c => /ipv6 (set|add)/.test(c)));
+});
+test('an isolated IPv4 LAN needs neither an Internet default gateway nor IPv6', () => {
+    const result = execute({ VPNGATEWAY: '192.168.19.253' }, () => 0, { text: '' },
+        { ipv4: '192.168.19.0 255.255.255.0 On-link 192.168.19.2 281\n', ipv6: '' });
+    assert.equal(result.exitCode, 0);
+    assert(result.commands.some(c => c.includes('route add 198.18.0.0 mask 255.255.255.0')));
+    assert(!result.commands.some(c => /route add 192\.168\.19\.253/.test(c)));
+});
 test('loopback gateways never change a host route', () => {
     for (const reason of ['connect', 'disconnect']) {
         const result = execute({ reason, VPNGATEWAY: '127.0.0.1' });

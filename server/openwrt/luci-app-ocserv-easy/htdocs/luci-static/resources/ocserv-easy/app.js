@@ -120,6 +120,8 @@
         finally { busy=false; buttons.forEach(function(pair){pair[0].disabled=pair[1];}); }
     }
     var effects={saved:t('已保存，下次启动服务时生效。','Saved for the next service start.'),updated_live:t('账号已生效，其他在线用户保持连接。','Account updated. Other users remain connected.'),terminated:t('账号已更新，该账号的旧登录已失效。','Account updated and its previous sessions revoked.'),restarted:t('配置已应用，VPN 服务已重新启动。','Configuration applied and VPN service restarted.'),disconnected:t('已断开该连接。账号仍可重新登录。','Connection disconnected. The account can sign in again.'),service_changed:t('服务操作已执行，状态将自动刷新。','Service operation submitted. Status will refresh automatically.')};
+    effects.address_saved=t('连接地址已保存，当前 VPN 连接保持不变。','Connection address saved. Current VPN connections are unchanged.');
+    effects.unchanged=t('内容没有变化，无需重复保存。','Nothing changed; no update was needed.');
     effects.guard_queued=t('正在配置，仅需稍候。页面会自动检查管理连接；无法连接时会自动恢复。','Applying settings. This page checks connectivity automatically and restores settings if it cannot reconnect.');
     effects.guard_restoring=t('正在关闭并恢复启用前的设置…','Disabling and restoring the previous settings…');
     effects.guard_enabled=t('已开启，仅 VPN 用户可通过 N1 使用 OpenClash。','Enabled. Only VPN clients can use OpenClash through this N1.');
@@ -255,7 +257,7 @@
             var values={}; Object.keys(inputs).forEach(function(key){var input=inputs[key];values[key]=input.type==='checkbox'?(input.checked?'1':'0'):input.value;});
             values.dns=dns.value.split(/\r?\n/).map(function(x){return x.trim();}).filter(Boolean);
             values.routes=routes.value.split(/\r?\n/).map(function(x){return x.trim();}).filter(Boolean);
-            confirm(t('应用服务设置','Apply service settings'),state.running?t('会短暂重启 VPN，断开当前连接。确认应用这些设置？','This briefly restarts VPN and disconnects current users. Apply these settings?'):t('保存后在下次启动服务时生效。','Settings take effect on the next service start.'),{action:'settings',settings:values,allow_restart:true});
+            confirm(t('应用服务设置','Apply service settings'),state.running?t('网络参数变更会短暂重启 VPN。仅修改员工连接地址不会中断当前连接。确认保存？','Network changes briefly restart VPN. Changing only the employee connection address keeps current connections. Save these settings?'):t('保存后在下次启动服务时生效。','Settings take effect on the next service start.'),{action:'settings',settings:values,allow_restart:true});
         });
         content.appendChild(element('section',{className:'easy-card'},[element('h3',{text:t('常用服务设置','Common service settings')}),form]));
         if(!state.settings_supported)content.appendChild(element('p',{className:'easy-notice error',text:t('当前使用自定义认证或代理 ARP。请先恢复普通账号认证和独立 VPN 地址池，再使用本页管理网络。','Custom authentication or proxy ARP is configured. Restore password authentication and a separate VPN pool before managing networking here.')}));

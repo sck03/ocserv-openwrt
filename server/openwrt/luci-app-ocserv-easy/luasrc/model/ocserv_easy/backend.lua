@@ -231,6 +231,18 @@ local function apply_settings(s,request)
         local pattern="^%s*"..key:gsub("%-","%%-").."%s*="
         for line in (s.extra.."\n"):gmatch("([^\n]*)\n") do logic.require(not line:match(pattern),"custom_override") end
     end
+    local previous=logic.settings(s.config,s.dns,s.routes)
+    local proposed=logic.settings(values,dns,routes)
+    proposed.easy_public_url=previous.easy_public_url
+    -- The published address is export metadata, independent of the live listener.
+    if logic.equal(previous,proposed) then
+        if values.easy_public_url==previous.easy_public_url then return {effect="unchanged"} end
+        return transaction(s,running(),function()
+            logic.require(s.cursor:set("ocserv","config","easy_public_url",values.easy_public_url),"write_failed")
+            commit(s)
+            return {effect="address_saved"}
+        end)
+    end
     local config={}; for key,value in pairs(s.config) do config[key]=value end
     for key,value in pairs(values) do config[key]=value end
     local domain=s.cursor:get_first("dhcp","dnsmasq","domain","")

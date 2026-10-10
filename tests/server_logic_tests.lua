@@ -358,6 +358,21 @@ test("network settings apply after validation and preserve users",function()
     check(result.effect=="restarted" and S.candidate:find("tcp-port = 5443",1,true))
     check(backend.data().users[1].name=="employee01")
 end)
+test("public endpoint changes preserve live LAN sessions and network sections",function()
+    reset();local settings=backend.data().settings;local before=clone(S.db)
+    settings.easy_public_url="https://[2001:db8::10]:4443"
+    local result=request({action="settings",settings=settings})
+    check(result.effect=="address_saved" and S.running and not contains_command("restart"))
+    check(not contains_command("--test-config"),"address-only metadata does not need to reconfigure ocserv")
+    check(backend.data().settings.easy_public_url==settings.easy_public_url)
+    for i=2,#before do check(serialize({before[i]})==serialize({S.db[i]}),"network/account sections were rewritten") end
+end)
+test("unchanged service settings avoid restarts and flash writes",function()
+    reset();local raw=S.files["/etc/config/ocserv"]
+    local result=request({action="settings",settings=backend.data().settings})
+    check(result.effect=="unchanged" and S.files["/etc/config/ocserv"]==raw)
+    check(S.files["/etc/ocserv/easy-backup/ocserv.uci"]==nil and not contains_command("restart"))
+end)
 test("failed restart restores old configuration and service",function()
     reset();local raw=S.files["/etc/config/ocserv"];S.fail_restart=true
     expect("restart_failed",function()request({action="settings",settings=fixture_settings(),allow_restart=true})end)
