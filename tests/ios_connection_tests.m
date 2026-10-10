@@ -11,7 +11,7 @@ int main(void) {
         };
         for (NSString *input in valid) {
             if (![BVPNServerURL(input).absoluteString isEqualToString:valid[input]]) {
-                fprintf(stderr, "Address normalization failed\n"); return 1;
+                fprintf(stderr, "Address normalization failed: %s\n", input.UTF8String); return 1;
             }
         }
         NSArray<NSString *> *invalid = @[@"", @"http://example.com", @"user:pass@example.com",
@@ -19,7 +19,7 @@ int main(void) {
             @"[::1:]", @"2001:db8::1", @"[fe80::1%25en0]", @"vpn.example.com/#fragment",
             @"vpn.example.com\nPassword=x", @"vpn.example.com\\path", @"192.168.1.999", @"127.1", @"192.168.01.1"];
         for (NSString *input in invalid) {
-            if (BVPNServerURL(input)) { fprintf(stderr, "Invalid server address accepted\n"); return 1; }
+            if (BVPNServerURL(input)) { fprintf(stderr, "Invalid server address accepted: %s\n", input.UTF8String); return 1; }
         }
         printf("iOS server address policy: %lu cases passed\n", (unsigned long)(valid.count + invalid.count));
     }

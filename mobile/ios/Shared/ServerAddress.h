@@ -19,6 +19,7 @@ static inline NSURL * _Nullable BVPNServerURL(NSString * _Nullable raw) {
     NSString *authority = [value substringFromIndex:start];
     NSRange end = [authority rangeOfCharacterFromSet:[NSCharacterSet characterSetWithCharactersInString:@"/?#"]];
     if (end.location != NSNotFound) authority = [authority substringToIndex:end.location];
+    if ([authority containsString:@"%"]) return nil;
     NSString *port = nil;
     if ([authority hasPrefix:@"["]) {
         NSRange close = [authority rangeOfString:@"]"];
@@ -36,6 +37,12 @@ static inline NSURL * _Nullable BVPNServerURL(NSString * _Nullable raw) {
         if (fields.count > 2 || !fields[0].length) return nil;
         if (fields.count == 2) port = fields[1];
         if ([fields[0] rangeOfCharacterFromSet:[[NSCharacterSet characterSetWithCharactersInString:@"0123456789."] invertedSet]].location == NSNotFound) {
+            NSArray<NSString *> *octets = [fields[0] componentsSeparatedByString:@"."];
+            if (octets.count != 4) return nil;
+            for (NSString *octet in octets) {
+                if (!octet.length || octet.length > 3 || octet.integerValue > 255 ||
+                    (octet.length > 1 && [octet hasPrefix:@"0"])) return nil;
+            }
             struct in_addr address;
             if (inet_pton(AF_INET, fields[0].UTF8String, &address) != 1) return nil;
         }
