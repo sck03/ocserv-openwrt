@@ -138,7 +138,14 @@ int wmain(int argc, wchar_t **argv) {
                 if (quick.id() <= last_id || !quick.start())
                     throw std::runtime_error("Rapid session could not start with a fresh ID");
                 last_id = quick.id();
-                Sleep(1);
+                // Warm the actual TLS/Windows crypto path before measuring OS
+                // handles. Later cycles cancel immediately to exercise the race.
+                if (!cycle) {
+                    auto warmup = GetTickCount64() + 5000;
+                    while (!quick.finished() && GetTickCount64() < warmup)
+                        Sleep(1);
+                } else
+                    Sleep(1);
                 quick.cancel();
                 quick.suspend(true);
                 quick.network_changed();
@@ -156,6 +163,8 @@ int wmain(int argc, wchar_t **argv) {
         GetProcessHandleCount(GetCurrentProcess(), &handles_after);
         output["rapid_cycles"] = rapid_cycles;
         output["rapid_handles_stable"] = !rapid_cycles || handles_after <= handles_before + 4;
+        output["rapid_handles_before"] = handles_before;
+        output["rapid_handles_after"] = handles_after;
         unsigned prompts = 0;
         bool connected = false;
         unsigned connected_count = 0;

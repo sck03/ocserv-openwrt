@@ -17,6 +17,7 @@ export CC="$(xcrun --sdk "$sdk_name" --find clang)"
 export AR="$(xcrun --find ar)"
 export RANLIB="$(xcrun --find ranlib)"
 for arch in "${architectures[@]}"; do
+unset CPPFLAGS PKG_CONFIG_LIBDIR PKG_CONFIG_PATH
 prefix="$work/$arch/prefix"
 build="$work/$arch"
 host=aarch64-apple-darwin
