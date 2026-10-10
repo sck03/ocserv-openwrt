@@ -40,8 +40,9 @@ struct Preferences {
     bool minimize_instead_of_close = false;
     bool start_minimized = false;
     bool single_instance = true;
+    bool retry_failed = false;
     int log_level = 1;
-    std::string selected;
+    std::string selected, auto_connect;
 };
 bool validate_profile(Profile &profile, std::wstring &error);
 class ProfileStore {

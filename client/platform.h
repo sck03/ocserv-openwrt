@@ -73,4 +73,6 @@ bool valid_public_certificates(const std::string &raw, std::wstring &error);
 bool administrator();
 std::wstring read_window_text(HWND window, size_t limit = 32768);
 void copy_text(HWND owner, const std::wstring &value);
+std::wstring quote_argument(const std::wstring &argument);
+bool set_login_startup(const std::filesystem::path &directory, bool enabled, std::wstring &error);
 } // namespace vpn

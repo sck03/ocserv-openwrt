@@ -1,5 +1,6 @@
 #pragma once
 #include "profile.h"
+#include "diagnostics.h"
 #include <openconnect.h>
 #include <atomic>
 #include <functional>
@@ -8,16 +9,6 @@
 #include <thread>
 
 namespace vpn {
-enum class State {
-    Idle,
-    Connecting,
-    Authenticating,
-    Configuring,
-    Connected,
-    Reconnecting,
-    Disconnecting,
-    Failed
-};
 struct Choice {
     std::wstring label;
     std::string value;
@@ -39,23 +30,19 @@ struct Prompt {
     }
     void answer(bool ok, std::string value = {}) {
         std::lock_guard<std::mutex> lock(answer_mutex);
-        if (done.load())
+        if (done.load()) {
+            erase(value);
             return;
+        }
         accepted = ok;
         response = std::move(value);
         done.store(true, std::memory_order_release);
         SetEvent(answered.get());
     }
 };
-struct Statistics {
-    std::wstring ipv4, ipv6, dns, tls_cipher, dtls_cipher;
-    uint64_t downloaded = 0, uploaded = 0;
-};
-struct Event {
+struct Event : SessionStatus {
     enum class Kind { State, Log, Statistics, Prompt, ProfilesChanged };
     Kind kind = Kind::State;
-    State state = State::Idle;
-    bool terminal = false;
     std::wstring text;
     Statistics statistics;
     std::shared_ptr<Prompt> prompt;
@@ -76,15 +63,23 @@ bool peer_certificate_in_date(openconnect_info *vpn, DWORD &error);
 
 class Session {
 public:
+    struct Options {
+        bool authentication_only = false;
+        bool retry_failed = false;
+    };
     using Sink = std::function<void(Event)>;
-    Session(Profile profile, ProfileStore *store, Language language, Sink sink,
-            bool authentication_only = false);
+    Session(Profile profile, ProfileStore *store, Language language, Sink sink, Options options);
     ~Session();
     Session(const Session &) = delete;
     Session &operator=(const Session &) = delete;
     bool start();
     void cancel();
+    void network_changed();
+    void suspend(bool value);
     void request_statistics();
+    uint64_t id() const {
+        return id_;
+    }
     void set_log_level(int level) {
         log_level_.store(level);
     }
@@ -105,7 +100,11 @@ private:
     int validate_certificate(const char *reason);
     bool ask(const std::shared_ptr<Prompt> &prompt);
     void run();
-    void cleanup();
+    bool run_attempt();
+    void cleanup() noexcept;
+    bool wait_until_resumed();
+    void emit(Event event);
+    bool fail(ErrorCategory category, int code = 0);
     bool prepare_script_log();
     void read_script_log();
     void state(State state, bool terminal = false, std::wstring message = {});
@@ -114,13 +113,20 @@ private:
     bool send(char command);
     void persist(const std::function<void(Profile &)> &change);
     std::wstring current_origin() const;
-    std::string redact(std::string message) const;
     Profile profile_;
     ProfileStore *store_;
     Language language_;
     Sink sink_;
-    bool authentication_only_;
+    Options options_;
+    const uint64_t id_;
+    uint64_t generation_ = 0, started_ = 0;
+    unsigned attempt_ = 1, retry_seconds_ = 0;
+    ErrorCategory error_category_ = ErrorCategory::None;
+    int error_code_ = 0;
+    unsigned http_status_ = 0;
     Handle cancel_event_{CreateEventW(nullptr, TRUE, FALSE, nullptr)};
+    Handle resumed_event_{CreateEventW(nullptr, TRUE, TRUE, nullptr)};
+    std::atomic<bool> suspended_{false}, tunnel_loop_{false}, pause_pending_{false};
     std::thread worker_;
     std::mutex command_mutex_;
     SOCKET command_ = INVALID_SOCKET;
@@ -130,12 +136,14 @@ private:
     State state_ = State::Idle;
     std::wstring error_, origin_;
     std::string pending_username_, pending_password_, pending_group_;
-    std::vector<std::string> secrets_;
+    Redactor redactor_;
     unsigned forms_ = 0;
     bool group_selected_ = false, used_saved_username_ = false, used_saved_password_ = false,
          last_empty_ = false;
     bool tun_failed_ = false;
     bool tun_ready_ = false;
+    bool authentication_rejected_ = false;
+    bool cleaning_ = false, cleanup_failed_ = false;
     std::unique_lock<std::mutex> script_environment_lock_;
     std::filesystem::path script_log_;
     std::wstring previous_script_log_;

@@ -61,7 +61,7 @@ trap 'rm -f -- "$notes"' EXIT
     printf -- '- %s\n' "${archive##*/}"
   done
   printf '\n源码提交：%s\n\n[构建记录](%s)\n\n' "$GITHUB_SHA" "$run_url"
-  printf '%s\n' '当前按联调预发布版提供；编译和静态检查不代替 Win7、N1/OPL 实机与完整 VPN 转发验收。'
+  printf '%s\n' '当前按联调预发布版提供；编译和静态检查不代替目标设备与完整 VPN 转发验收。'
 } > "$notes"
 
 # Run ID and attempt isolate independent builds and reruns from existing releases.

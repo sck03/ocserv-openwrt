@@ -19,7 +19,7 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: $(VPN_BUNDLE_ID)
         PROVISIONING_PROFILE_SPECIFIER: $(VPN_APP_PROFILE)
         CODE_SIGN_ENTITLEMENTS: App/App.entitlements
-        SWIFT_OBJC_BRIDGING_HEADER: Shared/ServerAddress.h
+        SWIFT_OBJC_BRIDGING_HEADER: ../../client/apple/ServerAddress.h
     info:
       path: App/Info.plist
       properties:
@@ -31,7 +31,7 @@ targets:
   PacketTunnel:
     type: app-extension
     platform: iOS
-    sources: [Tunnel]
+    sources: [Tunnel, ../../client/apple]
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: $(VPN_BUNDLE_ID).tunnel

@@ -193,10 +193,14 @@ bool ProfileStore::load(std::vector<Profile> &profiles, Preferences &preferences
         preferences.minimize_instead_of_close = options.value("minimize_instead_of_close", false);
         preferences.start_minimized = options.value("start_minimized", false);
         preferences.single_instance = options.value("single_instance", true);
+        preferences.retry_failed = options.value("retry_failed", false);
+        preferences.auto_connect = utf8(text(options, "auto_connect", 32));
         preferences.log_level = options.value("log_level", 1);
         preferences.selected = options.value("selected", std::string());
         if (preferences.log_level < 0 || preferences.log_level > 3)
             throw std::runtime_error("Invalid log level");
+        if (!preferences.auto_connect.empty() && !identifier(preferences.auto_connect))
+            throw std::runtime_error("Invalid automatic connection profile");
         for (const auto &entry : data["profiles"]) {
             auto profile = decode_profile(entry, directory_);
             for (const auto &existing : profiles)
@@ -220,6 +224,8 @@ bool ProfileStore::write(const std::vector<Profile> &profiles, const Preferences
                 {"minimize_instead_of_close", preferences.minimize_instead_of_close},
                 {"start_minimized", preferences.start_minimized},
                 {"single_instance", preferences.single_instance},
+                {"retry_failed", preferences.retry_failed},
+                {"auto_connect", preferences.auto_connect},
                 {"log_level", preferences.log_level},
                 {"selected", preferences.selected}}},
               {"profiles", Json::array()}};
@@ -324,13 +330,23 @@ bool ProfileStore::remove(const std::string &id, std::wstring &error) {
             profiles.erase(it);
             if (preferences.selected == id)
                 preferences.selected = profiles.empty() ? "" : profiles.front().id;
+            if (preferences.auto_connect == id)
+                preferences.auto_connect.clear();
             return true;
         },
         error);
 }
 bool ProfileStore::save_preferences(const Preferences &preferences, std::wstring &error) {
     return update(
-        [&](auto &, auto &current, auto &) {
+        [&](auto &profiles, auto &current, auto &message) {
+            if (preferences.log_level < 0 || preferences.log_level > 3 ||
+                (!preferences.auto_connect.empty() &&
+                 std::none_of(profiles.begin(), profiles.end(),
+                              [&](const auto &profile) { return profile.id == preferences.auto_connect; }))) {
+                message =
+                    L"自动连接配置或日志级别无效。 / Invalid automatic connection profile or log level.";
+                return false;
+            }
             current = preferences;
             return true;
         },

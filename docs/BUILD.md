@@ -115,7 +115,7 @@ python scripts/test-client.py --build build/client/x86 --package dist/LinkoraVPN
 
 GitHub 的独立 Windows 运行器还对 x64 启用 --network：用真实 Wintun 建立通往回环 TLS 测试服务的 198.18.0.0/24 分流隧道，验证 UDP 包往返、连接脚本失败、重连脚本失败及网卡清理。它不修改默认路由、不使用真实 VPN 账号。该选项只用于隔离的管理员测试机，普通本地回归默认关闭。
 
-PE 审计要求正确架构、子系统 6.1、允许的系统 DLL，拒绝已知的 Win7 后新增 API、非系统运行库及未经审计的延迟导入。Wintun 是显式加载的驱动，另外与官方归档核对哈希。
+PE 审计要求正确架构、Windows 10 操作系统标识、系统加载器接受的 6.2 PE 子系统版本及允许的系统 DLL，拒绝非系统运行库及未经审计的延迟导入。Wintun 是显式加载的驱动，另外与官方归档核对哈希。macOS 与 Linux 构建步骤见[桌面客户端说明](DESKTOP.md)。
 
 ## 发布
 

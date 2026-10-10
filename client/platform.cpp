@@ -247,8 +247,8 @@ bool normalize_gateway(const std::wstring &input, std::wstring &normalized, std:
         host = L"[" + address + L"]";
     } else {
         if (std::any_of(host.begin(), host.end(), [](wchar_t c) { return c > 127; })) {
-            int length = IdnToAscii(IDN_USE_STD3_ASCII_RULES, host.data(), static_cast<int>(host.size()),
-                                    nullptr, 0);
+            int length =
+                IdnToAscii(IDN_USE_STD3_ASCII_RULES, host.data(), static_cast<int>(host.size()), nullptr, 0);
             if (length <= 0)
                 return false;
             std::wstring ascii(static_cast<size_t>(length), L'\0');
@@ -258,8 +258,8 @@ bool normalize_gateway(const std::wstring &input, std::wstring &normalized, std:
             host = std::move(ascii);
         }
         if (host.size() > 253 || !std::all_of(host.begin(), host.end(), [](wchar_t c) {
-                return (c >= L'a' && c <= L'z') || (c >= L'0' && c <= L'9') ||
-                       c == L'-' || c == L'.' || c == L'_';
+                return (c >= L'a' && c <= L'z') || (c >= L'0' && c <= L'9') || c == L'-' || c == L'.' ||
+                       c == L'_';
             }))
             return false;
         // Preserve existing hostname spelling for the DPAPI origin binding.
@@ -272,9 +272,8 @@ bool normalize_gateway(const std::wstring &input, std::wstring &normalized, std:
                 return false;
             begin = end + 1;
         }
-        if (std::all_of(host.begin(), host.end(), [](wchar_t c) {
-                return (c >= L'0' && c <= L'9') || c == L'.';
-            })) {
+        if (std::all_of(host.begin(), host.end(),
+                        [](wchar_t c) { return (c >= L'0' && c <= L'9') || c == L'.'; })) {
             IN_ADDR ipv4{};
             if (InetPtonW(AF_INET, host.c_str(), &ipv4) != 1)
                 return false;
@@ -283,8 +282,10 @@ bool normalize_gateway(const std::wstring &input, std::wstring &normalized, std:
     if (origin)
         *origin = L"https://" + host + L":" + std::to_wstring(parts.nPort);
     std::wstring path = parts.dwUrlPathLength ? std::wstring(parts.lpszUrlPath, parts.dwUrlPathLength) : L"";
-    std::wstring extra = parts.dwExtraInfoLength ? std::wstring(parts.lpszExtraInfo, parts.dwExtraInfoLength) : L"";
-    normalized = L"https://" + host + (parts.nPort == 443 ? L"" : L":" + std::to_wstring(parts.nPort)) + path + extra;
+    std::wstring extra =
+        parts.dwExtraInfoLength ? std::wstring(parts.lpszExtraInfo, parts.dwExtraInfoLength) : L"";
+    normalized =
+        L"https://" + host + (parts.nPort == 443 ? L"" : L":" + std::to_wstring(parts.nPort)) + path + extra;
     return true;
 }
 bool valid_pin(const std::string &value) {
@@ -374,5 +375,57 @@ void copy_text(HWND owner, const std::wstring &value) {
             GlobalFree(memory);
     }
     CloseClipboard();
+}
+std::wstring quote_argument(const std::wstring &argument) {
+    std::wstring result = L"\"";
+    size_t slashes = 0;
+    for (wchar_t c : argument) {
+        if (c == L'\\') {
+            ++slashes;
+            continue;
+        }
+        result.append(slashes * (c == L'\"' ? 2 : 1), L'\\');
+        slashes = 0;
+        if (c == L'\"')
+            result += L'\\';
+        result += c;
+    }
+    result.append(slashes * 2, L'\\');
+    return result + L'\"';
+}
+bool set_login_startup(const std::filesystem::path &directory, bool enabled, std::wstring &error) {
+    constexpr wchar_t key_name[] = L"Software\\Microsoft\\Windows\\CurrentVersion\\Run";
+    HKEY key = nullptr;
+    LSTATUS result =
+        RegCreateKeyExW(HKEY_CURRENT_USER, key_name, 0, nullptr, 0, KEY_SET_VALUE, nullptr, &key, nullptr);
+    if (result != ERROR_SUCCESS) {
+        error = system_error(result);
+        return false;
+    }
+    if (enabled) {
+        std::vector<wchar_t> module(32768);
+        DWORD length = GetModuleFileNameW(nullptr, module.data(), static_cast<DWORD>(module.size()));
+        if (!length || length >= module.size())
+            result = ERROR_BAD_PATHNAME;
+        else {
+            auto command = quote_argument(module.data()) + L" --data-dir " +
+                           quote_argument(directory.wstring()) + L" --startup";
+            // Windows limits Run-key command lines to 260 characters.
+            if (command.size() >= 260)
+                result = ERROR_FILENAME_EXCED_RANGE;
+            else
+                result = RegSetValueExW(key, L"LinkoraVPN", 0, REG_SZ,
+                                        reinterpret_cast<const BYTE *>(command.c_str()),
+                                        static_cast<DWORD>((command.size() + 1) * sizeof(wchar_t)));
+        }
+    } else {
+        result = RegDeleteValueW(key, L"LinkoraVPN");
+        if (result == ERROR_FILE_NOT_FOUND)
+            result = ERROR_SUCCESS;
+    }
+    RegCloseKey(key);
+    if (result != ERROR_SUCCESS)
+        error = system_error(result);
+    return result == ERROR_SUCCESS;
 }
 } // namespace vpn

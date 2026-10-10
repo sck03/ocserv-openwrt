@@ -14,6 +14,10 @@ artifacts/
 mobile/ios/*.xcodeproj/
 mobile/ios/App/Info.plist
 mobile/ios/Tunnel/Info.plist
+desktop/macos/*.xcodeproj/
+desktop/macos/App/Info.plist
+desktop/macos/Tunnel/Info.plist
+desktop/macos/App/AppIcon.icns
 *.jks
 *.keystore
 *.p12

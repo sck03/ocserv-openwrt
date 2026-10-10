@@ -59,7 +59,8 @@ int main(int argc, char **argv) {
         std::vector<Profile> profiles;
         Preferences preferences;
         check(store.load(profiles, preferences, error) && profiles.empty() &&
-                  preferences.language == Language::Chinese,
+                  preferences.language == Language::Chinese && !preferences.retry_failed &&
+                  preferences.auto_connect.empty(),
               "fresh portable store defaults to Chinese");
         Profile first;
         first.name = L"测试网关";
@@ -88,9 +89,17 @@ int main(int argc, char **argv) {
         check(!store.save(duplicate, error), "duplicate display names rejected");
         preferences.language = Language::English;
         preferences.start_minimized = true;
+        preferences.auto_connect = second.id;
+        preferences.retry_failed = true;
         check(store.save_preferences(preferences, error) && store.load(profiles, preferences, error) &&
-                  profiles.size() == 2 && preferences.language == Language::English,
+                  profiles.size() == 2 && preferences.language == Language::English &&
+                  preferences.retry_failed && preferences.auto_connect == second.id,
               "preferences preserve profiles");
+        auto invalid_preferences = preferences;
+        invalid_preferences.auto_connect = std::string(32, '0');
+        check(!store.save_preferences(invalid_preferences, error) &&
+                  store.load(profiles, preferences, error) && preferences.auto_connect == second.id,
+              "invalid automatic profile overwrote valid preferences");
         check(store.update_secrets(
                   first.id, first.gateway, [](Profile &p) { p.password = "New fixture password"; }, error),
               "session credentials update");
@@ -99,16 +108,16 @@ int main(int argc, char **argv) {
                   error),
               "old origin cannot update credentials");
         check(store.export_connection(root / L"fixture.vpn", first, error), "public profile export");
-        check(read_file(root / L"fixture.vpn", raw, error) &&
-                  raw.find("fixture-user") == std::string::npos && raw.find("password") == std::string::npos,
+        check(read_file(root / L"fixture.vpn", raw, error) && raw.find("fixture-user") == std::string::npos &&
+                  raw.find("password") == std::string::npos,
               "export excludes credentials");
         ProfileStore imported(root / L"imported");
         Profile imported_profile;
         check(imported.import_connection(root / L"fixture.vpn", imported_profile, error) &&
                   imported_profile.gateway == L"https://127.0.0.1:4443",
-              "legacy vpn import");
+              "public vpn import");
         check(store.remove(second.id, error) && store.load(profiles, preferences, error) &&
-                  profiles.size() == 1,
+                  profiles.size() == 1 && preferences.auto_connect.empty(),
               "profile deletion");
         check(!store.update_secrets(
                   second.id, second.gateway, [](Profile &p) { p.password = "do-not-recreate"; }, error),

@@ -18,7 +18,7 @@ audit = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(audit)
 
 
-def fixture_pe(arch="x64", dll="msvcrt.dll", function="malloc", subsystem=(6, 1), delayed=False):
+def fixture_pe(arch="x64", dll="msvcrt.dll", function="malloc", subsystem=(6, 2), delayed=False):
     data = bytearray(2048)
     data[:2] = b"MZ"
     struct.pack_into("<I", data, 0x3C, 0x80)
@@ -30,6 +30,7 @@ def fixture_pe(arch="x64", dll="msvcrt.dll", function="malloc", subsystem=(6, 1)
     optional = 0x98
     struct.pack_into("<H", data, optional, 0x20B if is64 else 0x10B)
     struct.pack_into("<HH", data, optional + 48, *subsystem)
+    struct.pack_into("<HH", data, optional + 40, 10, 0)
     struct.pack_into("<I", data, optional + 60, 0x200)
     directories = optional + (112 if is64 else 96)
     struct.pack_into("<II", data, directories + 8, 0x1000, 40)
@@ -54,9 +55,9 @@ class ImportAuditTests(unittest.TestCase):
         for dll in ("Qt6Core.dll", "VCRUNTIME140.dll", "libgcc_s_seh-1.dll", "ucrtbase.dll"):
             self.assertFalse(audit.inspect(fixture_pe(dll=dll))["passed"])
 
-    def test_newer_windows_apis_and_subsystems_are_rejected(self):
-        self.assertFalse(audit.inspect(fixture_pe(function="GetDpiForWindow"))["passed"])
-        self.assertFalse(audit.inspect(fixture_pe(subsystem=(10, 0)))["passed"])
+    def test_current_windows_baseline(self):
+        self.assertTrue(audit.inspect(fixture_pe(function="GetDpiForWindow"))["passed"])
+        self.assertFalse(audit.inspect(fixture_pe(subsystem=(6, 1)))["passed"])
 
     def test_delay_imports_cannot_bypass_audit(self):
         self.assertFalse(audit.inspect(fixture_pe(delayed=True))["passed"])

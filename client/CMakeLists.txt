@@ -1,14 +1,15 @@
-add_library(client_model STATIC platform.cpp profile.cpp)
+add_library(client_model STATIC platform.cpp profile.cpp diagnostics.cpp)
 target_include_directories(client_model PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}" "${VPN_GENERATED_DIR}")
 target_compile_definitions(client_model PUBLIC
-    UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX WINVER=0x0601 _WIN32_WINNT=0x0601
+    UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX WINVER=0x0A00 _WIN32_WINNT=0x0A00
     CERT_CHAIN_PARA_HAS_EXTRA_FIELDS GNUTLS_STATIC LIBXML_STATIC)
 target_compile_options(client_model PUBLIC
     "$<$<COMPILE_LANGUAGE:CXX>:-Wall;-Wextra;-Wpedantic;-ffunction-sections;-fdata-sections>"
     $<$<AND:$<COMPILE_LANGUAGE:CXX>,$<CONFIG:Release>>:-Os>)
 target_link_options(client_model INTERFACE -static -static-libgcc -static-libstdc++
     -Wl,--gc-sections -Wl,--dynamicbase -Wl,--nxcompat
-    -Wl,--major-subsystem-version,6 -Wl,--minor-subsystem-version,1)
+    -Wl,--major-os-version,10 -Wl,--minor-os-version,0
+    -Wl,--major-subsystem-version,6 -Wl,--minor-subsystem-version,2)
 target_link_libraries(client_model PUBLIC ws2_32 winhttp crypt32 bcrypt advapi32 user32 shell32 ole32 gdi32 comctl32 comdlg32 normaliz)
 add_library(client_session STATIC session.cpp certificates.cpp)
 target_include_directories(client_session PUBLIC "${VPN_DEPS}/include")
@@ -36,6 +37,11 @@ configure_file("${PROJECT_SOURCE_DIR}/.deps/sources/wintun/bin/${WINTUN_ARCH}/wi
                "${CMAKE_BINARY_DIR}/wintun.dll" COPYONLY)
 configure_file(vendor/vpnc-script-win.js "${CMAKE_BINARY_DIR}/vpnc-script-win.js" COPYONLY)
 if(BUILD_TESTING)
+    add_executable(native_connection_tests tests/connection_tests.cpp)
+    target_include_directories(native_connection_tests PRIVATE "${VPN_DEPS}/include")
+    target_link_libraries(native_connection_tests PRIVATE client_model)
+    set_target_properties(native_connection_tests PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}")
+    add_test(NAME native_connections COMMAND native_connection_tests)
     add_executable(native_resource_tests tests/resource_tests.cpp)
     target_link_libraries(native_resource_tests PRIVATE client_ui psapi)
     set_target_properties(native_resource_tests PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}")

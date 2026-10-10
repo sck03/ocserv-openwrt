@@ -20,6 +20,7 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int show) {
         wchar_t **arguments = CommandLineToArgvW(GetCommandLineW(), &count);
         std::filesystem::path data;
         std::string connect;
+        bool startup = false;
         bool valid = arguments != nullptr;
         for (int i = 1; i < count; ++i) {
             std::wstring argument = arguments[i];
@@ -27,17 +28,20 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int show) {
                 data = std::filesystem::absolute(arguments[++i]);
             else if (argument == L"--connect" && i + 1 < count)
                 connect = utf8(arguments[++i]);
+            else if (argument == L"--startup")
+                startup = true;
             else
                 valid = false;
         }
         if (arguments)
             LocalFree(arguments);
+        valid = valid && !(startup && !connect.empty());
         if (!valid)
-            ui::error(nullptr,
-                      L"用法 / Usage: LinkoraVPN.exe [--data-dir <directory>] [--connect <profile-id>]");
+            ui::error(nullptr, L"用法 / Usage: LinkoraVPN.exe [--data-dir <directory>] [--connect "
+                               L"<profile-id>] [--startup]");
         else {
             Application application(std::move(data));
-            result = application.run(show, connect);
+            result = application.run(show, connect, startup);
         }
     } catch (const std::exception &exception) {
         ui::error(nullptr, L"客户端无法启动。 / Could not start the client.\n" + wide(exception.what()));

@@ -11,6 +11,7 @@
 namespace vpn {
 namespace {
 std::mutex script_environment_mutex;
+std::atomic<uint64_t> next_session{0};
 bool is_field(const char *value, const char *expected) {
     return value && _stricmp(value, expected) == 0;
 }
@@ -74,13 +75,15 @@ std::string system_proxy(const std::wstring &url) {
     return utf8(fallback);
 }
 } // namespace
-Session::Session(Profile profile, ProfileStore *store, Language language, Sink sink, bool authentication_only)
+Session::Session(Profile profile, ProfileStore *store, Language language, Sink sink, Options options)
     : profile_(std::move(profile)), store_(store), language_(language), sink_(std::move(sink)),
-      authentication_only_(authentication_only) {
+      options_(options), id_(++next_session) {
     if (profile_.log_level >= 0)
         log_level_ = profile_.log_level;
-    if (!profile_.password.empty())
-        secrets_.push_back(profile_.password);
+    redactor_.remember(profile_.password);
+    redactor_.remember(profile_.token);
+    redactor_.remember(profile_.username);
+    redactor_.remember(profile_.group);
 }
 Session::~Session() {
     cancel();
@@ -89,12 +92,11 @@ Session::~Session() {
     erase(profile_.password);
     erase(profile_.token);
     erase(pending_password_);
-    for (auto &value : secrets_)
-        erase(value);
 }
 bool Session::start() {
-    if (worker_.joinable() || !cancel_event_)
+    if (worker_.joinable() || !cancel_event_ || !resumed_event_)
         return false;
+    started_ = GetTickCount64();
     try {
         worker_ = std::thread([this] {
             try {
@@ -102,9 +104,14 @@ bool Session::start() {
             } catch (...) {
                 error_ = tr(language_, L"连接处理失败。", L"Connection processing failed.");
                 cleanup();
+                fail(ErrorCategory::Internal);
                 state(State::Failed, true, error_);
             }
-            finished_.store(true);
+            erase(profile_.password);
+            erase(profile_.token);
+            erase(pending_password_);
+            redactor_.clear();
+            finished_.store(true, std::memory_order_release);
         });
         return true;
     } catch (...) {
@@ -122,70 +129,91 @@ void Session::cancel() {
     SetEvent(cancel_event_.get());
     send(OC_CMD_CANCEL);
 }
+void Session::network_changed() {
+    if (!stopped() && tunnel_loop_.load() && !pause_pending_.exchange(true)) {
+        if (!send(OC_CMD_PAUSE))
+            pause_pending_.store(false);
+    }
+}
+void Session::suspend(bool value) {
+    suspended_.store(value);
+    if (value)
+        ResetEvent(resumed_event_.get());
+    else
+        SetEvent(resumed_event_.get());
+    network_changed();
+}
+bool Session::wait_until_resumed() {
+    if (suspended_.load()) {
+        state(State::Suspended);
+        HANDLE handles[] = {cancel_event_.get(), resumed_event_.get()};
+        if (WaitForMultipleObjects(2, handles, FALSE, INFINITE) != WAIT_OBJECT_0 + 1)
+            return false;
+        if (!stopped())
+            state(tun_ready_ ? State::Reconnecting : State::Connecting);
+    }
+    return !stopped();
+}
 void Session::request_statistics() {
     if (!stopped())
         send(OC_CMD_STATS);
 }
 void Session::state(State value, bool terminal, std::wstring message) {
+    if (stopped() && !terminal && value != State::Disconnecting)
+        return;
     state_ = value;
+    ++generation_;
     Event event;
     event.state = value;
     event.terminal = terminal;
     event.text = std::move(message);
+    emit(std::move(event));
+}
+void Session::emit(Event event) {
+    event.session_id = id_;
+    event.generation = generation_;
+    event.elapsed_ms = GetTickCount64() - started_;
+    event.attempt = attempt_;
+    event.retry_seconds = retry_seconds_;
+    event.error = error_category_;
+    event.error_code = error_code_;
+    if (event.kind == Event::Kind::State && !event.text.empty())
+        event.text = wide(redactor_.clean(utf8(event.text)));
     sink_(std::move(event));
+}
+bool Session::fail(ErrorCategory category, int code) {
+    error_category_ = category;
+    error_code_ = code;
+    return false;
 }
 void Session::log(int level, std::wstring message) {
     if (level > log_level_.load())
         return;
     // Redact the complete message before splitting, including secrets that
     // cross a chunk boundary. Queue entries have a fixed maximum size.
-    auto text = wide(redact(utf8(message)));
+    auto text = wide(redactor_.clean(utf8(message)));
     for (size_t begin = 0; begin < text.size(); begin += 8192) {
         Event event;
         event.kind = Event::Kind::Log;
         event.text = text.substr(begin, 8192);
-        sink_(std::move(event));
+        emit(std::move(event));
     }
 }
-std::string Session::redact(std::string message) const {
-    std::string lower = message;
-    std::transform(lower.begin(), lower.end(), lower.begin(),
-                   [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
-    for (const char *key : {"authorization:", "cookie:", "set-cookie:", "<password", "<credential", "<token",
-                            "<session-token", "<authcookie", "<passcode", "\"password\"", "\"cookie\"",
-                            "\"token\"", "password=", "passwd=", "samlresponse="})
-        if (lower.find(key) != std::string::npos)
-            return "[authentication data redacted]";
-    auto remove = [&](const std::string &value) {
-        if (value.empty())
-            return;
-        size_t offset = 0;
-        while ((offset = message.find(value, offset)) != std::string::npos) {
-            message.replace(offset, value.size(), "[redacted]");
-            offset += 10;
-        }
-    };
-    remove(profile_.password);
-    remove(profile_.token);
-    remove(pending_password_);
-    for (const auto &value : secrets_)
-        remove(value);
-    return message;
-}
 bool Session::ask(const std::shared_ptr<Prompt> &prompt) {
-    if (stopped() || !prompt->answered)
+    if (!wait_until_resumed() || !prompt->answered)
         return false;
     Event event;
     event.kind = Event::Kind::Prompt;
     event.prompt = prompt;
-    sink_(std::move(event));
+    emit(std::move(event));
     HANDLE handles[] = {cancel_event_.get(), prompt->answered.get()};
     DWORD result = WaitForMultipleObjects(2, handles, FALSE, INFINITE);
     if (result != WAIT_OBJECT_0 + 1 || !prompt->done.load(std::memory_order_acquire) || !prompt->accepted) {
+        prompt->answer(false);
         cancel();
         return false;
     }
-    return true;
+    return wait_until_resumed();
 }
 std::wstring Session::current_origin() const {
     if (!vpn_)
@@ -199,7 +227,7 @@ std::wstring Session::current_origin() const {
     return origin;
 }
 void Session::persist(const std::function<void(Profile &)> &change) {
-    if (!store_ || profile_.id.empty())
+    if (stopped() || !store_ || profile_.id.empty())
         return;
     std::wstring error;
     if (!store_->update_secrets(profile_.id, profile_.gateway, change, error))
@@ -207,7 +235,7 @@ void Session::persist(const std::function<void(Profile &)> &change) {
     else {
         Event event;
         event.kind = Event::Kind::ProfilesChanged;
-        sink_(std::move(event));
+        emit(std::move(event));
     }
 }
 int Session::authentication_callback(void *context, oc_auth_form *form) {
@@ -217,12 +245,26 @@ int Session::authentication_callback(void *context, oc_auth_form *form) {
     } catch (...) {
         self->error_ = tr(self->language_, L"无法处理服务器认证表单。",
                           L"Could not process the server authentication form.");
+        self->fail(ErrorCategory::Authentication);
         return OC_FORM_RESULT_ERR;
     }
 }
 int Session::authenticate(oc_auth_form *form) {
-    if (stopped() || !form || ++forms_ > 64)
+    if (!wait_until_resumed())
         return OC_FORM_RESULT_CANCELLED;
+    if (!form || ++forms_ > 64) {
+        fail(ErrorCategory::Authentication);
+        return OC_FORM_RESULT_ERR;
+    }
+    unsigned count = 0;
+    for (auto *option = form->opts; option; option = option->next) {
+        if (++count > 256) {
+            fail(ErrorCategory::Authentication);
+            return OC_FORM_RESULT_ERR;
+        }
+        if (option->type == OC_FORM_OPT_HIDDEN && option->_value)
+            redactor_.remember(option->_value);
+    }
     state(State::Authenticating);
     if (form->banner)
         log(PRG_INFO, safe(form->banner));
@@ -233,6 +275,7 @@ int Session::authenticate(oc_auth_form *form) {
     const bool same_server = current_origin() == origin_;
     const bool failure = form->error && *form->error;
     if (failure) {
+        authentication_rejected_ = true;
         used_saved_password_ = true;
         used_saved_username_ = true;
         erase(pending_password_);
@@ -276,6 +319,7 @@ int Session::authenticate(oc_auth_form *form) {
                 return OC_FORM_RESULT_CANCELLED;
             selected = prompt->response;
         }
+        redactor_.remember(selected);
         if (openconnect_set_option_value(&group->form, selected.c_str()) < 0)
             return OC_FORM_RESULT_CANCELLED;
         bool changed = !group_selected_ || selected != pending_group_;
@@ -335,12 +379,14 @@ int Session::authenticate(oc_auth_form *form) {
             if (!ask(prompt))
                 return OC_FORM_RESULT_CANCELLED;
             value = prompt->response;
-            if (option->type == OC_FORM_OPT_PASSWORD && secrets_.size() < 128)
-                secrets_.push_back(value);
         }
+        redactor_.remember(value);
         if (value.size() > 8192 || value.find('\0') != std::string::npos ||
-            openconnect_set_option_value(option, value.c_str()) < 0)
+            openconnect_set_option_value(option, value.c_str()) < 0) {
+            erase(value);
+            fail(ErrorCategory::Authentication);
             return OC_FORM_RESULT_CANCELLED;
+        }
         if (same_server && username) {
             pending_username_ = value;
             used_saved_username_ = true;
@@ -374,23 +420,29 @@ int Session::certificate_callback(void *context, const char *reason) {
     } catch (...) {
         self->error_ =
             tr(self->language_, L"服务器证书验证失败。", L"Server certificate verification failed.");
+        self->fail(ErrorCategory::Certificate);
         return -1;
     }
 }
 int Session::validate_certificate(const char *reason) {
     if (stopped())
         return -1;
+    // Retain the specific category if a TLS callback rejects the peer.
+    auto reject = [&] {
+        fail(ErrorCategory::Certificate);
+        return -1;
+    };
     DWORD date_error = 0;
     if (!peer_certificate_in_date(vpn_, date_error)) {
         error_ = tr(language_, L"服务器证书已过期、尚未生效或无效：",
                     L"The server certificate is expired, not yet valid or invalid: ") +
                  system_error(date_error);
-        return -1;
+        return reject();
     }
     const char *fingerprint = openconnect_get_peer_cert_hash(vpn_);
     if (!fingerprint || !valid_pin(fingerprint)) {
         error_ = tr(language_, L"无法读取服务器指纹。", L"Could not read the server fingerprint.");
-        return -1;
+        return reject();
     }
     const bool same = current_origin() == origin_;
     if (same && !profile_.server_pin.empty()) {
@@ -399,7 +451,7 @@ int Session::validate_certificate(const char *reason) {
         if (profile_.fixed_pin) {
             error_ = tr(language_, L"服务器证书与指定指纹不匹配。",
                         L"The server certificate does not match the specified fingerprint.");
-            return -1;
+            return reject();
         }
     }
     DWORD code = 0;
@@ -412,7 +464,7 @@ int Session::validate_certificate(const char *reason) {
         error_ = tr(language_, L"服务器证书未通过指定 CA 验证：",
                     L"The server certificate failed the configured CA check: ") +
                  system_error(code);
-        return -1;
+        return reject();
     }
     auto prompt = std::make_shared<Prompt>();
     prompt->kind = Prompt::Kind::Certificate;
@@ -444,21 +496,44 @@ int Session::validate_certificate(const char *reason) {
 }
 void Session::progress_callback(void *context, int level, const char *format, ...) {
     auto *self = static_cast<Session *>(context);
+    if (strcmp(format, "Got HTTP response: %s\n") == 0) {
+        va_list response;
+        va_start(response, format);
+        const char *line = va_arg(response, const char *);
+        unsigned status = 0;
+        if (line && sscanf(line, "HTTP/%*u.%*u %u", &status) == 1)
+            self->http_status_ = status;
+        va_end(response);
+    }
+    // This is the core's format string, not untrusted server text. Script
+    // failures must never be retried as transient network failures.
+    if (strstr(format, "Script '%s' failed for %s")) {
+        self->tun_failed_ = true;
+        if (self->cleaning_)
+            self->cleanup_failed_ = true;
+        self->fail(ErrorCategory::Adapter);
+    }
     if (self->state_ == State::Connected &&
         (strstr(format, "remaining timeout") || strstr(format, "SSL connection failure"))) {
-        try { self->state(State::Reconnecting); } catch (...) {}
+        try {
+            self->state(State::Reconnecting);
+        } catch (...) {
+        }
     }
     if (level > self->log_level_.load())
         return;
     char buffer[8192]{};
     va_list args;
     va_start(args, format);
-    vsnprintf(buffer, sizeof(buffer), format, args);
+    int size = vsnprintf(buffer, sizeof(buffer), format, args);
     va_end(args);
     try {
-        self->log(level, wide(buffer));
+        self->log(level, size < 0 || static_cast<size_t>(size) >= sizeof(buffer)
+                             ? L"[oversized log entry omitted]"
+                             : wide(buffer));
     } catch (...) {
     }
+    SecureZeroMemory(buffer, sizeof(buffer));
 }
 void Session::statistics_callback(void *context, const oc_stats *stats) {
     auto *self = static_cast<Session *>(context);
@@ -482,24 +557,27 @@ void Session::statistics_callback(void *context, const oc_stats *stats) {
         }
         event.statistics.tls_cipher = safe(openconnect_get_cstp_cipher(self->vpn_));
         event.statistics.dtls_cipher = safe(openconnect_get_dtls_cipher(self->vpn_));
-        self->sink_(std::move(event));
+        self->emit(std::move(event));
     } catch (...) {
     }
 }
 void Session::setup_tun_callback(void *context) {
     auto *self = static_cast<Session *>(context);
     try {
+        if (!self->wait_until_resumed())
+            return;
         self->state(State::Configuring);
         auto script = self->profile_.script.empty() ? executable_directory() / L"vpnc-script-win.js"
                                                     : std::filesystem::path(self->profile_.script);
         std::string interface_name = self->profile_.interface_name.empty()
                                          ? "LinkoraVPN-" + self->profile_.id.substr(0, 12)
                                          : utf8(self->profile_.interface_name);
-        int result = openconnect_setup_tun_device(self->vpn_, utf8(script.wstring()).c_str(),
-                                                interface_name.c_str());
+        int result =
+            openconnect_setup_tun_device(self->vpn_, utf8(script.wstring()).c_str(), interface_name.c_str());
         self->read_script_log();
         if (result != 0) {
             self->tun_failed_ = true;
+            self->fail(ErrorCategory::Adapter, result);
             self->error_ = tr(self->language_, L"无法创建或配置 VPN 网卡。请检查管理员权限和日志。",
                               L"Could not create or configure the VPN adapter. Check administrator "
                               L"privileges and the log.");
@@ -513,6 +591,7 @@ void Session::setup_tun_callback(void *context) {
         }
     } catch (...) {
         self->tun_failed_ = true;
+        self->fail(ErrorCategory::Adapter);
         self->send(OC_CMD_CANCEL);
     }
 }
@@ -536,6 +615,8 @@ int Session::unlock_token_callback(void *context, const char *token) {
     auto *self = static_cast<Session *>(context);
     try {
         if (token) {
+            self->redactor_.remember(token);
+            erase(self->profile_.token);
             self->profile_.token = token;
             self->persist([&](Profile &p) {
                 p.token = token;
@@ -550,16 +631,22 @@ int Session::unlock_token_callback(void *context, const char *token) {
 bool Session::prepare_script_log() {
     script_environment_lock_ = std::unique_lock<std::mutex>(script_environment_mutex, std::try_to_lock);
     if (!script_environment_lock_.owns_lock()) {
-        error_ = tr(language_, L"当前实例已有一个 VPN 连接。", L"This instance already has a VPN connection.");
+        error_ =
+            tr(language_, L"当前实例已有一个 VPN 连接。", L"This instance already has a VPN connection.");
         return false;
     }
     wchar_t temporary[32768]{};
     DWORD length = GetTempPathW(32768, temporary);
-    if (!length || length >= 32768) { error_ = system_error(GetLastError()); return false; }
+    if (!length || length >= 32768) {
+        error_ = system_error(GetLastError());
+        return false;
+    }
     auto id = random_id();
-    if (id.empty()) return false;
+    if (id.empty())
+        return false;
     script_log_ = std::filesystem::path(temporary) / (L"LinkoraVPN-" + wide(id) + L".log");
-    if (!write_atomic(script_log_, "", error_)) return false;
+    if (!write_atomic(script_log_, "", error_))
+        return false;
     DWORD needed = GetEnvironmentVariableW(L"VPN_SCRIPT_LOG", nullptr, 0);
     if (needed) {
         std::vector<wchar_t> previous(needed);
@@ -567,197 +654,300 @@ bool Session::prepare_script_log() {
         previous_script_log_ = previous.data();
     }
     script_environment_set_ = SetEnvironmentVariableW(L"VPN_SCRIPT_LOG", script_log_.c_str()) != FALSE;
-    if (!script_environment_set_) error_ = system_error(GetLastError());
+    if (!script_environment_set_)
+        error_ = system_error(GetLastError());
     return script_environment_set_;
 }
 void Session::read_script_log() {
-    if (script_log_.empty()) return;
+    if (script_log_.empty())
+        return;
     std::string raw;
     std::wstring message;
-    if (!read_file(script_log_, raw, message, 3 * 1024 * 1024) || raw.size() <= script_log_read_) return;
+    if (!read_file(script_log_, raw, message, 3 * 1024 * 1024) || raw.size() <= script_log_read_)
+        return;
     size_t offset = script_log_read_;
     script_log_read_ = raw.size() - raw.size() % 2;
-    if (!offset && raw.rfind("\xff\xfe", 0) == 0) offset = 2;
-    if (offset >= script_log_read_) return;
+    if (!offset && raw.rfind("\xff\xfe", 0) == 0)
+        offset = 2;
+    if (offset >= script_log_read_)
+        return;
     std::wstring text((script_log_read_ - offset) / 2, L'\0');
     memcpy(text.data(), raw.data() + offset, script_log_read_ - offset);
     // Each callback runs after the script has exited. Drain instead of
     // rereading an ever-growing session file on every reconnect.
-    Handle file(CreateFileW(script_log_.c_str(), GENERIC_WRITE, FILE_SHARE_READ, nullptr,
-                            TRUNCATE_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr));
+    Handle file(CreateFileW(script_log_.c_str(), GENERIC_WRITE, FILE_SHARE_READ, nullptr, TRUNCATE_EXISTING,
+                            FILE_ATTRIBUTE_NORMAL, nullptr));
     if (file)
         script_log_read_ = 0;
     log(PRG_INFO, text);
 }
-void Session::cleanup() {
+void Session::cleanup() noexcept {
+    tunnel_loop_.store(false);
+    pause_pending_.store(false);
     {
         std::lock_guard<std::mutex> lock(command_mutex_);
         command_ = INVALID_SOCKET;
     }
     if (vpn_) {
+        cleaning_ = true;
         openconnect_clear_cookie(vpn_);
         openconnect_vpninfo_free(vpn_);
         vpn_ = nullptr;
+        cleaning_ = false;
     }
-    read_script_log();
+    try {
+        read_script_log();
+    } catch (...) {
+    }
     if (script_environment_set_) {
-        SetEnvironmentVariableW(L"VPN_SCRIPT_LOG", previous_script_log_.empty() ? nullptr : previous_script_log_.c_str());
+        SetEnvironmentVariableW(L"VPN_SCRIPT_LOG",
+                                previous_script_log_.empty() ? nullptr : previous_script_log_.c_str());
         script_environment_set_ = false;
     }
     if (!script_log_.empty()) {
-        DeleteFileW((script_log_.wstring() + L".routes").c_str());
+        try {
+            DeleteFileW((script_log_.wstring() + L".routes").c_str());
+        } catch (...) {
+        }
         DeleteFileW(script_log_.c_str());
         script_log_.clear();
     }
-    if (script_environment_lock_.owns_lock()) script_environment_lock_.unlock();
+    if (script_environment_lock_.owns_lock())
+        script_environment_lock_.unlock();
+    previous_script_log_.clear();
+    script_log_read_ = 0;
+    tun_ready_ = false;
     erase(pending_password_);
-    erase(profile_.password);
-    for (auto &value : secrets_)
-        erase(value);
-    secrets_.clear();
+    erase(pending_username_);
+    erase(pending_group_);
 }
 void Session::run() {
+    if (stopped()) {
+        fail(ErrorCategory::Canceled);
+        state(State::Idle, true);
+        return;
+    }
     Handle session_lock(
         CreateMutexW(nullptr, FALSE, (L"Local\\LinkoraVPN.Session." + wide(profile_.id)).c_str()));
     DWORD acquired = session_lock ? WaitForSingleObject(session_lock.get(), 0) : WAIT_FAILED;
     if (acquired != WAIT_OBJECT_0 && acquired != WAIT_ABANDONED) {
+        fail(acquired == WAIT_TIMEOUT ? ErrorCategory::Busy : ErrorCategory::Internal,
+             acquired == WAIT_TIMEOUT ? 0 : static_cast<int>(GetLastError()));
         state(State::Failed, true,
               tr(language_, L"这个配置已在另一个客户端实例中连接。",
                  L"This profile is already connected in another client instance."));
         return;
     }
     struct Unlock {
+        Session *session;
         HANDLE handle;
         ~Unlock() {
+            // The lease outlives every core, script, route and credential cleanup,
+            // including exception unwinding. Only this worker releases it.
+            session->cleanup();
             ReleaseMutex(handle);
         }
-    } unlock{session_lock.get()};
-    auto work = [&]() {
-        std::wstring normalized;
-        if (!validate_profile(profile_, error_) || !normalize_gateway(profile_.gateway, normalized, &origin_))
-            return false;
-        if (!authentication_only_) {
-            if (!administrator()) {
-                error_ = tr(language_, L"建立 VPN 网卡需要管理员权限。",
-                            L"Administrator privileges are required to create the VPN adapter.");
-                return false;
-            }
-            if (GetFileAttributesW((executable_directory() / L"wintun.dll").c_str()) ==
-                INVALID_FILE_ATTRIBUTES) {
-                error_ =
-                    tr(language_, L"便携包缺少 wintun.dll。", L"The portable package is missing wintun.dll.");
-                return false;
-            }
-            auto script = profile_.script.empty() ? executable_directory() / L"vpnc-script-win.js"
-                                                  : std::filesystem::path(profile_.script);
-            if (!std::filesystem::is_regular_file(script)) {
-                error_ = tr(language_, L"找不到 VPN 网络配置脚本。",
-                            L"The VPN network configuration script could not be found.");
-                return false;
-            }
-            if (!prepare_script_log()) return false;
+    } unlock{this, session_lock.get()};
+    bool ok = false;
+    for (attempt_ = 1; !stopped();) {
+        error_.clear();
+        error_category_ = ErrorCategory::None;
+        error_code_ = 0;
+        http_status_ = 0;
+        forms_ = retry_seconds_ = 0;
+        group_selected_ = used_saved_username_ = used_saved_password_ = last_empty_ = false;
+        authentication_rejected_ = tun_failed_ = cleanup_failed_ = false;
+        ok = wait_until_resumed() && run_attempt();
+        if (tun_ready_)
+            state(State::Disconnecting);
+        cleanup();
+        if (cleanup_failed_) {
+            ok = fail(ErrorCategory::Adapter);
+            error_ =
+                tr(language_, L"VPN 网络清理失败，请查看日志。", L"VPN network cleanup failed; see the log.");
+            break;
         }
-        state(State::Connecting);
-        const std::string user_agent = std::string("LinkoraVPN/") + Version;
-        vpn_ = openconnect_vpninfo_new(user_agent.c_str(), certificate_callback, nullptr,
-                                       authentication_callback, progress_callback, this);
-        if (!vpn_) {
-            error_ = tr(language_, L"无法创建 VPN 会话。", L"Could not create the VPN session.");
-            return false;
+        if (ok || stopped())
+            break;
+        if (error_category_ == ErrorCategory::None)
+            fail(ErrorCategory::Internal);
+        unsigned delay = options_.retry_failed ? retry_delay(error_category_, attempt_) : 0;
+        if (!delay)
+            break;
+        for (retry_seconds_ = delay; retry_seconds_ && !stopped(); --retry_seconds_) {
+            state(State::RetryWait, false,
+                  retry_seconds_ == delay ? error_text(error_category_, language_) : L"");
+            if (WaitForSingleObject(cancel_event_.get(), 1000) != WAIT_TIMEOUT)
+                break;
         }
-        openconnect_set_loglevel(vpn_, PRG_TRACE);
-        openconnect_set_reported_os(vpn_, "win");
-        openconnect_set_system_trust(vpn_, 0);
-        if (openconnect_set_protocol(vpn_, profile_.protocol.c_str()) ||
-            openconnect_parse_url(vpn_, utf8(profile_.gateway).c_str())) {
-            error_ = tr(language_, L"网关或 VPN 协议无效。", L"Invalid gateway or VPN protocol.");
-            return false;
-        }
-        {
-            std::lock_guard<std::mutex> lock(command_mutex_);
-            command_ = openconnect_setup_cmd_pipe(vpn_);
-            if (command_ == INVALID_SOCKET)
-                return false;
-        }
-        u_long nonblocking = 1;
-        ioctlsocket(command_, FIONBIO, &nonblocking);
         if (stopped())
-            return false;
-        openconnect_set_stats_handler(vpn_, statistics_callback);
-        openconnect_set_reconnected_handler(vpn_, reconnected_callback);
-        if (!authentication_only_)
-            openconnect_set_setup_tun_handler(vpn_, setup_tun_callback);
-        if (profile_.disable_udp)
-            openconnect_disable_dtls(vpn_);
-        if (!profile_.certificate_file.empty()) {
-            auto certificate = utf8(profile_.certificate_file), key = utf8(profile_.key_file);
-            if (openconnect_set_client_cert(vpn_, certificate.c_str(), key.empty() ? nullptr : key.c_str()) <
-                0) {
-                error_ = tr(language_, L"无法使用所选用户证书。",
-                            L"Could not use the selected client certificate.");
-                return false;
-            }
-        }
-        if (profile_.token_type >= 0 && !profile_.token.empty()) {
-            openconnect_set_token_callbacks(vpn_, this, lock_token_callback, unlock_token_callback);
-            if (openconnect_set_token_mode(vpn_, static_cast<oc_token_mode_t>(profile_.token_type),
-                                           profile_.token.c_str()) < 0) {
-                error_ = tr(language_, L"OTP 令牌格式无效或不受支持。",
-                            L"The OTP token is invalid or unsupported.");
-                return false;
-            }
-        }
-        if (profile_.use_proxy) {
-            auto proxy = system_proxy(profile_.gateway);
-            if (!proxy.empty() && openconnect_set_http_proxy(vpn_, proxy.c_str()) < 0) {
-                error_ = tr(language_, L"无法使用系统代理。", L"Could not use the system proxy.");
-                return false;
-            }
-        }
-        if (openconnect_obtain_cookie(vpn_) != 0 || stopped())
-            return false;
-        if (current_origin() == origin_)
-            persist([&](Profile &p) {
-                if (!pending_username_.empty())
-                    p.username = pending_username_;
-                if (!pending_group_.empty())
-                    p.group = pending_group_;
-                if (p.batch_mode && !pending_password_.empty()) {
-                    p.password = pending_password_;
-                    p.password_blob.clear();
-                }
-            });
-        erase(profile_.password);
-        erase(pending_password_);
-        if (authentication_only_)
-            return true;
-        if (openconnect_make_cstp_connection(vpn_) < 0 || tun_failed_ || stopped())
-            return false;
-        if (!profile_.disable_udp && openconnect_setup_dtls(vpn_, profile_.dtls_period) < 0)
-            log(PRG_INFO, tr(language_, L"UDP 暂不可用，继续使用 TLS 连接。",
-                             L"UDP is unavailable; continuing with the TLS connection."));
-        if (!tun_ready_)
-            state(State::Configuring);
-        while (!stopped()) {
-            int result = openconnect_mainloop(vpn_, profile_.reconnect_timeout, RECONNECT_INTERVAL_MIN);
-            if (tun_failed_)
-                return false;
-            if (result < 0)
-                return stopped();
-        }
-        return true;
-    };
-    bool ok = work();
-    bool canceled = stopped();
-    if (tun_ready_)
-        state(State::Disconnecting);
-    cleanup();
-    if (ok || canceled)
+            break;
+        ++attempt_;
+    }
+    retry_seconds_ = 0;
+    if (cleanup_failed_)
+        state(State::Failed, true, error_);
+    else if (stopped()) {
+        fail(ErrorCategory::Canceled);
         state(State::Idle, true);
-    else
-        state(State::Failed, true,
-              error_.empty() ? tr(language_, L"连接失败，请查看日志中的服务器返回信息。",
-                                  L"Connection failed. Check the server response in the log.")
-                             : error_);
+    } else if (ok) {
+        fail(ErrorCategory::None);
+        state(State::Idle, true);
+    } else
+        state(State::Failed, true, error_.empty() ? error_text(error_category_, language_) : error_);
+}
+bool Session::run_attempt() {
+    std::wstring normalized;
+    if (!validate_profile(profile_, error_) || !normalize_gateway(profile_.gateway, normalized, &origin_))
+        return fail(ErrorCategory::Configuration);
+    if (!options_.authentication_only) {
+        if (!administrator()) {
+            error_ = tr(language_, L"建立 VPN 网卡需要管理员权限。",
+                        L"Administrator privileges are required to create the VPN adapter.");
+            return fail(ErrorCategory::Permission);
+        }
+        if (GetFileAttributesW((executable_directory() / L"wintun.dll").c_str()) == INVALID_FILE_ATTRIBUTES) {
+            error_ =
+                tr(language_, L"便携包缺少 wintun.dll。", L"The portable package is missing wintun.dll.");
+            return fail(ErrorCategory::Configuration);
+        }
+        auto script = profile_.script.empty() ? executable_directory() / L"vpnc-script-win.js"
+                                              : std::filesystem::path(profile_.script);
+        if (!std::filesystem::is_regular_file(script)) {
+            error_ = tr(language_, L"找不到 VPN 网络配置脚本。",
+                        L"The VPN network configuration script could not be found.");
+            return fail(ErrorCategory::Configuration);
+        }
+        if (!prepare_script_log())
+            return fail(ErrorCategory::Adapter);
+    }
+    state(State::Connecting);
+    const std::string user_agent = std::string("LinkoraVPN/") + Version;
+    vpn_ = openconnect_vpninfo_new(user_agent.c_str(), certificate_callback, nullptr, authentication_callback,
+                                   progress_callback, this);
+    if (!vpn_) {
+        error_ = tr(language_, L"无法创建 VPN 会话。", L"Could not create the VPN session.");
+        return fail(ErrorCategory::Internal);
+    }
+    openconnect_set_loglevel(vpn_, PRG_TRACE);
+    openconnect_set_reported_os(vpn_, "win");
+    openconnect_set_system_trust(vpn_, 0);
+    if (openconnect_set_protocol(vpn_, profile_.protocol.c_str()) ||
+        openconnect_parse_url(vpn_, utf8(profile_.gateway).c_str())) {
+        error_ = tr(language_, L"网关或 VPN 协议无效。", L"Invalid gateway or VPN protocol.");
+        return fail(ErrorCategory::Configuration);
+    }
+    {
+        std::lock_guard<std::mutex> lock(command_mutex_);
+        command_ = openconnect_setup_cmd_pipe(vpn_);
+        if (command_ == INVALID_SOCKET)
+            return fail(ErrorCategory::Internal, WSAGetLastError());
+        u_long nonblocking = 1;
+        if (ioctlsocket(command_, FIONBIO, &nonblocking))
+            return fail(ErrorCategory::Internal, WSAGetLastError());
+    }
+    if (!wait_until_resumed())
+        return false;
+    openconnect_set_stats_handler(vpn_, statistics_callback);
+    openconnect_set_reconnected_handler(vpn_, reconnected_callback);
+    if (!options_.authentication_only)
+        openconnect_set_setup_tun_handler(vpn_, setup_tun_callback);
+    if (profile_.disable_udp)
+        openconnect_disable_dtls(vpn_);
+    if (!profile_.certificate_file.empty()) {
+        auto certificate = utf8(profile_.certificate_file), key = utf8(profile_.key_file);
+        if (openconnect_set_client_cert(vpn_, certificate.c_str(), key.empty() ? nullptr : key.c_str()) < 0) {
+            error_ =
+                tr(language_, L"无法使用所选用户证书。", L"Could not use the selected client certificate.");
+            return fail(ErrorCategory::Configuration);
+        }
+    }
+    if (profile_.token_type >= 0 && !profile_.token.empty()) {
+        openconnect_set_token_callbacks(vpn_, this, lock_token_callback, unlock_token_callback);
+        if (openconnect_set_token_mode(vpn_, static_cast<oc_token_mode_t>(profile_.token_type),
+                                       profile_.token.c_str()) < 0) {
+            error_ =
+                tr(language_, L"OTP 令牌格式无效或不受支持。", L"The OTP token is invalid or unsupported.");
+            return fail(ErrorCategory::Configuration);
+        }
+    }
+    if (profile_.use_proxy) {
+        auto proxy = system_proxy(profile_.gateway);
+        if (!proxy.empty() && openconnect_set_http_proxy(vpn_, proxy.c_str()) < 0) {
+            error_ = tr(language_, L"无法使用系统代理。", L"Could not use the system proxy.");
+            return fail(ErrorCategory::Configuration);
+        }
+    }
+    int result = openconnect_obtain_cookie(vpn_);
+    if (result != 0 || stopped()) {
+        if (error_category_ == ErrorCategory::None) {
+            auto category = connection_error(result, ErrorCategory::Network);
+            if (authentication_rejected_ || http_status_ == 401 || http_status_ == 403 || http_status_ == 407)
+                category = ErrorCategory::Authentication;
+            else if (http_status_ >= 400 && http_status_ < 500 && http_status_ != 408 && http_status_ != 429)
+                category = ErrorCategory::Configuration;
+            fail(category, result);
+        }
+        return false;
+    }
+    if (const char *cookie = openconnect_get_cookie(vpn_))
+        redactor_.remember(cookie);
+    if (current_origin() == origin_) {
+        persist([&](Profile &p) {
+            if (!pending_username_.empty())
+                p.username = pending_username_;
+            if (!pending_group_.empty())
+                p.group = pending_group_;
+            if (p.batch_mode && !pending_password_.empty()) {
+                p.password = pending_password_;
+                p.password_blob.clear();
+            }
+        });
+        if (!pending_username_.empty())
+            profile_.username = pending_username_;
+        if (!pending_group_.empty())
+            profile_.group = pending_group_;
+        if (profile_.batch_mode && !pending_password_.empty()) {
+            erase(profile_.password);
+            profile_.password = pending_password_;
+        }
+    }
+    if (options_.authentication_only)
+        return true;
+    if (!wait_until_resumed())
+        return false;
+    result = openconnect_make_cstp_connection(vpn_);
+    if (result < 0 || tun_failed_ || stopped()) {
+        if (error_category_ == ErrorCategory::None)
+            fail(connection_error(result, ErrorCategory::Network), result);
+        return false;
+    }
+    if (!profile_.disable_udp && openconnect_setup_dtls(vpn_, profile_.dtls_period) < 0)
+        log(PRG_INFO, tr(language_, L"UDP 暂不可用，继续使用 TLS 连接。",
+                         L"UDP is unavailable; continuing with the TLS connection."));
+    if (!tun_ready_)
+        state(State::Configuring);
+    while (!stopped()) {
+        if (!wait_until_resumed())
+            break;
+        tunnel_loop_.store(true);
+        // Close the check/enter race with a suspend request from the UI.
+        if (suspended_.load())
+            network_changed();
+        result = openconnect_mainloop(vpn_, profile_.reconnect_timeout, RECONNECT_INTERVAL_MIN);
+        tunnel_loop_.store(false);
+        pause_pending_.store(false);
+        if (tun_failed_)
+            return fail(ErrorCategory::Adapter, result);
+        if (result < 0) {
+            if (stopped())
+                return true;
+            return fail(
+                connection_error(result, result == -EPIPE ? ErrorCategory::Server : ErrorCategory::Network),
+                result);
+        }
+        state(State::Reconnecting);
+    }
+    return true;
 }
 } // namespace vpn

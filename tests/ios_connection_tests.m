@@ -1,4 +1,4 @@
-#import "../mobile/ios/Shared/ServerAddress.h"
+#import "../client/apple/ServerAddress.h"
 #include <stdio.h>
 
 int main(void) {

@@ -6,6 +6,7 @@ import argparse
 import base64
 from datetime import datetime, timedelta, timezone
 import hashlib
+import html
 import http.server
 import ipaddress
 import json
@@ -29,6 +30,7 @@ PASSWORD = "fixture-password-050"
 WRONG_PASSWORD = "wrong-fixture-password"
 OTP = "654321"
 COOKIE = "fixture-session-cookie-050"
+HIDDEN = "fixture-hidden-auth-value"
 
 
 def certificate(folder, name, expired=False):
@@ -88,7 +90,7 @@ def main():
 
         def success(self):
             self.reply(f'<?xml version="1.0"?><config-auth client="vpn" type="complete">'
-                       f'<auth id="success"><message>OK</message></auth>'
+                       f'<auth id="success"><message>{html.escape("echo " + PASSWORD if self.path == "/echo" else "OK")}</message></auth>'
                        f'<session-token>{COOKIE}</session-token></config-auth>', True)
 
         def do_GET(self):
@@ -103,6 +105,11 @@ def main():
 
         def auth(self, body):
             counts["requests"] += 1
+            if self.path in ("/unauthorized", "/unavailable") or (self.path == "/recover" and counts["requests"] <= 2):
+                self.send_response(401 if self.path == "/unauthorized" else 503)
+                self.send_header("Content-Length", "0")
+                self.end_headers()
+                return
             values = {}
             try:
                 document = ET.fromstring(body)
@@ -137,12 +144,16 @@ def main():
                 self.success()
                 return
             fields = '<input type="text" name="username" label="Username:"/>'
+            if self.path == "/echo":
+                fields += f'<input type="hidden" name="opaque" value="{HIDDEN}"/>'
             if self.path == "/choice":
                 fields += '<select name="region" label="Region:"><option value="north">North</option><option value="south">South</option></select>'
             if self.path == "/group":
                 fields += '<select name="group_list" label="Group:"><option value="north">North</option><option value="south">South</option></select>'
             fields += '<input type="password" name="password" label="Password:"/>'
-            self.form(fields, "<error>Wrong credentials</error>" if password else "")
+            message = (f'Hidden field echo {HIDDEN}; https://[::1]/path?opaque=fixture-query-secret'
+                       if self.path == "/echo" else "Enter credentials")
+            self.form(fields, "<error>Wrong credentials</error>" if password else "", message)
 
     server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler)
     class IPv6Server(http.server.ThreadingHTTPServer):
@@ -173,10 +184,13 @@ def main():
             report = json.loads(run.stdout.decode("utf-8"))
         except Exception:
             report = {"terminal": "invalid-output", "stdout": run.stdout.decode("utf-8", "replace"), "stderr": run.stderr.decode("utf-8", "replace")}
-        logs = "\n".join(report.get("logs", []))
+        logs = "\n".join(report.get("logs", [])) + report.get("error", "") + json.dumps(report.get("diagnostics", {}))
         passed = (run.returncode == 0 and report.get("terminal") == terminal and counts["credentials"] == posts
                   and not report.get("timeout", True)
-                  and all(secret not in logs for secret in (PASSWORD, WRONG_PASSWORD, COOKIE, OTP)))
+                  and report.get("event_order_valid") and report.get("terminal_count") == 1
+                  and report.get("second_start_rejected") and report.get("lease_released")
+                  and report.get("rapid_handles_stable") and report.get("session_id", 0) > 0
+                  and all(secret not in logs for secret in (PASSWORD, WRONG_PASSWORD, COOKIE, OTP, HIDDEN, "fixture-query-secret")))
         if checks:
             passed = passed and checks(report)
         record = {"test": name, "passed": bool(passed), "terminal": report.get("terminal"),
@@ -234,6 +248,25 @@ def main():
              checks=lambda r: any(p["kind"] == "text" and p["initial_empty"] for p in r["prompts"]) and not r["saved_password_matches_response"])
         case("cancellation_during_HTTPS", route="/stall", posts=0, pin=original[2], cancel_after_ms=250,
              checks=lambda r: r["canceled"] and r["elapsed_ms"] < 2000)
+        case("cancel_before_start", posts=0, pin=original[2], cancel_before_start=True,
+             checks=lambda r: r["error_category"] == "canceled" and r["states"] == ["idle"] and not counts["requests"])
+        case("cancel_unanswered_prompt", posts=0, pin=original[2], hold_prompt=True, cancel_after_ms=250,
+             checks=lambda r: r["held_prompt_canceled"] and r["elapsed_ms"] < 2000)
+        case("rapid_cancel_then_reconnect", pin=original[2], rapid_cycles=32,
+             checks=lambda r: r["rapid_cycles"] == 32)
+        case("authentication_fields_and_diagnostics_redacted", route="/echo", pin=original[2])
+        case("HTTP_auth_failure_never_retried", route="/unauthorized", terminal="failed", posts=0,
+             pin=original[2], retry_failed=True,
+             checks=lambda r: r["error_category"] == "authentication" and r["attempts"] == 1)
+        case("certificate_failure_never_retried", terminal="failed", posts=0, pin=replacement[2], retry_failed=True,
+             checks=lambda r: r["error_category"] == "certificate" and r["attempts"] == 1)
+        case("network_failure_retry_limit", route="/unavailable", terminal="failed", posts=0,
+             pin=original[2], retry_failed=True,
+             checks=lambda r: r["attempts"] == 4 and "retry_wait" in r["states"] and r["elapsed_ms"] >= 13500)
+        case("cancel_retry_backoff", route="/unavailable", posts=0, pin=original[2], retry_failed=True, cancel_after_ms=600,
+             checks=lambda r: r["attempts"] == 1 and r["error_category"] == "canceled" and r["elapsed_ms"] < 2000)
+        case("retry_recovers_with_fresh_core", route="/recover", pin=original[2], retry_failed=True,
+             checks=lambda r: r["attempts"] == 2 and "retry_wait" in r["states"])
         tls.load_cert_chain(expired[0], expired[1])
         case("expired_certificate_rejects_even_matching_pin", terminal="failed", posts=0, pin=expired[2], accept_certificate=True,
              checks=lambda r: not r["prompts"])

@@ -58,8 +58,11 @@ if [[ "$complete" == true && -f "$stamp" && "$(cat "$stamp")" == "$fingerprint" 
     exit 0
 fi
 mkdir -p "$prefix/lib" "$prefix/include" "$work"
-export CFLAGS='-O2 -D_WIN32_WINNT=0x0601 -DWINVER=0x0601 -ffunction-sections -fdata-sections'
+export CFLAGS='-O2 -D_WIN32_WINNT=0x0A00 -DWINVER=0x0A00 -ffunction-sections -fdata-sections'
 export CXXFLAGS="$CFLAGS"
+# GMP's configure probes use pre-C23 empty parameter lists. Keep the C dialect
+# explicit when native toolchains switch their default to C23.
+export CFLAGS="$CFLAGS -std=gnu11"
 export CPPFLAGS="-I$prefix_native/include -DGNUTLS_STATIC -DLIBXML_STATIC -DSTOKEN_STATIC"
 export LDFLAGS="-L$prefix_native/lib -static -static-libgcc"
 export PKG_CONFIG_LIBDIR="$prefix/lib/pkgconfig:$prefix/share/pkgconfig"
@@ -105,7 +108,8 @@ autobuild() {
     mkdir -p "$work/$name"
     (
         cd "$work/$name"
-        "$CONFIG_SHELL" "$source/configure" --host="$host" --prefix="$prefix_native" \
+        "$CONFIG_SHELL" "$source/configure" --srcdir="$(realpath --relative-to="$PWD" "$source")" \
+            --host="$host" --prefix="$prefix_native" \
             --disable-shared --enable-static --disable-dependency-tracking "$@"
         if [[ "$name" == stoken ]]; then
             make -j"$jobs" libstoken.la
@@ -142,7 +146,8 @@ patched=$(patched_source_for openconnect)
 mkdir -p "$work/openconnect"
 (
     cd "$work/openconnect"
-    "$CONFIG_SHELL" "$patched/configure" --host="$host" --prefix="$prefix_native" \
+    "$CONFIG_SHELL" "$patched/configure" --srcdir="$(realpath --relative-to="$PWD" "$patched")" \
+        --host="$host" --prefix="$prefix_native" \
         --disable-shared --enable-static --disable-nls --disable-nsis-installer \
         --disable-dependency-tracking --disable-maintainer-mode \
         --with-gnutls --without-openssl --without-libproxy --with-stoken \

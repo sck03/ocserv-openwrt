@@ -1,4 +1,4 @@
-#include "../mobile/ios/Tunnel/ProtocolValidation.h"
+#include "../client/apple/ProtocolValidation.h"
 #include <assert.h>
 #include <stdio.h>
 

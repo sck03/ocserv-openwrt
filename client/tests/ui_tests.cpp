@@ -144,6 +144,11 @@ int wmain(int argc, wchar_t **argv) {
                 check(get(main, Connect) == L"连接" && !IsWindowEnabled(GetDlgItem(main, Connect)),
                       "Empty gateway cannot connect");
                 controls_fit(main);
+                check((GetMenuState(GetMenu(main), AutoConnect, MF_BYCOMMAND) & MF_GRAYED) != 0,
+                      "Automatic connection was enabled without a profile");
+                SendMessageW(main, WM_POWERBROADCAST, PBT_APMSUSPEND, 0);
+                SendMessageW(main, WM_POWERBROADCAST, PBT_APMRESUMEAUTOMATIC, 0);
+                check(get(main, Status) == L"未连接", "Wake created an unsolicited connection");
                 snapshot(main, root / L"main-zh.bmp");
                 command(main, NewProfile);
                 HWND profile = await_window(L"LinkoraVPN.Profile");
@@ -156,6 +161,12 @@ int wmain(int argc, wchar_t **argv) {
                 wait_for([&] { return SendMessageW(GetDlgItem(main, Servers), CB_GETCOUNT, 0, 0) == 1; },
                          "Profile list did not refresh");
                 check(IsWindowEnabled(GetDlgItem(main, Connect)) != FALSE, "Saved profile can connect");
+                command(main, RetryFailed);
+                wait_for(
+                    [&] {
+                        return (GetMenuState(GetMenu(main), RetryFailed, MF_BYCOMMAND) & MF_CHECKED) != 0;
+                    },
+                    "Retry preference was not enabled");
                 command(main, EditSelected);
                 profile = await_window(L"LinkoraVPN.Profile");
                 check(get(profile, ProfileName) == L"办公 VPN（测试）",
@@ -196,6 +207,8 @@ int wmain(int argc, wchar_t **argv) {
                 command(main, ShowLog);
                 HWND log = await_window(L"LinkoraVPN.Log");
                 check(get(log, LogAutoScroll) == L"自动滚动", "Log controls were not translated");
+                check(get(log, ExportDiagnostics) == L"导出诊断",
+                      "Diagnostic export is missing from the log window");
                 controls_fit(log);
                 snapshot(log, root / L"log-zh.bmp");
                 command(log, IDCANCEL);
@@ -217,7 +230,8 @@ int wmain(int argc, wchar_t **argv) {
                 wait_for([&] { return !IsWindowVisible(main) || IsIconic(main); }, "Minimize did not work");
                 command(main, Restore);
                 wait_for([&] { return IsWindowVisible(main) && !IsIconic(main); }, "Restore did not work");
-                check(store.load(profiles, preferences, error) && preferences.language == Language::English,
+                check(store.load(profiles, preferences, error) && preferences.language == Language::English &&
+                          preferences.retry_failed && preferences.auto_connect.empty(),
                       "Language preference was not saved");
                 command(main, Quit);
             } catch (const std::exception &exception) {

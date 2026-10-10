@@ -11,6 +11,7 @@ enum Control : int {
     EditProfile,
     ViewLog,
     Status,
+    StatusDetail,
     Gateway,
     MainIcon,
     ProfileName = 200,
@@ -61,6 +62,7 @@ enum Control : int {
     RemoveSelected,
     ImportProfile,
     ExportProfile,
+    ExportDiagnostics,
     Quit,
     ShowLog,
     Minimize,
@@ -69,6 +71,8 @@ enum Control : int {
     MinimizeOnClose,
     StartMinimized,
     SingleInstance,
+    AutoConnect,
+    RetryFailed,
     Chinese,
     English,
     LogError,
@@ -148,7 +152,6 @@ void add_choice(HWND combo, const std::wstring &label, LPARAM value = 0);
 void select_choice(HWND combo, LPARAM value);
 LPARAM selected_choice(HWND combo, LPARAM fallback = 0);
 std::wstring bytes(uint64_t value);
-std::wstring quote_argument(const std::wstring &argument);
 std::wstring state_text(State state, Language language);
 bool edit_profile(HWND owner, ProfileStore &store, Profile &profile, Language language, bool advanced);
 void show_prompt(HWND owner, const std::shared_ptr<Prompt> &prompt, Language language,
@@ -159,6 +162,9 @@ public:
     void show(HWND owner, Language language);
     void append(const std::wstring &line);
     void language(Language value);
+    const std::wstring &content() const {
+        return content_;
+    }
 
 private:
     LRESULT message(UINT message, WPARAM wparam, LPARAM lparam) override;

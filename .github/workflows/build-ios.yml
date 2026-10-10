@@ -40,7 +40,7 @@ jobs:
           "$RUNNER_TEMP/mobile-protocol-tests"
           clang -Wall -Wextra -Werror -fobjc-arc -framework Foundation tests/ios_connection_tests.m -o "$RUNNER_TEMP/ios-connection-tests"
           "$RUNNER_TEMP/ios-connection-tests"
-          bash -n scripts/build-ios-core.sh scripts/build-ios.sh
+          bash -n scripts/build-apple-core.sh scripts/build-ios.sh
           xcodebuild -version
       - uses: actions/cache@v6.1.0
         with:
@@ -70,6 +70,6 @@ jobs:
         if: failure()
         with:
           name: ios-configure-logs
-          path: build/mobile/ios/oc-build/config.log
+          path: build/mobile/ios/*/oc-build/config.log
           if-no-files-found: ignore
           retention-days: 7

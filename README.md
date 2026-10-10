@@ -1,10 +1,10 @@
 # Linkora VPN
 
-Linkora VPN 提供原生 Win32 / C++17 客户端 0.6.0、Android / iOS 客户端 0.2.0，配套 ocserv 1.5.0-r6 服务端和中文管理页 0.5.0-r1。Windows 提供 x86/x64 便携包；服务端支持 **OpenWrt 25.12 / APK** 的六个目标，覆盖 x86_64、AArch64、ARMv7、MIPS 和 MIPSEL，保留 N1/OPL 支持。具体架构与安装方法见 [OpenWrt 多架构说明](docs/OPENWRT.md)。
+Linkora VPN 提供 Windows 10/11 原生客户端 0.7.0、macOS 13+ Universal 和 Linux amd64/arm64 桌面客户端 0.1.0，以及 Android / iOS 移动客户端。配套 ocserv 1.5.0-r6 服务端和中文管理页 0.5.0-r1。Windows 提供 x86/x64 便携包；Linux 支持 Debian 12 / Ubuntu 24.04，macOS 实际连接需要有效的 Apple 系统扩展签名。桌面安装方式见[桌面客户端说明](docs/DESKTOP.md)。服务端支持 **OpenWrt 25.12 / APK** 的六个目标，具体架构见 [OpenWrt 多架构说明](docs/OPENWRT.md)。
 
 本版按全新安装部署，统一使用新的程序名、移动端安装 ID 和防火墙标识。Windows 使用新目录和新版 `.vpn` 配置；服务端重新添加账号并设置网络。部署前先关闭旧版专用上网开关、停用旧服务，不导入旧版数据目录或防火墙事务备份。
 
-客户端按官方 OpenConnect GUI 1.6.2 的交互重写：服务器配置列表、主界面 / VPN 信息页、独立日志、服务器认证弹窗和托盘，默认中文，可切换英文。静态合并 OpenConnect 9.21、GnuTLS、软件令牌和 XML/压缩库，无需安装 Qt、.NET 或 VC 运行库。完整保留随包的 `wintun.dll` 和 `vpnc-script-win.js`；Windows 7 SP1 是兼容目标，仍需实机验收。
+Windows 客户端提供服务器配置列表、VPN 信息、独立日志、服务器认证弹窗和托盘，默认中文，可切换英文。静态合并 OpenConnect 9.21、GnuTLS、软件令牌和 XML/压缩库，无需安装 Qt、.NET 或 VC 运行库。完整保留随包的 `wintun.dll` 和 `vpnc-script-win.js`。会话编号与状态代次隔离旧回调，支持网络变化、睡眠恢复、可选登录后连接、有限重试及脱敏诊断导出。
 
 ## 客户端连接
 
@@ -48,6 +48,7 @@ sh install.sh
 - [OpenWrt 服务端工作流](https://github.com/sck03/ocserv-openwrt/actions/workflows/build-server.yml)：并行构建全部六个目标。`sdk_version` 默认 `auto`，每次运行选择 25.12 系列最新稳定补丁版，也可指定具体 `25.12.x`。`build_jobs` 默认 `auto`，使用运行器全部可用 CPU 并行编译，也可手动填写任务数。
 - [Android 客户端工作流](https://github.com/sck03/ocserv-openwrt/actions/workflows/build-android.yml)：基于固定版本 OpenTunnel，编译三个架构的 OpenConnect 核心和 APK；默认 debug，配置签名 Secrets 后可构建 release。
 - [iOS 客户端工作流](https://github.com/sck03/ocserv-openwrt/actions/workflows/build-ios.yml)：原生应用与 Packet Tunnel 扩展，默认未签名编译归档，配置 Apple 证书和两个 Ad Hoc 描述文件后导出 IPA。使用及签名见[移动客户端说明](docs/MOBILE.md)。
+- [macOS / Linux 桌面工作流](https://github.com/sck03/ocserv-openwrt/actions/workflows/build-desktop.yml)：macOS Universal 系统扩展编译，Linux 两种架构的原生构建、图形启动测试和 DEB 打包；使用方法见[桌面客户端说明](docs/DESKTOP.md)。
 - Windows 交叉编译、服务端和 Android 使用 `ubuntu-24.04`，iOS 使用 `macos-15`。Actions/管理页脚本检查使用 Node.js 26。运行器系统版本与 N1 固件版本是不同概念。
 - Windows 和服务端工作流均可填写 `release_version` 设置发行套装版本，留空使用北京时间日期和时分秒；标题始终显示真实构建时间。`publish_release=false` 可只构建，两端仅允许 main 发布。
 - Windows 和服务端手动工作流全部检查成功后发布独立 Pre-release；[Releases](https://github.com/sck03/ocserv-openwrt/releases) 附件长期保留，Actions artifacts 保留 7 天。移动端工作流目前仅上传 artifacts。
@@ -59,6 +60,7 @@ sh install.sh
 - [N1 安装与首次配置](docs/OPENWRT-N1.md)
 - [中文管理页](docs/SERVER-UI.md)
 - [客户端证书与密码保存](docs/CLIENT.md)
+- [macOS 与 Linux 桌面客户端](docs/DESKTOP.md)
 - [域名、IPv6、DDNS 与公网部署](docs/WAN.md)
 - [Android / iOS 构建、连接和签名](docs/MOBILE.md)
 - [构建说明](docs/BUILD.md)
@@ -68,4 +70,4 @@ sh install.sh
 - [客户端增强建议与 GlobalProtect 参考](docs/CLIENT-ENHANCEMENTS.md)
 - [第三方组件与许可证](THIRD-PARTY-NOTICES.md)
 
-项目采用 GPL-3.0-or-later；第三方组件遵守各自许可证。编译、模拟事务和回环 TLS 测试不替代 N1/Win7 实机验收。
+项目采用 GPL-3.0-or-later；第三方组件遵守各自许可证。编译、模拟事务和回环 TLS 测试不替代真实设备与网络验收。

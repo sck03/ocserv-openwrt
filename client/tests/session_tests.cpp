@@ -38,26 +38,6 @@ struct Probe {
     }
 };
 
-const char *state_name(State state) {
-    switch (state) {
-    case State::Idle:
-        return "idle";
-    case State::Connecting:
-        return "connecting";
-    case State::Authenticating:
-        return "authenticating";
-    case State::Configuring:
-        return "configuring";
-    case State::Connected:
-        return "connected";
-    case State::Reconnecting:
-        return "reconnecting";
-    case State::Disconnecting:
-        return "disconnecting";
-    default:
-        return "failed";
-    }
-}
 const char *prompt_name(Prompt::Kind kind) {
     switch (kind) {
     case Prompt::Kind::Text:
@@ -135,30 +115,97 @@ int wmain(int argc, wchar_t **argv) {
         output["stoken"] = openconnect_has_stoken_support() != 0;
         output["oath"] = openconnect_has_oath_support() != 0;
         output["system_keys"] = openconnect_has_system_key_support() != 0;
+        unsigned rapid_cycles = input.value("rapid_cycles", 0u);
+        if (rapid_cycles > 64 || (tunnel && rapid_cycles))
+            throw std::runtime_error("Rapid cancellation is limited to 64 authentication-only sessions");
+        uint64_t last_id = 0;
+        DWORD handles_before = 0, handles_after = 0;
+        for (unsigned cycle = 0; cycle < rapid_cycles; ++cycle) {
+            Profile transient = profile;
+            erase(transient.password);
+            transient.batch_mode = false;
+            unsigned terminals = 0;
+            {
+                Session quick(
+                    std::move(transient), nullptr, Language::English,
+                    [&](Event event) {
+                        if (event.prompt)
+                            event.prompt->answer(false);
+                        if (event.terminal)
+                            ++terminals;
+                    },
+                    Session::Options{true, false});
+                if (quick.id() <= last_id || !quick.start())
+                    throw std::runtime_error("Rapid session could not start with a fresh ID");
+                last_id = quick.id();
+                Sleep(1);
+                quick.cancel();
+                quick.suspend(true);
+                quick.network_changed();
+                quick.suspend(false);
+                quick.cancel();
+                auto deadline = GetTickCount64() + 5000;
+                while (!quick.finished() && GetTickCount64() < deadline)
+                    Sleep(1);
+                if (!quick.finished() || terminals != 1)
+                    throw std::runtime_error("Rapid session did not finish exactly once");
+            }
+            if (!cycle)
+                GetProcessHandleCount(GetCurrentProcess(), &handles_before);
+        }
+        GetProcessHandleCount(GetCurrentProcess(), &handles_after);
+        output["rapid_cycles"] = rapid_cycles;
+        output["rapid_handles_stable"] = !rapid_cycles || handles_after <= handles_before + 4;
         unsigned prompts = 0;
         bool connected = false;
+        unsigned connected_count = 0;
+        bool order_valid = true;
+        uint64_t event_session = 0, generation = 0;
+        unsigned terminal_count = 0;
+        SessionStatus final_status;
+        Statistics final_statistics;
+        std::wstring log;
+        std::shared_ptr<Prompt> held_prompt;
         auto started = std::chrono::steady_clock::now();
         Session session(
             profile, &store, Language::English,
             [&](Event event) {
                 std::lock_guard<std::mutex> guard(lock);
+                if (event_session && event.session_id != event_session)
+                    order_valid = false;
+                if (event.generation < generation)
+                    order_valid = false;
+                event_session = event.session_id;
+                generation = event.generation;
                 if (event.kind == Event::Kind::State) {
                     output["states"].push_back(state_name(event.state));
-                    if (event.state == State::Connected)
+                    if (event.state == State::Connected) {
                         connected = true;
+                        ++connected_count;
+                    }
                     if (event.terminal) {
+                        ++terminal_count;
+                        final_status = event;
                         output["terminal"] = state_name(event.state);
                         output["error"] = utf8(event.text);
+                        output["error_category"] = error_name(event.error);
+                        output["attempts"] = event.attempt;
                     }
-                } else if (event.kind == Event::Kind::Log)
+                } else if (event.kind == Event::Kind::Log) {
                     output["logs"].push_back(utf8(event.text));
-                else if (event.kind == Event::Kind::Statistics)
+                    log += event.text + L"\n";
+                } else if (event.kind == Event::Kind::Statistics) {
+                    final_statistics = event.statistics;
                     output["statistics"] = {{"ipv4", utf8(event.statistics.ipv4)},
                                             {"ipv6", utf8(event.statistics.ipv6)},
                                             {"downloaded", event.statistics.downloaded},
                                             {"uploaded", event.statistics.uploaded}};
-                else if (event.kind == Event::Kind::Prompt) {
+                } else if (event.kind == Event::Kind::Prompt) {
                     auto p = event.prompt;
+                    if (input.value("hold_prompt", false)) {
+                        held_prompt = p;
+                        return;
+                    }
                     ++prompts;
                     output["prompts"].push_back({{"kind", prompt_name(p->kind)},
                                                  {"field", p->field},
@@ -188,11 +235,16 @@ int wmain(int argc, wchar_t **argv) {
                     p->answer(accept, std::move(response));
                 }
             },
-            !tunnel);
+            Session::Options{!tunnel, input.value("retry_failed", false)});
         session.set_log_level(3);
+        if (input.value("cancel_before_start", false))
+            session.cancel();
         if (!session.start())
             throw std::runtime_error("Cannot start session");
+        output["second_start_rejected"] = !session.start();
         bool timeout = false, cancel_sent = false, probe_answered = false;
+        bool network_changed = false, suspended = false, resumed = false;
+        bool probe_after_reconnect = false;
         long long connected_at = -1, probe_sent_at = -1000;
         Probe probe;
         while (!session.finished()) {
@@ -200,13 +252,34 @@ int wmain(int argc, wchar_t **argv) {
                                std::chrono::steady_clock::now() - started)
                                .count();
             bool is_connected;
+            unsigned connections;
             {
                 std::lock_guard<std::mutex> guard(lock);
                 is_connected = connected;
+                connections = connected_count;
             }
             if (tunnel && is_connected) {
                 if (connected_at < 0)
                     connected_at = elapsed;
+                if (!network_changed && input.value("network_change", false) &&
+                    elapsed - connected_at >= 1000) {
+                    network_changed = true;
+                    probe_answered = false;
+                    for (unsigned burst = 0; burst < 20; ++burst)
+                        session.network_changed();
+                }
+                if (!suspended && input.contains("suspend_for_ms") && elapsed - connected_at >= 1000) {
+                    suspended = true;
+                    probe_answered = false;
+                    session.suspend(true);
+                }
+                if (suspended && !resumed &&
+                    elapsed - connected_at >= 1000 + input.value("suspend_for_ms", 0)) {
+                    resumed = true;
+                    session.suspend(false);
+                }
+                if (suspended && input.value("cancel_suspended", false) && elapsed - connected_at >= 1300)
+                    session.cancel();
                 if (input.value("udp_probe", false) && !probe_answered) {
                     if (probe.socket == INVALID_SOCKET) {
                         probe.socket = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
@@ -239,10 +312,15 @@ int wmain(int argc, wchar_t **argv) {
                         probe_sent_at = elapsed;
                     }
                     char response[128]{};
-                    int size = probe.socket == INVALID_SOCKET ? -1 : recv(probe.socket, response, sizeof(response), 0);
+                    int size = probe.socket == INVALID_SOCKET
+                                   ? -1
+                                   : recv(probe.socket, response, sizeof(response), 0);
                     if (size == static_cast<int>(sizeof(payload) - 1) &&
-                        memcmp(response, payload, sizeof(payload) - 1) == 0)
+                        memcmp(response, payload, sizeof(payload) - 1) == 0) {
                         probe_answered = true;
+                        if (connections >= 2)
+                            probe_after_reconnect = true;
+                    }
                 }
                 if (elapsed - connected_at > input.value("tunnel_duration_ms", 1800))
                     session.cancel();
@@ -262,12 +340,24 @@ int wmain(int argc, wchar_t **argv) {
             Sleep(30);
         }
         output["timeout"] = timeout;
+        output["event_order_valid"] = order_valid;
+        output["terminal_count"] = terminal_count;
+        output["session_id"] = event_session;
+        output["held_prompt_canceled"] = held_prompt && held_prompt->done && !held_prompt->accepted;
+        output["diagnostics"] = Json::parse(diagnostic_report(final_status, final_statistics, log, 0));
+        Handle lease(
+            CreateMutexW(nullptr, FALSE, (L"Local\\LinkoraVPN.Session." + wide(profile.id)).c_str()));
+        DWORD acquired = lease ? WaitForSingleObject(lease.get(), 0) : WAIT_FAILED;
+        output["lease_released"] = acquired == WAIT_OBJECT_0;
+        if (acquired == WAIT_OBJECT_0 || acquired == WAIT_ABANDONED)
+            ReleaseMutex(lease.get());
         if (tunnel) {
             if (probe.socket != INVALID_SOCKET) {
                 closesocket(probe.socket);
                 probe.socket = INVALID_SOCKET;
             }
             output["udp_probe"] = probe_answered;
+            output["probe_after_reconnect"] = probe_after_reconnect;
             auto name = L"LinkoraVPN-" + wide(profile.id.substr(0, 12));
             for (unsigned attempt = 0; attempt < 100 && adapter_present(name); ++attempt)
                 Sleep(100);

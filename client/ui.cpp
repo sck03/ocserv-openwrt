@@ -200,23 +200,6 @@ std::wstring bytes(uint64_t value) {
     swprintf(text, 80, unit ? L"%.2f %ls" : L"%.0f %ls", amount, units[unit]);
     return text;
 }
-std::wstring quote_argument(const std::wstring &argument) {
-    std::wstring result = L"\"";
-    size_t slashes = 0;
-    for (wchar_t c : argument) {
-        if (c == L'\\') {
-            ++slashes;
-            continue;
-        }
-        result.append(slashes * (c == L'\"' ? 2 : 1), L'\\');
-        slashes = 0;
-        if (c == L'\"')
-            result += L'\\';
-        result += c;
-    }
-    result.append(slashes * 2, L'\\');
-    return result + L'\"';
-}
 std::wstring state_text(State state, Language language) {
     switch (state) {
     case State::Connecting:
@@ -229,10 +212,14 @@ std::wstring state_text(State state, Language language) {
         return tr(language, L"已连接", L"Connected");
     case State::Reconnecting:
         return tr(language, L"正在重新连接…", L"Reconnecting…");
+    case State::Suspended:
+        return tr(language, L"已暂停，等待系统唤醒", L"Paused until the system resumes");
+    case State::RetryWait:
+        return tr(language, L"连接失败，等待重试…", L"Connection failed; waiting to retry…");
     case State::Disconnecting:
         return tr(language, L"正在断开连接…", L"Disconnecting…");
     case State::Failed:
-        return tr(language, L"连接失败，请查看日志。", L"Connection failed. See the log.");
+        return tr(language, L"连接失败", L"Connection failed");
     default:
         return tr(language, L"未连接", L"Disconnected");
     }
@@ -247,6 +234,7 @@ void LogWindow::language(Language value) {
     label(LogClear, tr(value, L"清空", L"Clear"));
     label(IDCANCEL, tr(value, L"关闭", L"Close"));
     label(LogAutoScroll, tr(value, L"自动滚动", L"Auto-scroll"));
+    label(ExportDiagnostics, tr(value, L"导出诊断", L"Export diagnostics"));
 }
 void LogWindow::show(HWND owner, Language value) {
     language_ = value;
@@ -306,6 +294,7 @@ LRESULT LogWindow::message(UINT message, WPARAM wparam, LPARAM lparam) {
         button(L"", LogSelectAll, 104, 392, 84);
         button(L"", LogClear, 196, 392, 84);
         button(L"", LogAutoScroll, 298, 392, 160, 27, BS_AUTOCHECKBOX);
+        button(L"", ExportDiagnostics, 478, 392, 154);
         check(LogAutoScroll, auto_scroll_);
         button(L"", IDCANCEL, 644, 392, 84);
         language(language_);
@@ -321,7 +310,8 @@ LRESULT LogWindow::message(UINT message, WPARAM wparam, LPARAM lparam) {
     if (message == WM_SIZE) {
         int width = MulDiv(LOWORD(lparam), 96, dpi_), height = MulDiv(HIWORD(lparam), 96, dpi_);
         move(LogText, 12, 12, std::max(200, width - 24), std::max(100, height - 64));
-        for (int id : std::initializer_list<int>{LogCopy, LogSelectAll, LogClear, LogAutoScroll, IDCANCEL}) {
+        for (int id : std::initializer_list<int>{LogCopy, LogSelectAll, LogClear, LogAutoScroll,
+                                                 ExportDiagnostics, IDCANCEL}) {
             RECT r{};
             GetWindowRect(item(id), &r);
             POINT p{r.left, r.top};
@@ -333,7 +323,7 @@ LRESULT LogWindow::message(UINT message, WPARAM wparam, LPARAM lparam) {
     }
     if (message == WM_GETMINMAXINFO) {
         auto *limits = reinterpret_cast<MINMAXINFO *>(lparam);
-        limits->ptMinTrackSize = {px(620), px(280)};
+        limits->ptMinTrackSize = {px(756), px(280)};
         return 0;
     }
     if (message == WM_CLOSE || (message == WM_COMMAND && LOWORD(wparam) == IDCANCEL)) {
@@ -342,6 +332,10 @@ LRESULT LogWindow::message(UINT message, WPARAM wparam, LPARAM lparam) {
     }
     if (message == WM_COMMAND) {
         switch (LOWORD(wparam)) {
+        case ExportDiagnostics:
+            if (HWND owner = GetWindow(window_, GW_OWNER))
+                PostMessageW(owner, WM_COMMAND, ExportDiagnostics, 0);
+            return 0;
         case LogCopy: {
             DWORD a = 0, b = 0;
             SendMessageW(item(LogText), EM_GETSEL, reinterpret_cast<WPARAM>(&a),

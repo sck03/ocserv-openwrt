@@ -1,0 +1,75 @@
+name: LinkoraVPN
+options:
+  deploymentTarget:
+    macOS: '13.0'
+settings:
+  base:
+    SWIFT_VERSION: '5.0'
+    MARKETING_VERSION: '0.1.0'
+    CURRENT_PROJECT_VERSION: '1'
+    CODE_SIGN_STYLE: Manual
+    ARCHS: 'arm64 x86_64'
+    ONLY_ACTIVE_ARCH: NO
+    ENABLE_HARDENED_RUNTIME: YES
+targets:
+  LinkoraVPN:
+    type: application
+    platform: macOS
+    sources: [App]
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: $(VPN_BUNDLE_ID)
+        CODE_SIGN_ENTITLEMENTS: App/App.entitlements
+        PROVISIONING_PROFILE_SPECIFIER: $(VPN_APP_PROFILE)
+        SWIFT_OBJC_BRIDGING_HEADER: ../../client/apple/ServerAddress.h
+    info:
+      path: App/Info.plist
+      properties:
+        CFBundleDisplayName: Linkora VPN
+        CFBundleIconFile: AppIcon
+        LSApplicationCategoryType: public.app-category.utilities
+        NSHumanReadableCopyright: GPL-3.0-or-later
+    dependencies:
+      - target: PacketTunnel
+        embed: false
+      - sdk: NetworkExtension.framework
+      - sdk: Security.framework
+      - sdk: ServiceManagement.framework
+      - sdk: SystemExtensions.framework
+    postBuildScripts:
+      - name: Embed system tunnel extension
+        basedOnDependencyAnalysis: false
+        script: |
+          mkdir -p "${TARGET_BUILD_DIR}/${CONTENTS_FOLDER_PATH}/Library/SystemExtensions"
+          ditto "${BUILT_PRODUCTS_DIR}/${VPN_BUNDLE_ID}.tunnel.systemextension" "${TARGET_BUILD_DIR}/${CONTENTS_FOLDER_PATH}/Library/SystemExtensions/${VPN_BUNDLE_ID}.tunnel.systemextension"
+  PacketTunnel:
+    type: system-extension
+    platform: macOS
+    sources: [Tunnel, ../../client/apple]
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: $(VPN_BUNDLE_ID).tunnel
+        PRODUCT_NAME: $(VPN_BUNDLE_ID).tunnel
+        EXECUTABLE_NAME: PacketTunnel
+        CODE_SIGN_ENTITLEMENTS: Tunnel/Tunnel.entitlements
+        PROVISIONING_PROFILE_SPECIFIER: $(VPN_TUNNEL_PROFILE)
+        HEADER_SEARCH_PATHS: $(SRCROOT)/../../build/desktop/macos/prefix/include
+        LIBRARY_SEARCH_PATHS: $(SRCROOT)/../../build/desktop/macos/prefix/lib
+        OTHER_LDFLAGS: '-lopenconnect -lssl -lcrypto -lxml2 -lz -liconv -Wl,-dead_strip'
+        CLANG_ENABLE_OBJC_ARC: YES
+    info:
+      path: Tunnel/Info.plist
+      properties:
+        CFBundleDisplayName: Linkora VPN 隧道
+        NetworkExtension:
+          NEMachServiceName: $(TeamIdentifierPrefix)$(PRODUCT_BUNDLE_IDENTIFIER)
+          NEProviderClasses:
+            com.apple.networkextension.packet-tunnel: PacketTunnelProvider
+    dependencies:
+      - sdk: NetworkExtension.framework
+      - sdk: Security.framework
+schemes:
+  LinkoraVPN:
+    build:
+      targets:
+        LinkoraVPN: all

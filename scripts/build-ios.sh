@@ -14,7 +14,7 @@ if [[ "$mode" == signed ]]; then
   : "${IOS_TUNNEL_PROFILE_BASE64:?Missing tunnel provisioning profile}"
   : "${IOS_TEAM_ID:?Missing Apple team ID}"
 fi
-bash scripts/build-ios-core.sh
+bash scripts/build-apple-core.sh ios
 xcodegen generate --spec mobile/ios/project.yml
 mkdir -p dist/ios
 archive="$root/build/mobile/ios/LinkoraVPN.xcarchive"

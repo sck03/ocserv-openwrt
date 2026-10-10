@@ -1,7 +1,4 @@
-"""Audit PE architecture, runtime imports and known post-Windows-7 APIs.
-
-This is a build check; Windows 7 hardware/VM acceptance is still required.
-"""
+"""Audit Windows 10/11 PE architecture, subsystem and portable runtime imports."""
 import argparse
 import json
 from pathlib import Path
@@ -13,13 +10,6 @@ SYSTEM_DLLS = {
     "iphlpapi.dll", "kernel32.dll", "msvcrt.dll", "ntdll.dll", "ole32.dll", "oleaut32.dll",
     "rpcrt4.dll", "secur32.dll", "shell32.dll", "user32.dll", "ws2_32.dll", "winmm.dll",
     "winspool.drv", "winhttp.dll", "normaliz.dll", "ncrypt.dll",
-}
-POST_WIN7_APIS = {
-    "GetDpiForWindow", "SetProcessDpiAwareness", "SetProcessDpiAwarenessContext",
-    "GetSystemTimePreciseAsFileTime", "GetTempPath2W", "GetTempPath2A", "WaitOnAddress",
-    "WakeByAddressSingle", "WakeByAddressAll", "SetThreadDescription", "GetThreadDescription",
-    "GetThreadInformation", "SetThreadInformation", "IsWow64Process2", "CreateFile2",
-    "GetAddrInfoExCancel", "SetInterfaceDnsSettings", "GetInterfaceDnsSettings",
 }
 
 
@@ -95,16 +85,16 @@ def inspect(data):
             raise ValueError("Unterminated PE import table")
 
     unexpected = [dll for dll in imports if dll.lower() not in SYSTEM_DLLS]
-    new_apis = [name for names in imports.values() for name in names if name in POST_WIN7_APIS]
     subsystem = [u16(optional + 48), u16(optional + 50)]
+    os_version = [u16(optional + 40), u16(optional + 42)]
     delayed = u32(directories + 13 * 8) != 0
     architecture = {0x8664: "x64", 0x14C: "x86"}.get(machine, hex(machine))
     consistent = (machine, magic) in ((0x8664, 0x20B), (0x14C, 0x10B))
     return {
-        "architecture": architecture, "subsystem_version": subsystem,
+        "architecture": architecture, "subsystem_version": subsystem, "os_version": os_version,
         "system_dlls_only": not unexpected, "unexpected_dlls": unexpected,
-        "known_post_win7_imports": new_apis, "delay_imports": delayed, "imports": imports,
-        "passed": consistent and subsystem == [6, 1] and not unexpected and not new_apis and not delayed
+        "delay_imports": delayed, "imports": imports,
+        "passed": consistent and os_version == [10, 0] and subsystem == [6, 2] and not unexpected and not delayed
                   and "msvcrt.dll" in {dll.lower() for dll in imports},
     }
 

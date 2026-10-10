@@ -1,4 +1,4 @@
-/* iOS forbids subprocesses. Fail closed for desktop-only script paths. */
+/* Packet Tunnel extensions never run external scripts or subprocesses. */
 #include <unistd.h>
 #include <errno.h>
 static inline pid_t vpn_no_fork(void) { errno = ENOTSUP; return -1; }

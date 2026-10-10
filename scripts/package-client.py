@@ -84,7 +84,7 @@ def main():
             "导入/导出 .vpn 可共享地址、连接选项和公有证书，不包含密码、令牌或私钥。\n"
             "配置保存在程序旁的 data 目录。复制到其他 Windows 用户后需要重新输入加密凭据。\n"
             "请完整保留 wintun.dll、vpnc-script-win.js 和 licenses，不要混用不同架构的文件。\n"
-            "Win7 SP1 为兼容目标，仍需实机验证；VPN 驱动需要相应系统更新和管理员权限。\n\n"
+            "支持 Windows 10/11；可在设置中启用登录后自动连接和有限网络重试，在日志窗口导出脱敏诊断。\n\n"
             "Create a profile or enter your gateway, connect and answer the server's authentication prompts. Verify unknown certificate fingerprints before approval.\n"
             "Settings selects Chinese/English and tray behavior. VPN Info shows addresses and traffic; View Log provides diagnostics.\n"
             "Profiles live in data/. Saved passwords and tokens use current-user DPAPI. Exports contain public connection details only.\n"
@@ -98,7 +98,7 @@ def main():
                 "vpnc_script_sha256": sha256(folder / "vpnc-script-win.js"),
                 "patches": {p.relative_to(ROOT / "client/patches").as_posix(): sha256(p)
                             for p in sorted((ROOT / "client/patches").rglob("*.patch"))},
-                "validation": "Compile and PE audit; Windows runtime reports accompany the workflow. Real VPN/Win7 acceptance is separate."}
+                "validation": "Windows 10/11 compile and PE audit; runtime reports accompany the workflow. Real device acceptance is separate."}
         (folder / "BUILDINFO.json").write_text(json.dumps(info, indent=2) + "\n", encoding="utf-8")
         archive = dist / (name + ".zip")
         staged_archive = Path(temporary) / archive.name
@@ -107,7 +107,7 @@ def main():
                 if file.is_file():
                     output.write(file, name + "/" + file.relative_to(folder).as_posix())
         staged_archive.replace(archive)
-    for filename in ("native_model_tests.exe", "native_session_tests.exe", "native_ui_tests.exe", "native_script_tests.exe", "native_resource_tests.exe",
+    for filename in ("native_connection_tests.exe", "native_model_tests.exe", "native_session_tests.exe", "native_ui_tests.exe", "native_script_tests.exe", "native_resource_tests.exe",
                      "wintun.dll", "vpnc-script-win.js"):
         shutil.copyfile(build / filename, validation / filename)
     (dist / f"SHA256SUMS-windows-{args.arch}.txt").write_text(f"{sha256(archive)}  {archive.name}\n", encoding="ascii")

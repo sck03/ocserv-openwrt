@@ -10,12 +10,12 @@ from build_common import ROOT, sha256, source_files
 
 def package(platform):
     out = ROOT / "dist" / platform
-    info = ROOT / "build/mobile" / platform / "BUILDINFO.json"
+    info = ROOT / ("build/desktop" if platform == "macos" else "build/mobile") / platform / "BUILDINFO.json"
     entries = json.loads(info.read_text(encoding="utf-8"))
     if not (ROOT / ".git").exists():
         raise ValueError("Package mobile sources from a Git checkout to exclude signing files")
-    paths = source_files(ROOT, ("mobile", "scripts", ".github/workflows"), (
-        "LICENSE", "README.md", "THIRD-PARTY-NOTICES.md", "docs/MOBILE.md",
+    paths = source_files(ROOT, ("mobile", "client/apple", "desktop", "scripts", ".github/workflows"), (
+        "LICENSE", "README.md", "THIRD-PARTY-NOTICES.md", "docs/MOBILE.md", "docs/DESKTOP.md",
         "tests/mobile_build_tests.py", "tests/mobile_protocol_tests.c", "tests/ios_connection_tests.m",
     ))
     out.mkdir(parents=True, exist_ok=True)
@@ -40,5 +40,5 @@ def package(platform):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("platform", choices=["android", "ios"])
+    parser.add_argument("platform", choices=["android", "ios", "macos"])
     package(parser.parse_args().platform)

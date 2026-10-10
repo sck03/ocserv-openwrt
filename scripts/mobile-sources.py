@@ -31,7 +31,7 @@ def unpack(archive, destination, directory):
 
 def prepare(platform):
     entries = json.loads(MANIFEST.read_text(encoding="utf-8"))
-    work = ROOT / "build/mobile" / platform
+    work = ROOT / ("build/desktop" if platform == "macos" else "build/mobile") / platform
     if work.exists():
         raise FileExistsError(f"Move the previous build directory before rebuilding: {work}")
     downloads = ROOT / ".tools/mobile-downloads"
@@ -64,5 +64,5 @@ def prepare(platform):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("platform", choices=["android", "ios"])
+    parser.add_argument("platform", choices=["android", "ios", "macos"])
     prepare(parser.parse_args().platform)

@@ -142,14 +142,20 @@ def fixture_case(client, output, credentials, mode):
         "gateway": f"https://127.0.0.1:{server.server_port}", "directory": str(directory / "data"),
         "pin": credentials[2], "password": PASSWORD, "tunnel": True, "disable_udp": True,
         # Windows initially marks a newly assigned address tentative while DAD completes.
-        "udp_probe": mode != "connect_failure", "tunnel_duration_ms": 6000 if mode == "normal" else 12000,
+        "udp_probe": mode != "connect_failure", "tunnel_duration_ms": 12000,
+        "retry_failed": True,
     }
-    if mode != "normal":
+    if mode == "network_change":
+        config["network_change"] = True
+    elif mode in ("sleep_wake", "cancel_sleep"):
+        config["suspend_for_ms"] = 2000
+        config["cancel_suspended"] = mode == "cancel_sleep"
+    if mode in ("connect_failure", "reconnect_failure", "disconnect_failure"):
         script = directory / "failure.js"
-        reason = "connect" if mode == "connect_failure" else "reconnect"
+        reason = mode.removesuffix("_failure")
         source = ('if (WScript.CreateObject("WScript.Shell").Environment("Process")("reason") === "'
                   + reason + '") WScript.Quit(7);\n')
-        if mode == "reconnect_failure":
+        if mode != "connect_failure":
             source += (client.parent / "vpnc-script-win.js").read_text(encoding="utf-8")
         script.write_text(source, encoding="utf-8")
         config["script"] = str(script)
@@ -166,14 +172,27 @@ def fixture_case(client, output, credentials, mode):
                                + result.stderr.decode("utf-8", "replace")) from error
         (directory / "result.json").write_text(json.dumps(report, indent=2), encoding="utf-8")
         passed = (result.returncode == 0 and not report["timeout"] and report["adapter_removed"]
-                  and counts["credentials"] == 1)
+                  and counts["credentials"] == 1 and report["event_order_valid"]
+                  and report["terminal_count"] == 1 and report["lease_released"])
         if mode == "normal":
             passed = passed and report["terminal"] == "idle" and report["udp_probe"] and counts["datagrams"] > 0
         elif mode == "connect_failure":
-            passed = passed and report["terminal"] == "failed" and "connected" not in report["states"]
-        else:
+            passed = (passed and report["terminal"] == "failed" and "connected" not in report["states"]
+                      and report["error_category"] == "adapter" and report["attempts"] == 1)
+        elif mode == "reconnect_failure":
             passed = (passed and report["terminal"] == "failed" and counts["connects"] >= 2
-                      and report["states"].count("connected") == 1 and counts["datagrams"] > 0)
+                      and report["states"].count("connected") == 1 and counts["datagrams"] > 0
+                      and report["error_category"] == "adapter" and report["attempts"] == 1)
+        elif mode == "disconnect_failure":
+            passed = passed and report["terminal"] == "failed" and report["error_category"] == "adapter"
+        elif mode == "cancel_sleep":
+            passed = (passed and report["terminal"] == "idle" and "suspended" in report["states"]
+                      and report["states"].count("connected") == 1 and report["error_category"] == "canceled")
+        else:
+            passed = (passed and report["terminal"] == "idle" and report["probe_after_reconnect"]
+                      and 2 <= counts["connects"] <= 4 and report["states"].count("connected") >= 2)
+            if mode == "sleep_wake":
+                passed = passed and "suspended" in report["states"]
         return {"test": mode, "passed": bool(passed), **counts,
                 "terminal": report["terminal"], "adapter_removed": report["adapter_removed"]}
     finally:
@@ -194,7 +213,8 @@ def main():
     output.mkdir(parents=True)
     credentials = certificate(output, "loopback")
     results = [fixture_case(args.client.resolve(), output, credentials, mode)
-               for mode in ("normal", "connect_failure", "reconnect_failure")]
+               for mode in ("normal", "connect_failure", "reconnect_failure", "network_change",
+                            "sleep_wake", "cancel_sleep", "disconnect_failure")]
     report = {"passed": sum(case["passed"] for case in results), "total": len(results), "results": results}
     (args.output / "tunnel-results.json").write_text(json.dumps(report, indent=2), encoding="utf-8")
     print(json.dumps(report))

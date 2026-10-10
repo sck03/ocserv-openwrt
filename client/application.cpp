@@ -1,23 +1,43 @@
 #include "application.h"
 #include <shellapi.h>
+#include <iphlpapi.h>
 #include <algorithm>
 
 namespace vpn {
 using namespace ui;
 namespace {
 constexpr UINT SessionMessage = WM_APP + 20, TrayMessage = WM_APP + 21, AutoConnectMessage = WM_APP + 22;
+constexpr UINT NetworkMessage = WM_APP + 23;
 constexpr int ServerCaption = 510, InfoCaption = 520, InfoValue = 540;
-constexpr wchar_t ProfileFilter[] =
-    L"VPN profiles / VPN 配置 (*.vpn)\0*.vpn\0All files / 所有文件\0*.*\0\0";
+constexpr wchar_t ProfileFilter[] = L"VPN profiles / VPN 配置 (*.vpn)\0*.vpn\0All files / 所有文件\0*.*\0\0";
 void menu_item(HMENU menu, UINT id, const wchar_t *label, bool checked = false) {
     AppendMenuW(menu, MF_STRING | (checked ? MF_CHECKED : 0), id, label);
 }
 void submenu(HMENU menu, HMENU child, const wchar_t *label) {
     AppendMenuW(menu, MF_POPUP, reinterpret_cast<UINT_PTR>(child), label);
 }
+void upstream_changed(void *context, NET_LUID luid) {
+    // Ignore our Wintun adapter and its routes to avoid a reconnect feedback loop.
+    if (luid.Info.IfType != IF_TYPE_SOFTWARE_LOOPBACK && luid.Info.IfType != IF_TYPE_TUNNEL &&
+        luid.Info.IfType != IF_TYPE_PROP_VIRTUAL)
+        PostMessageW(static_cast<HWND>(context), NetworkMessage, 0, 0);
+}
+void CALLBACK interface_changed(void *context, MIB_IPINTERFACE_ROW *row, MIB_NOTIFICATION_TYPE) {
+    if (row)
+        upstream_changed(context, row->InterfaceLuid);
+}
+void CALLBACK address_changed(void *context, MIB_UNICASTIPADDRESS_ROW *row, MIB_NOTIFICATION_TYPE) {
+    if (row)
+        upstream_changed(context, row->InterfaceLuid);
+}
+void CALLBACK route_changed(void *context, MIB_IPFORWARD_ROW2 *row, MIB_NOTIFICATION_TYPE) {
+    if (row && row->DestinationPrefix.PrefixLength == 0)
+        upstream_changed(context, row->InterfaceLuid);
+}
 } // namespace
 Application::Application(std::filesystem::path directory) : store_(std::move(directory)) {}
 Application::~Application() {
+    stop_network_watch();
     if (session_) {
         session_->cancel();
         session_.reset();
@@ -60,23 +80,24 @@ bool Application::claim_instance() {
     }
     return false;
 }
-int Application::run(int show, const std::string &connect_profile) {
+int Application::run(int show, const std::string &connect_profile, bool startup) {
     std::wstring reason;
     if (!store_.load(profiles_, preferences_, reason)) {
         error(nullptr, reason);
         return 1;
     }
-    if (!claim_instance())
+    if ((startup && preferences_.auto_connect.empty()) || !claim_instance())
         return 0;
-    auto_connect_ = connect_profile;
+    auto_connect_ = startup ? preferences_.auto_connect : connect_profile;
     taskbar_created_ = RegisterWindowMessageW(L"TaskbarCreated");
-    if (!create(nullptr, L"LinkoraVPN.Main", Product, 480, 264,
+    if (!create(nullptr, L"LinkoraVPN.Main", Product, 480, 314,
                 WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX, WS_EX_CONTROLPARENT,
                 CreateMenu())) {
         error(nullptr, system_error(GetLastError()));
         return 1;
     }
     SetPropW(window_, instance_name_.c_str(), reinterpret_cast<HANDLE>(1));
+    watch_network();
     ACCEL keys[] = {
         {FCONTROL | FVIRTKEY, 'N', NewProfile},   {FCONTROL | FSHIFT | FVIRTKEY, 'N', NewAdvanced},
         {FCONTROL | FVIRTKEY, 'E', EditSelected}, {FCONTROL | FVIRTKEY, 'R', RemoveSelected},
@@ -120,6 +141,7 @@ void Application::create_controls() {
         control(L"EDIT", L"—", ES_READONLY | ES_AUTOHSCROLL, InfoValue + i, 148, 44 + i * 24, 296, 23);
     }
     control(L"STATIC", L"", SS_LEFTNOWORDWRAP, Status, 16, 239, 448, 24);
+    control(L"STATIC", L"", 0, StatusDetail, 16, 267, 448, 40);
     translate();
     reload();
 }
@@ -138,6 +160,7 @@ void Application::rebuild_menu() {
     menu_item(profiles, ImportProfile, t(L"导入配置…", L"Import profile…"));
     menu_item(profiles, ExportProfile, t(L"导出配置…", L"Export profile…"));
     menu_item(view, ShowLog, t(L"日志窗口(&L)\tCtrl+L", L"&Log window\tCtrl+L"));
+    menu_item(view, ExportDiagnostics, t(L"导出诊断信息…", L"Export diagnostics…"));
     menu_item(view, Minimize, t(L"最小化", L"Minimize"));
     menu_item(view, Restore, t(L"还原", L"Restore"));
     menu_item(settings, MinimizeToTray, t(L"最小化到通知区域", L"Minimize to notification area"),
@@ -147,6 +170,14 @@ void Application::rebuild_menu() {
     menu_item(settings, StartMinimized, t(L"启动时最小化", L"Start minimized"), preferences_.start_minimized);
     menu_item(settings, SingleInstance, t(L"单实例模式", L"Single instance mode"),
               preferences_.single_instance);
+    auto startup = std::wstring(t(L"登录 Windows 后自动连接", L"Connect at Windows sign-in"));
+    for (const auto &profile : profiles_)
+        if (profile.id == preferences_.auto_connect)
+            startup += L" (" + profile.name + L")";
+    menu_item(settings, AutoConnect, startup.c_str(), !preferences_.auto_connect.empty());
+    menu_item(settings, RetryFailed,
+              t(L"网络连接失败后重试（最多 3 次）", L"Retry network failures (up to 3 times)"),
+              preferences_.retry_failed);
     menu_item(levels, LogError, t(L"错误", L"Error"), preferences_.log_level == 0);
     menu_item(levels, LogInfo, t(L"信息", L"Info"), preferences_.log_level == 1);
     menu_item(levels, LogDebug, t(L"调试", L"Debug"), preferences_.log_level == 2);
@@ -227,6 +258,7 @@ bool Application::reload(const std::string &id) {
     SendMessageW(item(Servers), CB_SETCURSEL, static_cast<WPARAM>(index), 0);
     if (index < 0)
         SetWindowTextW(item(Servers), L"");
+    rebuild_menu();
     update_controls();
     return true;
 }
@@ -253,6 +285,18 @@ void Application::update_controls() {
                                  : t(L"取消", L"Cancel"))
                           : t(L"连接", L"Connect"));
     label(Status, state_text(state_, preferences_.language));
+    std::wstring detail;
+    if (state_ == State::RetryWait)
+        detail = std::to_wstring(status_.retry_seconds) + t(L" 秒后重试（", L" seconds until retry (") +
+                 std::to_wstring(status_.attempt) + L"/" + std::to_wstring(RetryLimit) + L")";
+    else if (state_ == State::Failed)
+        detail = error_text(status_.error, preferences_.language);
+    else if (state_ == State::Suspended)
+        detail = t(L"系统唤醒后恢复当前会话；可随时取消。",
+                   L"This session will resume on wake; you can cancel at any time.");
+    else if (state_ == State::Reconnecting)
+        detail = t(L"正在恢复网络连接，请稍候。", L"Restoring the network connection. Please wait.");
+    label(StatusDetail, detail);
     label(Gateway, active ? active_gateway_
                    : profile
                        ? profile->gateway
@@ -262,12 +306,70 @@ void Application::update_controls() {
         EnableMenuItem(menu, id, MF_BYCOMMAND | ((profile && !active && !closing_) ? MF_ENABLED : MF_GRAYED));
     for (int id : {NewProfile, NewAdvanced, ImportProfile})
         EnableMenuItem(menu, id, MF_BYCOMMAND | ((!active && !closing_) ? MF_ENABLED : MF_GRAYED));
+    EnableMenuItem(
+        menu, AutoConnect,
+        MF_BYCOMMAND |
+            ((!closing_ && (!preferences_.auto_connect.empty() || profile)) ? MF_ENABLED : MF_GRAYED));
+    EnableMenuItem(menu, RetryFailed, MF_BYCOMMAND | ((!active && !closing_) ? MF_ENABLED : MF_GRAYED));
     tray();
 }
-void Application::save_preferences() {
+bool Application::save_preferences() {
     std::wstring reason;
-    if (!store_.save_preferences(preferences_, reason))
+    if (!store_.save_preferences(preferences_, reason)) {
         error(window_, reason);
+        return false;
+    }
+    return true;
+}
+void Application::toggle_auto_connect() {
+    const auto previous = preferences_.auto_connect;
+    const auto *profile = selected();
+    if (previous.empty() && !profile)
+        return;
+    preferences_.auto_connect = previous.empty() ? profile->id : "";
+    if (!save_preferences()) {
+        preferences_.auto_connect = previous;
+        return;
+    }
+    std::wstring reason;
+    if (!set_login_startup(store_.directory(), !preferences_.auto_connect.empty(), reason)) {
+        preferences_.auto_connect = previous;
+        save_preferences();
+        error(window_, reason);
+    }
+    rebuild_menu();
+    update_controls();
+}
+void Application::export_diagnostics() {
+    auto path = choose_file(window_, true, L"Diagnostics / 诊断信息 (*.json)\0*.json\0\0", L"json",
+                            L"LinkoraVPN-diagnostics.json");
+    if (!path)
+        return;
+    auto status = status_;
+    status.state = state_;
+    std::wstring reason;
+    if (!write_atomic(*path, diagnostic_report(status, statistics_, log_.content(), events_.dropped()),
+                      reason))
+        error(window_, reason);
+}
+void Application::watch_network() {
+    ULONG results[] = {
+        NotifyIpInterfaceChange(AF_UNSPEC, interface_changed, window_, FALSE, &network_notifications_[0]),
+        NotifyUnicastIpAddressChange(AF_UNSPEC, address_changed, window_, FALSE, &network_notifications_[1]),
+        NotifyRouteChange2(AF_UNSPEC, route_changed, window_, FALSE, &network_notifications_[2])};
+    for (ULONG result : results)
+        if (result != NO_ERROR) {
+            log_.append(t(L"网络变化通知不可用：", L"Network change notifications unavailable: ") +
+                        system_error(result));
+            break;
+        }
+}
+void Application::stop_network_watch() {
+    for (auto &notification : network_notifications_)
+        if (notification) {
+            CancelMibChangeNotify2(notification);
+            notification = nullptr;
+        }
 }
 void Application::command(int id) {
     if (id == Quit) {
@@ -283,6 +385,14 @@ void Application::command(int id) {
     }
     if (id == ViewLog || id == ShowLog) {
         log_.show(window_, preferences_.language);
+        return;
+    }
+    if (id == ExportDiagnostics) {
+        export_diagnostics();
+        return;
+    }
+    if (id == AutoConnect && !closing_) {
+        toggle_auto_connect();
         return;
     }
     if (id == Restore) {
@@ -315,7 +425,11 @@ void Application::command(int id) {
             preferences_.start_minimized = !preferences_.start_minimized;
         else if (id == SingleInstance)
             preferences_.single_instance = !preferences_.single_instance;
-        else if (id == Chinese || id == English)
+        else if (id == RetryFailed) {
+            if (busy() || closing_)
+                return;
+            preferences_.retry_failed = !preferences_.retry_failed;
+        } else if (id == Chinese || id == English)
             preferences_.language = id == Chinese ? Language::Chinese : Language::English;
         else if (id >= LogError && id <= LogTrace) {
             preferences_.log_level = id - LogError;
@@ -342,10 +456,14 @@ void Application::command(int id) {
         if (MessageBoxW(window_, text.c_str(), Product, MB_YESNO | MB_ICONQUESTION | MB_DEFBUTTON2) ==
             IDYES) {
             std::wstring reason;
+            bool remove_startup = preferences_.auto_connect == profile->id;
             if (!store_.remove(profile->id, reason))
                 error(window_, reason);
-            else
+            else {
                 reload();
+                if (remove_startup && !set_login_startup(store_.directory(), false, reason))
+                    error(window_, reason);
+            }
         }
     } else if (id == ImportProfile) {
         auto path = choose_file(window_, false, ProfileFilter);
@@ -369,7 +487,6 @@ void Application::command(int id) {
 void Application::connect() {
     if (busy() || closing_)
         return;
-    session_.reset();
     Profile profile;
     if (auto *existing = selected())
         profile = *existing;
@@ -425,8 +542,14 @@ void Application::connect() {
         log_.append(t(L"保存的凭据不属于当前 Windows 用户，请重新输入。",
                       L"Saved credentials are unavailable for this Windows user. Enter them again."));
     int level = profile.log_level >= 0 ? profile.log_level : preferences_.log_level;
-    session_ = std::make_unique<Session>(std::move(profile), &store_, preferences_.language,
-                                         [this](Event event) { receive(std::move(event)); });
+    Session::Options options;
+    options.retry_failed = preferences_.retry_failed;
+    session_ = std::make_unique<Session>(
+        std::move(profile), &store_, preferences_.language,
+        [this](Event event) { receive(std::move(event)); }, options);
+    cursor_.begin(session_->id());
+    status_ = {};
+    status_.session_id = session_->id();
     session_->set_log_level(level);
     state_ = State::Connecting;
     show_statistics({});
@@ -434,6 +557,8 @@ void Application::connect() {
     if (!session_->start()) {
         session_.reset();
         state_ = State::Failed;
+        status_.error = ErrorCategory::Internal;
+        status_.terminal = true;
         error(window_, t(L"无法启动连接线程。", L"Could not start the connection worker."));
     }
     update_controls();
@@ -442,6 +567,8 @@ void Application::disconnect() {
     if (!session_)
         return;
     state_ = State::Disconnecting;
+    cursor_.cancel();
+    network_change_at_ = 0;
     session_->cancel();
     update_controls();
 }
@@ -521,6 +648,7 @@ void Application::receive(Event event) {
         PostMessageW(window_, SessionMessage, 0, 0);
 }
 void Application::show_statistics(const Statistics &stats) {
+    statistics_ = stats;
     const std::wstring values[] = {stats.ipv4,           stats.ipv6,        stats.dns,
                                    stats.tls_cipher,     stats.dtls_cipher, bytes(stats.downloaded),
                                    bytes(stats.uploaded)};
@@ -528,27 +656,53 @@ void Application::show_statistics(const Statistics &stats) {
         label(InfoValue + i, values[i].empty() ? L"—" : values[i]);
 }
 void Application::drain_events() {
+    if (draining_)
+        return;
+    struct Drain {
+        bool &active;
+        explicit Drain(bool &value) : active(value) {
+            active = true;
+        }
+        ~Drain() {
+            active = false;
+        }
+    } drain(draining_);
     auto events = events_.take();
     for (auto &event : events) {
+        if (!cursor_.accept(event)) {
+            if (event.prompt)
+                event.prompt->answer(false);
+            continue;
+        }
+        auto prefix = L"[session " + std::to_wstring(event.session_id) + L"/" +
+                      std::to_wstring(event.generation) + L"] ";
         if (event.kind == Event::Kind::Log)
-            log_.append(event.text);
+            log_.append(prefix + event.text);
         else if (event.kind == Event::Kind::Statistics)
             show_statistics(event.statistics);
         else if (event.kind == Event::Kind::ProfilesChanged)
             reload();
         else if (event.kind == Event::Kind::Prompt) {
             restore();
-            show_prompt(window_, event.prompt, preferences_.language, [this] {
-                return closing_ || !session_ || session_->finished() || state_ == State::Disconnecting;
+            show_prompt(window_, event.prompt, preferences_.language, [this, id = event.session_id] {
+                return closing_ || !session_ || session_->id() != id || session_->finished() ||
+                       cursor_.canceled();
             });
         } else {
-            state_ = event.state;
+            auto previous = state_;
+            status_ = event;
+            state_ = system_suspended_ && !event.terminal && event.state != State::Disconnecting
+                         ? State::Suspended
+                         : event.state;
             if (!event.text.empty())
-                log_.append(event.text);
-            if (event.terminal)
-                log_.append(state_text(event.state, preferences_.language));
+                log_.append(prefix + event.text);
+            if (previous != state_ || event.terminal)
+                log_.append(prefix + state_text(state_, preferences_.language) +
+                            (event.error == ErrorCategory::None
+                                 ? L""
+                                 : L" [" + wide(error_name(event.error)) + L"]"));
             update_controls();
-            if (event.state == State::Connected && active_minimize_)
+            if (state_ == State::Connected && previous != State::Connected && active_minimize_)
                 minimize();
         }
     }
@@ -568,6 +722,26 @@ LRESULT Application::message(UINT message, WPARAM wparam, LPARAM lparam) {
         drain_events();
         return 0;
     }
+    if (message == NetworkMessage) {
+        if (session_ && !cursor_.canceled() && (state_ == State::Connected || state_ == State::Reconnecting))
+            network_change_at_ = GetTickCount64() + 1000;
+        return 0;
+    }
+    if (message == WM_POWERBROADCAST) {
+        if (wparam == PBT_APMSUSPEND || wparam == PBT_APMRESUMEAUTOMATIC || wparam == PBT_APMRESUMESUSPEND) {
+            bool suspended = wparam == PBT_APMSUSPEND;
+            if (system_suspended_ != suspended || wparam == PBT_APMRESUMEAUTOMATIC) {
+                system_suspended_ = suspended;
+                network_change_at_ = 0;
+                if (session_ && !cursor_.canceled()) {
+                    session_->suspend(suspended);
+                    state_ = suspended ? State::Suspended : State::Reconnecting;
+                    update_controls();
+                }
+            }
+        }
+        return TRUE;
+    }
     if (message == AutoConnectMessage) {
         const auto wanted = auto_connect_;
         auto_connect_.clear();
@@ -583,6 +757,8 @@ LRESULT Application::message(UINT message, WPARAM wparam, LPARAM lparam) {
         return 0;
     }
     if (message == WM_TIMER) {
+        if (draining_)
+            return 0;
         // Also recovers a failed PostMessage when the Windows queue was full.
         drain_events();
         if (session_ && session_->finished()) {
@@ -596,8 +772,12 @@ LRESULT Application::message(UINT message, WPARAM wparam, LPARAM lparam) {
                 return 0;
             }
         }
-        static unsigned tick = 0;
-        if (++tick % 4 == 0 && session_ && state_ == State::Connected)
+        if (network_change_at_ && GetTickCount64() >= network_change_at_) {
+            network_change_at_ = 0;
+            if (session_ && !cursor_.canceled())
+                session_->network_changed();
+        }
+        if (++timer_tick_ % 4 == 0 && session_ && state_ == State::Connected)
             session_->request_statistics();
         return 0;
     }
@@ -655,7 +835,7 @@ LRESULT Application::message(UINT message, WPARAM wparam, LPARAM lparam) {
     }
     if (message == WM_QUERYENDSESSION) {
         if (session_)
-            session_->cancel();
+            disconnect();
         return TRUE;
     }
     if (message == WM_ENDSESSION && wparam) {
@@ -663,6 +843,7 @@ LRESULT Application::message(UINT message, WPARAM wparam, LPARAM lparam) {
         return 0;
     }
     if (message == WM_DESTROY) {
+        stop_network_watch();
         remove_tray();
         RemovePropW(window_, instance_name_.c_str());
         PostQuitMessage(0);
