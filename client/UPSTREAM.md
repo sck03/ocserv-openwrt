@@ -31,6 +31,10 @@ patches/gnutls/0001-static-linking.patch makes GNUTLS_STATIC suppress DLL import
 
 Script regressions execute the shipped JScript with mocked Windows commands. Authentication regressions execute real OpenConnect/GnuTLS callbacks against loopback HTTPS fixtures. UI tests operate only their own windows. The isolated x64 Windows CI runner additionally checks real Wintun/CSTP UDP traffic, script failure and adapter cleanup. See [validation boundaries](../docs/VALIDATION.md) for hardware acceptance.
 
+patches/openconnect/0002-windows-reconnect-routes.patch prepares a bypass for each new TCP peer before connecting during DDNS recovery. It also inherits the current Windows environment instead of the C runtime's stale environment snapshot, keeping per-session log and route-state paths correct.
+
+The JScript helper records only the external routes it creates. Reconnection updates gateway and IPv4/IPv6 exclusion routes; disconnect uses the saved next hops even after a physical network change. Existing administrator routes are preserved. IPv6 default routing covers both halves of the address space, including NAT64 prefixes, and uses temporary routes.
+
 ## Source layout and migration
 
 client/ is the sole client implementation. The old src/ network/WFP layer, Credential Manager store, default INI and OpenSSL recipe are retired. Profiles use application-local JSON and current-user DPAPI. Legacy public .bvpn files can be imported; credentials and settings outside this repository are not automatically migrated or deleted.

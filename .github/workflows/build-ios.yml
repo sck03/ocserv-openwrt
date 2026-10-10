@@ -38,6 +38,8 @@ jobs:
           python3 tests/mobile_build_tests.py
           cc -Wall -Wextra -Werror -std=c11 tests/mobile_protocol_tests.c -o "$RUNNER_TEMP/mobile-protocol-tests"
           "$RUNNER_TEMP/mobile-protocol-tests"
+          clang -Wall -Wextra -Werror -fobjc-arc -framework Foundation tests/ios_connection_tests.m -o "$RUNNER_TEMP/ios-connection-tests"
+          "$RUNNER_TEMP/ios-connection-tests"
           bash -n scripts/build-ios-core.sh scripts/build-ios.sh
           xcodebuild -version
       - uses: actions/cache@v6.1.0

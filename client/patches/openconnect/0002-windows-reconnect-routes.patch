@@ -1,0 +1,75 @@
+--- a/ssl.c
++++ b/ssl.c
+@@ -96,6 +96,20 @@
+ 	if (vpninfo->protect_socket)
+ 		vpninfo->protect_socket(vpninfo->cbdata, sockfd);
+ 
++#ifdef _WIN32
++	/* DDNS can select a new A/AAAA address while the tunnel's default
++	 * routes are still installed. Prepare its bypass before connect(). */
++	if (tun_is_up(vpninfo) && vpninfo->vpnc_script) {
++		char host[NI_MAXHOST];
++		if (getnameinfo(addr, addrlen, host, sizeof(host), NULL, 0, NI_NUMERICHOST))
++			return -EINVAL;
++		script_setenv(vpninfo, "VPNGATEWAY", host, 0, 0);
++		err = script_config_tun(vpninfo, "prepare-connect");
++		if (err)
++			return err;
++	}
++#endif
++
+ 	if (connect(sockfd, addr, addrlen) < 0 && !connect_pending()) {
+ 	sockerr:
+ #ifdef _WIN32
+--- a/script.c
++++ b/script.c
+@@ -472,20 +472,25 @@
+ {
+ 	struct oc_vpn_option *opt;
+ 	struct oc_text_buf *envbuf;
+-	wchar_t **oldenv, **p, *newenv = NULL;
++	wchar_t **oldenv, *p, *environment, *newenv = NULL;
+ 	int nr_envs = 0, i;
+ 
+-	/* _wenviron is NULL until we call _wgetenv() */
+-	(void)_wgetenv(L"PATH");
++	/* SetEnvironmentVariableW() does not update the CRT's cached
++	 * _wenviron. Each session must inherit its current log/state paths. */
++	environment = GetEnvironmentStringsW();
++	if (!environment)
++		return NULL;
+ 
+-	/* Take a copy of _wenviron (but not of its strings) */
+-	for (p = _wenviron; *p; p++)
++	for (p = environment; *p; p += wcslen(p) + 1)
+ 		nr_envs++;
+ 
+ 	oldenv = malloc(nr_envs * sizeof(*oldenv));
+-	if (!oldenv)
++	if (!oldenv) {
++		FreeEnvironmentStringsW(environment);
+ 		return NULL;
+-	memcpy(oldenv, _wenviron, nr_envs * sizeof(*oldenv));
++	}
++	for (i = 0, p = environment; *p; p += wcslen(p) + 1)
++		oldenv[i++] = p;
+ 
+ 	envbuf = buf_alloc();
+ 
+@@ -506,7 +511,7 @@
+ 		/* See if we can find it in the existing environment */
+ 		for (i = 0; i < nr_envs; i++) {
+ 			if (oldenv[i] &&
+-			    !wcsncmp((wchar_t *)buf->data, oldenv[i], buf->pos / 2)) {
++			    !_wcsnicmp((wchar_t *)buf->data, oldenv[i], buf->pos / 2)) {
+ 				oldenv[i] = NULL;
+ 				break;
+ 			}
+@@ -536,6 +541,7 @@
+ 
+  err:
+ 	free(oldenv);
++	FreeEnvironmentStringsW(environment);
+ 	buf_free(envbuf);
+ 	return newenv;
+ }

@@ -604,7 +604,11 @@ void Session::cleanup() {
         SetEnvironmentVariableW(L"BULIJIE_SCRIPT_LOG", previous_script_log_.empty() ? nullptr : previous_script_log_.c_str());
         script_environment_set_ = false;
     }
-    if (!script_log_.empty()) { DeleteFileW(script_log_.c_str()); script_log_.clear(); }
+    if (!script_log_.empty()) {
+        DeleteFileW((script_log_.wstring() + L".routes").c_str());
+        DeleteFileW(script_log_.c_str());
+        script_log_.clear();
+    }
     if (script_environment_lock_.owns_lock()) script_environment_lock_.unlock();
     erase(pending_password_);
     erase(profile_.password);

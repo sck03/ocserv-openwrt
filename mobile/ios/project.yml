@@ -5,8 +5,8 @@ options:
 settings:
   base:
     SWIFT_VERSION: '5.0'
-    MARKETING_VERSION: '0.1.0'
-    CURRENT_PROJECT_VERSION: '1'
+    MARKETING_VERSION: '0.1.1'
+    CURRENT_PROJECT_VERSION: '2'
     TARGETED_DEVICE_FAMILY: '1,2'
     CODE_SIGN_STYLE: Manual
 targets:
@@ -19,6 +19,7 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: $(BVPN_BUNDLE_ID)
         PROVISIONING_PROFILE_SPECIFIER: $(BVPN_APP_PROFILE)
         CODE_SIGN_ENTITLEMENTS: App/App.entitlements
+        SWIFT_OBJC_BRIDGING_HEADER: Shared/ServerAddress.h
     info:
       path: App/Info.plist
       properties:

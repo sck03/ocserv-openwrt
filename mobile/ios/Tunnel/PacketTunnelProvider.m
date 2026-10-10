@@ -8,6 +8,7 @@
 #include <stdint.h>
 #include <sys/uio.h>
 #include "ProtocolValidation.h"
+#import "../Shared/ServerAddress.h"
 
 @interface PacketTunnelProvider : NEPacketTunnelProvider
 @property(nonatomic, assign) struct openconnect_info *vpn;
@@ -22,6 +23,8 @@
 @property(nonatomic, strong) dispatch_queue_t packets;
 @property(nonatomic, strong) dispatch_source_t reader;
 @property(nonatomic, copy) void (^stopCompletion)(void);
+@property(nonatomic, strong) NSError *connectionError;
+- (NSError *)configureTunnel;
 @end
 
 static NSError *VPNError(NSString *message) {
@@ -59,6 +62,21 @@ static void Progress(void *data, int level, const char *format, ...) {
     // Core messages may contain authentication material. Do not persist or print them.
 }
 
+static void Reconnected(void *data) {
+    PacketTunnelProvider *provider = (__bridge PacketTunnelProvider *)data;
+    if (provider.stopping) return;
+    provider.reasserting = YES;
+    NSError *error = [provider configureTunnel];
+    if (error) {
+        provider.connectionError = error;
+        @synchronized (provider) {
+            if (provider.commandFD >= 0) { char command = OC_CMD_CANCEL; write(provider.commandFD, &command, 1); }
+        }
+    } else {
+        provider.reasserting = NO;
+    }
+}
+
 @implementation PacketTunnelProvider
 
 - (void)startTunnelWithOptions:(NSDictionary<NSString *,NSObject *> *)options
@@ -74,16 +92,16 @@ static void Progress(void *data, int level, const char *format, ...) {
     }
     self.packetFD = -1;
     self.authAttempts = 0;
+    self.connectionError = nil;
     NETunnelProviderProtocol *config = (NETunnelProviderProtocol *)self.protocolConfiguration;
     NSDictionary *values = config.providerConfiguration;
     self.username = [values[@"username"] isKindOfClass:NSString.class] ? values[@"username"] : @"";
     self.pin = [values[@"pin"] isKindOfClass:NSString.class] ? values[@"pin"] : @"";
     self.password = [options[@"password"] isKindOfClass:NSString.class] ? (NSString *)options[@"password"] : @"";
-    NSURL *server = [NSURL URLWithString:config.serverAddress ?: @""];
+    NSURL *server = BVPNServerURL(config.serverAddress);
     NSData *hash = [self.pin hasPrefix:@"pin-sha256:"] ?
         [[NSData alloc] initWithBase64EncodedString:[self.pin substringFromIndex:11] options:0] : nil;
-    if (![server.scheme isEqualToString:@"https"] || !server.host.length ||
-        server.user || server.password || server.fragment || hash.length != 32 ||
+    if (!server || hash.length != 32 ||
         ![[hash base64EncodedStringWithOptions:0] isEqualToString:[self.pin substringFromIndex:11]] ||
         !self.username.length || !self.password.length) {
         self.password = nil;
@@ -100,7 +118,7 @@ static void Progress(void *data, int level, const char *format, ...) {
     self.packets = dispatch_queue_create("com.bulijie.vpn.packets", DISPATCH_QUEUE_SERIAL);
     dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
         @autoreleasepool {
-            [self runServer:config.serverAddress completion:completionHandler];
+            [self runServer:server.absoluteString completion:completionHandler];
         }
     });
 }
@@ -121,6 +139,9 @@ static void Progress(void *data, int level, const char *format, ...) {
         }
         // The packaged OpenSSL has no iOS root store. Trust only the explicitly supplied pin.
         openconnect_set_system_trust(self.vpn, 0);
+        openconnect_set_reqmtu(self.vpn, 1400);
+        openconnect_set_dpd(self.vpn, 30);
+        openconnect_set_reconnected_handler(self.vpn, Reconnected);
         if (openconnect_set_protocol(self.vpn, "anyconnect") ||
             openconnect_parse_url(self.vpn, server.UTF8String) ||
             openconnect_obtain_cookie(self.vpn) || self.stopping) {
@@ -130,54 +151,7 @@ static void Progress(void *data, int level, const char *format, ...) {
         if (openconnect_make_cstp_connection(self.vpn)) {
             failure = VPNError(@"无法建立 VPN 隧道"); break;
         }
-        const struct oc_ip_info *info = NULL;
-        if (openconnect_get_ip_info(self.vpn, &info, NULL, NULL) || !info || !info->addr || !info->netmask) {
-            failure = VPNError(@"服务器未分配 IPv4 地址"); break;
-        }
-        NSString *gateway = info->gateway_addr ? @(info->gateway_addr) : nil;
-        if (!gateway.length) { failure = VPNError(@"服务器地址不可用"); break; }
-        NEPacketTunnelNetworkSettings *settings = [[NEPacketTunnelNetworkSettings alloc] initWithTunnelRemoteAddress:gateway];
-        if (info->mtu < 1280 || info->mtu > 65535) {
-            failure = VPNError(@"服务器 MTU 无效；全隧道 IPv6 需要至少 1280 字节"); break;
-        }
-        settings.MTU = @(MIN(info->mtu, 1400));
-        settings.IPv4Settings = [[NEIPv4Settings alloc] initWithAddresses:@[@(info->addr)] subnetMasks:@[@(info->netmask)]];
-        settings.IPv4Settings.includedRoutes = @[[NEIPv4Route defaultRoute]];
-        // Capture IPv6 as well. When ocserv supplies none, IPv6 has no usable upstream
-        // and is dropped inside the tunnel instead of escaping over the physical link.
-        NSArray<NSString *> *parts = info->netmask6 ? [@(info->netmask6) componentsSeparatedByString:@"/"] : @[];
-        // Modern ocserv may send only X-CSTP-Address-IP6 (address/prefix).
-        NSString *v6 = info->addr6 ? @(info->addr6) : (parts.count == 2 ? parts[0] : @"fd00::2");
-        if ([v6 containsString:@"/"]) v6 = [v6 componentsSeparatedByString:@"/"][0];
-        int prefixLength = parts.count == 2 ? bvpn_prefix6(parts[1].UTF8String) : 128;
-        struct in6_addr parsedV6;
-        if (parts.count > 2 || prefixLength < 0 || inet_pton(AF_INET6, v6.UTF8String, &parsedV6) != 1) {
-            failure = VPNError(@"服务器 IPv6 前缀无效"); break;
-        }
-        NSNumber *prefix = @(prefixLength);
-        settings.IPv6Settings = [[NEIPv6Settings alloc] initWithAddresses:@[v6] networkPrefixLengths:@[prefix]];
-        settings.IPv6Settings.includedRoutes = @[[NEIPv6Route defaultRoute]];
-        NSMutableArray *dns = [NSMutableArray array];
-        for (int i = 0; i < 3; i++) if (info->dns[i]) [dns addObject:@(info->dns[i])];
-        if (!dns.count) { failure = VPNError(@"服务器未提供 DNS"); break; }
-        settings.DNSSettings = [[NEDNSSettings alloc] initWithServers:dns];
-        settings.DNSSettings.matchDomains = @[@""];
-        dispatch_semaphore_t ready = dispatch_semaphore_create(0);
-        __block NSError *settingsError = nil;
-        [self setTunnelNetworkSettings:settings completionHandler:^(NSError *error) {
-            settingsError = error;
-            dispatch_semaphore_signal(ready);
-        }];
-        long waitResult = 1;
-        for (unsigned attempt = 0; attempt < 150 && !self.stopping; ++attempt) {
-            waitResult = dispatch_semaphore_wait(ready, dispatch_time(DISPATCH_TIME_NOW, 200 * NSEC_PER_MSEC));
-            if (!waitResult) break;
-        }
-        if (self.stopping) break;
-        if (waitResult) {
-            failure = VPNError(@"应用网络设置超时"); break;
-        }
-        failure = settingsError;
+        failure = [self configureTunnel];
         if (failure || self.stopping) break;
         int pair[2];
         if (socketpair(AF_UNIX, SOCK_DGRAM, 0, pair)) { failure = VPNError(@"无法创建数据通道"); break; }
@@ -197,7 +171,7 @@ static void Progress(void *data, int level, const char *format, ...) {
         started = YES;
         completion(nil);
         int result = openconnect_mainloop(self.vpn, 300, 10);
-        if (!self.stopping) failure = VPNError(result ? @"VPN 连接中断" : @"VPN 连接已结束");
+        if (!self.stopping) failure = self.connectionError ?: VPNError(result ? @"VPN 连接中断" : @"VPN 连接已结束");
     } while (NO);
     self.password = nil;
     dispatch_sync(self.packets, ^{
@@ -216,6 +190,46 @@ static void Progress(void *data, int level, const char *format, ...) {
     if (!started) completion(failure ?: VPNError(@"连接已取消"));
     else if (failure && !self.stopping) [self cancelTunnelWithError:failure];
     if (stopped) stopped();
+}
+
+- (NSError *)configureTunnel {
+    const struct oc_ip_info *info = NULL;
+    if (openconnect_get_ip_info(self.vpn, &info, NULL, NULL) || !info || !info->addr || !info->netmask)
+        return VPNError(@"服务器未分配 IPv4 地址");
+    NSString *gateway = info->gateway_addr ? @(info->gateway_addr) : nil;
+    if (!gateway.length) return VPNError(@"服务器地址不可用");
+    if (info->mtu < 1280 || info->mtu > 65535)
+        return VPNError(@"服务器 MTU 无效；全隧道 IPv6 需要至少 1280 字节");
+    NEPacketTunnelNetworkSettings *settings = [[NEPacketTunnelNetworkSettings alloc] initWithTunnelRemoteAddress:gateway];
+    settings.MTU = @(info->mtu);
+    settings.IPv4Settings = [[NEIPv4Settings alloc] initWithAddresses:@[@(info->addr)] subnetMasks:@[@(info->netmask)]];
+    settings.IPv4Settings.includedRoutes = @[[NEIPv4Route defaultRoute]];
+    // Capture IPv6 even when the server assigns none, so it cannot bypass the tunnel.
+    NSArray<NSString *> *parts = info->netmask6 ? [@(info->netmask6) componentsSeparatedByString:@"/"] : @[];
+    NSString *v6 = info->addr6 ? @(info->addr6) : (parts.count == 2 ? parts[0] : @"fd00::2");
+    if ([v6 containsString:@"/"]) v6 = [v6 componentsSeparatedByString:@"/"][0];
+    int prefixLength = parts.count == 2 ? bvpn_prefix6(parts[1].UTF8String) : 128;
+    struct in6_addr parsedV6;
+    if (parts.count > 2 || prefixLength < 0 || inet_pton(AF_INET6, v6.UTF8String, &parsedV6) != 1)
+        return VPNError(@"服务器 IPv6 前缀无效");
+    settings.IPv6Settings = [[NEIPv6Settings alloc] initWithAddresses:@[v6] networkPrefixLengths:@[@(prefixLength)]];
+    settings.IPv6Settings.includedRoutes = @[[NEIPv6Route defaultRoute]];
+    NSMutableArray *dns = [NSMutableArray array];
+    for (int i = 0; i < 3; i++) if (info->dns[i]) [dns addObject:@(info->dns[i])];
+    if (!dns.count) return VPNError(@"服务器未提供 DNS");
+    settings.DNSSettings = [[NEDNSSettings alloc] initWithServers:dns];
+    settings.DNSSettings.matchDomains = @[@""];
+    dispatch_semaphore_t ready = dispatch_semaphore_create(0);
+    __block NSError *settingsError = nil;
+    [self setTunnelNetworkSettings:settings completionHandler:^(NSError *error) {
+        settingsError = error;
+        dispatch_semaphore_signal(ready);
+    }];
+    for (unsigned attempt = 0; attempt < 150 && !self.stopping; ++attempt) {
+        if (!dispatch_semaphore_wait(ready, dispatch_time(DISPATCH_TIME_NOW, 200 * NSEC_PER_MSEC)))
+            return settingsError;
+    }
+    return VPNError(self.stopping ? @"连接已取消" : @"应用网络设置超时");
 }
 
 - (void)startPackets:(int)fd {

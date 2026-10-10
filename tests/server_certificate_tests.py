@@ -5,6 +5,7 @@ import json
 import os
 from pathlib import Path
 import re
+import shlex
 import shutil
 import stat
 import subprocess
@@ -20,13 +21,22 @@ function=re.search(r'(?ms)^initcerts\(\) \(\n.*?^\)\n',source).group(0)
 checks=[]
 with tempfile.TemporaryDirectory(prefix='bulijie-cert-test-') as temporary:
     base=Path(temporary)
-    def initialize(folder):
+    def initialize(folder, certificate=None, private_key=None):
         script=base/'initialize.sh'
         text='''#!/bin/sh
 uci() { printf '%s\\n' OPLForN1; }
+config_load() { :; }
+config_get() {
+    case "$1" in
+        certificate) certificate=${TEST_CERTIFICATE:-$4};;
+        private_key) private_key=${TEST_PRIVATE_KEY:-$4};;
+    esac
+}
 network_get_ipaddr() { lan_address=192.168.19.253; }
 logger() { :; }
-'''+function.replace('/etc/ocserv',str(folder))+'\ninitcerts\n'
+'''+function.replace('/etc/ocserv',str(folder))+'\n'
+        text+='TEST_CERTIFICATE='+shlex.quote(str(certificate or ''))+'\n'
+        text+='TEST_PRIVATE_KEY='+shlex.quote(str(private_key or ''))+'\ninitcerts\n'
         script.write_text(text,encoding='utf-8')
         return subprocess.run(['sh',str(script)],capture_output=True,text=True,timeout=120)
     folder=base/'ocserv'
@@ -61,6 +71,18 @@ logger() { :; }
     shutil.copyfile(folder/'ca.pem',orphan/'ca.pem')
     assert initialize(orphan).returncode!=0 and not (orphan/'ca-key.pem').exists()
     checks.append('an incomplete CA is not silently replaced with an unrelated private key')
+    external=base/'external'
+    assert initialize(external,folder/'server-cert.pem',folder/'server-key.pem').returncode==0
+    assert not external.exists()
+    assert initialize(orphan,folder/'server-cert.pem',folder/'server-key.pem').returncode==0
+    assert not (orphan/'ca-key.pem').exists()
+    checks.append('configured public certificates work without bootstrap files or a local CA key')
+    assert initialize(external,folder/'server-cert.pem',external/'missing-key.pem').returncode!=0
+    assert not external.exists()
+    checks.append('a missing external private key fails without creating unrelated bootstrap credentials')
+    assert hashlib.sha256((folder/'server-cert.pem').read_bytes()).hexdigest()==digests['server-cert.pem']
+    assert hashlib.sha256((folder/'server-key.pem').read_bytes()).hexdigest()==digests['server-key.pem']
+    checks.append('external certificate initialization leaves the supplied key pair unchanged')
 output=ROOT/'test-results/server-certificates.json'
 output.parent.mkdir(exist_ok=True)
 output.write_text(json.dumps({'passed':len(checks),'checks':checks,'boundary':'Real GnuTLS certtool/OpenSSL; temporary Linux filesystem, not the N1.'},indent=2)+'\n',encoding='utf-8')

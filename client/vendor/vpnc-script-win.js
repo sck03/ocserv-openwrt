@@ -23,70 +23,45 @@
 // WSH can exit with status 0 after an unhandled JScript exception.
 // Keep the upstream helper inside an explicit failure boundary.
 var failureLog = null;
+var failureCleanup = null;
 function configureNetwork() {
 var accumulatedExitCode = 0;
+var lastExitCode = 0;
 var ws = WScript.CreateObject("WScript.Shell");
 var env = ws.Environment("Process");
 var comspec = ws.ExpandEnvironmentStrings("%comspec%");
+var fs = WScript.CreateObject("Scripting.FileSystemObject");
 
 var ERROR = 0, INFO = 1, DEBUG = 2, TRACE = 3;
 var logLevel = env("LOG_LEVEL") === "" ? INFO : parseInt(env("LOG_LEVEL"));
 if (isNaN(logLevel)) logLevel = INFO;
-var logTimestamps = false;
 // BulijieVPN: isolate each session's log and preserve Chinese Windows output.
 var applicationLogPath = env("BULIJIE_SCRIPT_LOG");
 var logToFile = applicationLogPath || env("LOG2FILE");
 var loggedCharacters = 0;
-
-// How to add the default internal route
-// 0 - As interface gateway when setting properties
-// 1 - As a 0.0.0.0/0 route with a lower metric than the default route
-// 2 - As 0.0.0.0/1 + 128.0.0.0/1 routes (override the default route cleanly)
-var REDIRECT_GATEWAY_METHOD = 0;
+var statePath = applicationLogPath ? applicationLogPath + ".routes" :
+    fs.GetSpecialFolder(2) + "\\vpnc-" + env("VPNPID") + ".routes";
+var ownedRoutes = null, routes4 = "", routes6 = "";
 
 // --------------------------------------------------------------
 // Utilities
 // --------------------------------------------------------------
 
-function ocTimestamp(d) {
-    // Matches format of `openconnect --timestamp` ("%Y-%m-%d %H:%M:%S", local time)
-    function pad(number) {
-        if (number < 10)
-            return '0' + number;
-        return number;
-    }
-    return (d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()) + ' '
-            + pad(d.getHours()) + ':' + pad(d.getMinutes())   + ':' + pad(d.getSeconds()));
-}
-
 function echo(level, msg)
 {
-    var msg_write;
     if (logLevel < level)
         return;
-
-    if (logTimestamps)
-        msg_write = "[" + ocTimestamp(new Date()) + "] " + msg;
-    else
-        msg_write = msg;
 
     if (logToFile) {
         var remaining = 1024 * 1024 - loggedCharacters - 2;
         if (remaining >= 0) {
-            var written = msg_write.substring(0, remaining);
+            var written = msg.substring(0, remaining);
             log.WriteLine(written);
             loggedCharacters += written.length + 2;
         }
     } else {
-        WScript.echo(msg_write);
+        WScript.echo(msg);
     }
-}
-
-function run_silent(cmd)
-{
-    var fullCmd = comspec + " /C \"" + cmd + "\" > NUL 2>&1";
-    var oExec = ws.Exec(fullCmd);
-    oExec.StdIn.Close();
 }
 
 function run(cmd, optional)
@@ -99,7 +74,7 @@ function run(cmd, optional)
     var s = oExec.StdOut.ReadAll();
     while (oExec.Status === 0) WScript.Sleep(10);
 
-    var exitCode = oExec.ExitCode;
+    var exitCode = lastExitCode = oExec.ExitCode;
     if (exitCode != 0) {
         echo(optional ? INFO : ERROR, "\"" + cmd + "\" returned non-zero exit status: " + exitCode);
         // netsh returns an error when deleting an already empty DNS/WINS list.
@@ -113,18 +88,30 @@ function run(cmd, optional)
 
 function getDefaultGateway4()
 {
-    if (run("route print").match(/0\.0\.0\.0 *(0|128)\.0\.0\.0 *([0-9\.]*)/)) {
-        return (RegExp.$2);
+    routes4 = run("route print", true);
+    var rows = routes4.split(/\r?\n/), gateway = "", metric = Infinity;
+    for (var i = 0; i < rows.length; i++) {
+        var match = rows[i].match(/^\s*0\.0\.0\.0\s+0\.0\.0\.0\s+([0-9.]+)\s+\S+\s+(\d+)/);
+        if (match && match[1] !== env("INTERNAL_IP4_ADDRESS") && Number(match[2]) < metric) {
+            gateway = match[1]; metric = Number(match[2]);
+        }
     }
-    return ("");
+    return gateway;
 }
 
 function getDefaultGateway6()
 {
-    if (run("netsh interface ipv6 show route", true).match(/::\/0 *([0-9]+ *[0-9a-f:]+)/)) {
-        return (RegExp.$1);
+    routes6 = run("netsh interface ipv6 show route", true);
+    var rows = routes6.split(/\r?\n/), gateway = "", metric = Infinity;
+    for (var i = 0; i < rows.length; i++) {
+        var match = rows[i].match(/::\/0\s+(\d+)\s+([0-9a-f:]+)/i);
+        var cost = match && rows[i].substring(0, match.index).match(/(\d+)\s*$/);
+        var value = cost ? Number(cost[1]) : 0;
+        if (match && match[1] !== env("TUNIDX") && value < metric) {
+            gateway = match[1] + " " + match[2]; metric = value;
+        }
     }
-    return ("");
+    return gateway;
 }
 
 function isLoopback(address)
@@ -132,22 +119,82 @@ function isLoopback(address)
     return /^127\./.test(address) || address === "::1";
 }
 
-if (!String.prototype.trim) {
-    String.prototype.trim = function () {
-        return this.replace(/^[\s\uFEFF\xA0]+|[\s\uFEFF\xA0]+$/g, '');
-    };
+function routeCommand(action, route) {
+    if (route[0] === "6")
+        return "netsh interface ipv6 " + action + " route " + route[1] + " " + route[2] + " store=active";
+    var parts = route[1].split("/");
+    return "route " + action + " " + parts[0] + " mask " + parts[1] + " " + route[2];
 }
+function loadRoutes() {
+    if (ownedRoutes !== null) return;
+    ownedRoutes = [];
+    if (!fs.FileExists(statePath)) return;
+    if (fs.GetFile(statePath).Size > 32768) throw new Error("Invalid route state size");
+    var file = fs.OpenTextFile(statePath, 1, false, 0);
+    var rows = file.ReadAll().split(/\r?\n/); file.Close();
+    for (var i = 0; i < rows.length; i++) {
+        if (!rows[i]) continue;
+        var r = rows[i].split("\t");
+        if (r.length !== 4 || !/^[ge]$/.test(r[3]) ||
+            !(r[0] === "4" && /^[0-9.]+\/[0-9.]+$/.test(r[1]) && /^[0-9.]+$/.test(r[2]) ||
+              r[0] === "6" && /^[0-9a-f:]+\/\d+$/i.test(r[1]) && /^\d+ [0-9a-f:]+$/i.test(r[2])))
+            throw new Error("Invalid route state");
+        ownedRoutes.push(r);
+    }
+}
+function saveRoutes() {
+    var file = fs.OpenTextFile(statePath, 2, true, 0);
+    for (var i = 0; i < ownedRoutes.length; i++) file.WriteLine(ownedRoutes[i].join("\t"));
+    file.Close();
+}
+function addOwnedRoute(family, prefix, gateway, kind) {
+    if (!gateway) return; // An on-link/specific route can work without a default gateway.
+    loadRoutes();
+    var r = [family, prefix, gateway, kind];
+    var pattern = family === "4" ? prefix.replace("/", "\\s+") : prefix;
+    pattern = pattern.replace(/\./g, "\\.") + "\\s+" + gateway.replace(/ /g, "\\s+").replace(/\./g, "\\.");
+    if (new RegExp("(?:^|\\s)" + pattern + "(?:\\s|$)", "i").test(family === "4" ? routes4 : routes6)) return;
+    if (ownedRoutes.length >= 256) throw new Error("Too many pending VPN routes");
+    run(routeCommand("add", r));
+    if (lastExitCode) return;
+    var known = false;
+    for (var i = 0; i < ownedRoutes.length; i++)
+        if (ownedRoutes[i].join("\t") === r.join("\t")) known = true;
+    if (!known) ownedRoutes.push(r);
+    try { saveRoutes(); } catch (error) { run(routeCommand("delete", r), true); throw error; }
+}
+function releaseRoutes(keep) {
+    loadRoutes();
+    var remaining = [];
+    for (var i = 0; i < ownedRoutes.length; i++) {
+        var r = ownedRoutes[i];
+        if (keep && keep(r)) remaining.push(r);
+        else run(routeCommand("delete", r), true);
+    }
+    ownedRoutes = remaining;
+    if (ownedRoutes.length) saveRoutes();
+    else if (fs.FileExists(statePath)) fs.DeleteFile(statePath);
+}
+function gatewayRoute(gateway, gw4, gw6) {
+    if (!gateway || isLoopback(gateway)) return;
+    var ipv6 = gateway.indexOf(":") !== -1;
+    addOwnedRoute(ipv6 ? "6" : "4", gateway + (ipv6 ? "/128" : "/255.255.255.255"), ipv6 ? gw6 : gw4, "g");
+}
+function excludedRoutes(gw4, gw6) {
+    for (var family = 4; family <= 6; family += 2) {
+        var prefix = family === 4 ? "CISCO_SPLIT_EXC" : "CISCO_IPV6_SPLIT_EXC";
+        for (var i = 0; i < Number(env(prefix)); i++)
+            addOwnedRoute(String(family), env(prefix + "_" + i + "_ADDR") + "/" +
+                env(prefix + "_" + i + (family === 4 ? "_MASK" : "_MASKLEN")), family === 4 ? gw4 : gw6, "e");
+    }
+}
+failureCleanup = function() { releaseRoutes(); };
 
 // --------------------------------------------------------------
 // Script starts here
 // --------------------------------------------------------------
 
-// Ensure that output of commands is in a known encoding for consistent
-// logging.
-run_silent("chcp 65001");
-
 if (logToFile) {
-	var fs = WScript.CreateObject("Scripting.FileSystemObject");
 	var tmpdir = fs.GetSpecialFolder(2)+"\\";
 	// Include earlier reconnect attempts in the limit. The client drains this
 	// file after setup/reconnect/cleanup; failed attempts can run in between.
@@ -160,6 +207,18 @@ if (logToFile) {
 
 switch (env("reason")) {
 case "pre-init":
+    break;
+case "prepare-connect":
+case "reconnect":
+    var gw4 = getDefaultGateway4(), gw6 = getDefaultGateway6();
+    gatewayRoute(env("VPNGATEWAY"), gw4, gw6);
+    if (env("reason") === "reconnect") {
+        excludedRoutes(gw4, gw6);
+        releaseRoutes(function(r) {
+            return r[2] === (r[0] === "4" ? gw4 : gw6) &&
+                (r[3] === "e" || r[1].split("/")[0] === env("VPNGATEWAY"));
+        });
+    }
     break;
 case "connect":
     if (env("CISCO_BANNER")) {
@@ -200,26 +259,17 @@ case "connect":
     }
 
     // Add explicit route for the VPN gateway to avoid routing loops
-    var vpngw = env("VPNGATEWAY");
-    if (isLoopback(vpngw)) {
-        echo(DEBUG, "Loopback VPN gateway needs no bypass route.");
-    } else if (vpngw.match(/:/g)) {
-	    echo(INFO, "Configuring explicit route to IPv6 VPN gateway " + vpngw);
-	    run("netsh interface ipv6 add route " + vpngw + "/128 " + gw6);
-    } else {
-	    echo(INFO, "Configuring explicit route to IPv4 VPN gateway " + vpngw);
-	    run("route add " + vpngw + " mask 255.255.255.255 " + gw4);
-    }
+    gatewayRoute(env("VPNGATEWAY"), gw4, gw6);
     echo(INFO, "done.");
 
     echo(INFO, "Configuring \"" + env("TUNDEV") + "\" / " + env("TUNIDX") + " interface for Legacy IP...");
 
-    if (!env("CISCO_SPLIT_INC") && REDIRECT_GATEWAY_METHOD != 2) {
+    if (!env("CISCO_SPLIT_INC")) {
         // Interface metric must be set to 1 in order to add a route with metric 1 since Windows Vista
         run("netsh interface ip set interface " + env("TUNIDX") + " metric=1 store=active");
     }
 
-    if (env("CISCO_SPLIT_INC") || REDIRECT_GATEWAY_METHOD > 0) {
+    if (env("CISCO_SPLIT_INC")) {
         run("netsh interface ip set address " + env("TUNIDX") + " static " +
             env("INTERNAL_IP4_ADDRESS") + " " + internal_ip4_netmask + " store=active");
     } else {
@@ -268,27 +318,9 @@ case "connect":
                 " " + internal_gw + " if " + env("TUNIDX"));
             echo(INFO, "Configured Legacy IP split-include route: " + network + "/" + netmasklen);
         }
-    } else if (REDIRECT_GATEWAY_METHOD == 1) {
-        run("route add 0.0.0.0 mask 0.0.0.0 " + internal_gw + " metric 1");
-        echo(INFO, "Configured Legacy IP default route.");
-    } else if (REDIRECT_GATEWAY_METHOD == 2) {
-        run("route add 0.0.0.0 mask 128.0.0.0 " + internal_gw);
-        run("route add 128.0.0.0 mask 128.0.0.0 " + internal_gw);
-        echo(INFO, "Configured Legacy IP default route pair (0.0.0.0/1, 128.0.0.0/1)");
     }
 
-    // Add excluded routes
-    // An IPv6-only uplink can carry an IPv4 VPN. Without a physical IPv4
-    // default route there is no IPv4 next hop for the server's exclusions.
-    if (env("CISCO_SPLIT_EXC") && gw4) {
-        for (var i = 0 ; i < parseInt(env("CISCO_SPLIT_EXC")); i++) {
-            var network = env("CISCO_SPLIT_EXC_" + i + "_ADDR");
-            var netmask = env("CISCO_SPLIT_EXC_" + i + "_MASK");
-            var netmasklen = env("CISCO_SPLIT_EXC_" + i + "_MASKLEN");
-            run("route add " + network + " mask " + netmask + " " + gw4);
-            echo(INFO, "Configured Legacy IP split-exclude route: " + network + "/" + netmasklen);
-        }
-    }
+    excludedRoutes(gw4, gw6);
     echo(INFO, "Legacy IP route configuration done.");
 
     if (env("INTERNAL_IP6_ADDRESS")) {
@@ -315,11 +347,10 @@ case "connect":
             }
         } else {
             echo(INFO, "Setting default IPv6 route through VPN.");
-            // We need to use the gateway address fe80::8 below, as this is how the TAP device on Windows provides a tunnel
-            run("netsh interface ipv6 add route 2000::/3 " + env("TUNIDX") + " fe80::8 store=active");
+            // Cover all unicast prefixes, including NAT64, without replacing the uplink default.
+            run("netsh interface ipv6 add route ::/1 " + env("TUNIDX") + " store=active");
+            run("netsh interface ipv6 add route 8000::/1 " + env("TUNIDX") + " store=active");
         }
-
-        // FIXME: handle IPv6 split-excludes
 
         echo(INFO, "IPv6 route configuration done.");
     }
@@ -328,17 +359,8 @@ case "connect":
 case "disconnect":
     echo(INFO, "Deconfiguring \"" + env("TUNDEV") + "\" / " + env("TUNIDX") + " interface...");
 
-    // Delete explicit route for the VPN gateway
-    var vpngw = env("VPNGATEWAY");
-    if (isLoopback(vpngw)) {
-        echo(DEBUG, "Loopback VPN gateway has no bypass route to remove.");
-    } else if (vpngw.match(/:/g)) {
-        echo(INFO, "Removing explicit route to IPv6 VPN gateway " + vpngw);
-        run("netsh interface ipv6 delete route " + vpngw + "/128 " + getDefaultGateway6());
-    } else {
-        echo(INFO, "Removing explicit route to IPv4 VPN gateway " + vpngw);
-        run("route delete " + vpngw + " mask 255.255.255.255");
-    }
+    // Use recorded next hops; the physical network may have changed or disappeared.
+    releaseRoutes();
 
     // Delete address
     echo(INFO, "Removing" + (env("INTERNAL_IP6_ADDRESS") ? " IPv6 and" : "") + " Legacy IP addresses");
@@ -347,28 +369,18 @@ case "disconnect":
     if (env("INTERNAL_IP6_ADDRESS")) {
         run("netsh interface ipv6 delete address " + env("TUNIDX") + " " + env("INTERNAL_IP6_ADDRESS") + " store=active");
 
-        if (env("CISCO_IPV6_SPLIT_INC")) {
-       	    // FIXME: handle IPv6 split-includes
-        } else {
+        if (!env("CISCO_IPV6_SPLIT_INC")) {
             echo(INFO, "Removing default IPv6 route through VPN.");
-            run("netsh interface ipv6 delete route 2000::/3 " + env("TUNIDX"));
+            run("netsh interface ipv6 delete route ::/1 " + env("TUNIDX"), true);
+            run("netsh interface ipv6 delete route 8000::/1 " + env("TUNIDX"), true);
         }
     }
 
-    // Delete Legacy IP split-exclude routes
-    if (env("CISCO_SPLIT_EXC") && getDefaultGateway4()) {
-        echo(INFO, "Removing Legacy IP split-exclude routes");
-        for (var i = 0 ; i < parseInt(env("CISCO_SPLIT_EXC")); i++) {
-            var network = env("CISCO_SPLIT_EXC_" + i + "_ADDR");
-            var netmask = env("CISCO_SPLIT_EXC_" + i + "_MASK");
-            var netmasklen = env("CISCO_SPLIT_EXC_" + i + "_MASKLEN");
-            run("route delete " + network + " mask " + netmask );
-        }
-    }
-
-    // FIXME: handle IPv6 split-excludes
     echo(INFO, "done.");
 }
+
+if (accumulatedExitCode && env("reason") === "connect") releaseRoutes();
+failureCleanup = null;
 
 if (logToFile) {
 	log.Close();
@@ -382,6 +394,7 @@ try {
     configureNetwork();
 } catch (error) {
     var message = "VPN network script failed: " + (error.message || error.description || error);
+    try { if (failureCleanup) failureCleanup(); } catch (ignoredCleanup) {}
     try {
         if (failureLog) {
             failureLog.WriteLine(message);

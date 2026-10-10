@@ -46,6 +46,13 @@ test("IPv4 and IPv6 boundary validation",function()
     for _,s in ipairs({"1::2::3",":1:2:3:4:5:6:7", "1:2:3:4:5:6:7:","gg::1","12345::1"}) do check(not logic.ipv6(s)) end
     check(logic.prefix("255.255.255.0")==24); check(not logic.prefix("255.0.255.0"))
 end)
+test("compressed IPv6 rejects dangling colons in addresses and public URLs",function()
+    for _,s in ipairs({"::1:",":1::","2001:db8::1:",":2001:db8::", "1:2:3:4:5:6:7:8::"}) do
+        check(not logic.ipv6(s),s)
+        check(not logic.url("https://["..s.."]:4443"),s)
+    end
+    for _,s in ipairs({"::", "::1", "1::", "1::8", "1:2:3:4:5:6:7::"}) do check(logic.ipv6(s),s) end
+end)
 test("public account data never includes hashes",function()
     local rows=logic.public_users(original)
     check(rows[1].name=="employee01" and rows[1].password==nil and rows[1].enabled)
@@ -115,6 +122,26 @@ test("invalid pool, DNS endpoint and routes rejected",function()
     s=fixture_settings();s.dns={"vpn.example.com"};expect("invalid_dns",function()logic.validate_settings(s)end)
     s=fixture_settings();s.easy_public_url="https://10.77.0.1:4443";expect("dns_is_endpoint",function()logic.validate_settings(s)end)
     s=fixture_settings();s.routes={"192.168.19.1/24"};expect("invalid_routes",function()logic.validate_settings(s)end)
+end)
+test("IPv6 DNS validates addresses rather than their textual spelling",function()
+    for _,address in ipairs({"0:0:0:0:0:0:0:0", "0:0:0:0:0:0:0:1", "fe80::53", "ff02::53"}) do
+        local s=fixture_settings(); s.dns={address}
+        expect("invalid_dns",function()logic.validate_settings(s)end)
+    end
+    local s=fixture_settings(); s.dns={"2001:db8::53", "2001:0DB8:0:0:0:0:0:0053"}
+    expect("duplicate_dns",function()logic.validate_settings(s)end)
+    s.dns={"2001:0DB8:0:0:0:0:0:0053"}; s.easy_public_url="https://[2001:db8::53]:4443"
+    expect("dns_is_endpoint",function()logic.validate_settings(s)end)
+end)
+test("IPv6 pools and routes require aligned network prefixes",function()
+    for _,pool in ipairs({"fd77::1/64", "::/64", "fe80::/64", "ff00::/64"}) do
+        local s=fixture_settings(); s.ip6addr=pool
+        expect("invalid_ipv6_pool",function()logic.validate_settings(s)end)
+    end
+    local s=fixture_settings(); s.ip6addr="fd77::/64"; s.routes={"2001:db8::1/64"}
+    expect("invalid_routes",function()logic.validate_settings(s)end)
+    s.routes={"::/0", "2001:db8:1234:8000::/49", "2001:db8::1/128"}
+    local _,_,routes=logic.validate_settings(s); check(#routes==3)
 end)
 test("full tunnel and zero DNS validation",function()
     local s=fixture_settings();s.route_mode="all";s.routes={};local _,_,routes=logic.validate_settings(s);check(#routes==0)

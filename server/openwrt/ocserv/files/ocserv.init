@@ -154,6 +154,15 @@ setup_dns() {
 initcerts() (
 	set -eu
 	umask 077
+	config_load ocserv
+	config_get certificate config server_cert "/etc/ocserv/server-cert.pem"
+	config_get private_key config server_key "/etc/ocserv/server-key.pem"
+	if [ "$certificate" != /etc/ocserv/server-cert.pem ] || [ "$private_key" != /etc/ocserv/server-key.pem ]; then
+		# ACME/external certificates do not depend on the bootstrap CA or its key.
+		[ -s "$certificate" ] && [ -s "$private_key" ] && exit 0
+		logger -t ocserv 'The configured server certificate or private key is missing or empty'
+		exit 1
+	fi
 	[ -x /usr/bin/certtool ] || { logger -t ocserv 'certtool is missing'; exit 1; }
 	mkdir -p /etc/ocserv/pki
 	chmod 700 /etc/ocserv/pki

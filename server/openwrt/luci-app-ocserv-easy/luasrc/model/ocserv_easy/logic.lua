@@ -33,15 +33,44 @@ function M.ipv4(value)
     end
     return n
 end
-function M.ipv6(value)
-    if not M.text(value, 39) or not value:find(":", 1, true) or value:find("[^0-9a-fA-F:]") then return false end
-    if value:find(":::", 1, true) then return false end
+local function ipv6_key(value)
+    if not M.text(value, 39) or not value:find(":", 1, true) or value:find("[^0-9a-fA-F:]") then return nil end
+    if value:find(":::", 1, true) or value:sub(1,1)==":" and value:sub(1,2)~="::" or
+       value:sub(-1)==":" and value:sub(-2)~="::" then return nil end
     local first = value:find("::", 1, true)
-    if first and value:find("::", first + 2, true) then return false end
-    if not first and (value:sub(1,1) == ":" or value:sub(-1) == ":") then return false end
-    local count = 0
-    for part in value:gmatch("[^:]+") do if #part > 4 then return false end count = count + 1 end
-    return first and count < 8 or not first and count == 8
+    if first and value:find("::", first + 2, true) then return nil end
+    local parts = {}
+    for part in value:gmatch("[^:]+") do
+        if #part > 4 then return nil end
+        parts[#parts+1]=string.format("%04x",tonumber(part,16))
+    end
+    if first then
+        if #parts>=8 then return nil end
+        local left=0
+        for _ in value:sub(1,first-1):gmatch("[^:]+") do left=left+1 end
+        table.insert(parts,left+1,string.rep("0000",8-#parts))
+    elseif #parts~=8 then return nil end
+    return table.concat(parts)
+end
+function M.ipv6(value) return ipv6_key(value)~=nil end
+local function unicast6(key)
+    return key and key~=string.rep("0",32) and key~=string.rep("0",31).."1" and
+        key:sub(1,2)~="ff" and not key:match("^fe[89ab]")
+end
+local function network6(key,prefix)
+    if not key or not prefix or prefix<0 or prefix>128 then return false end
+    local whole,remaining=math.floor(prefix/4),prefix%4
+    if remaining>0 then
+        whole=whole+1
+        if tonumber(key:sub(whole,whole),16)%2^(4-remaining)~=0 then return false end
+    end
+    return key:sub(whole+1):match("^0*$")~=nil
+end
+local function address_key(value)
+    local v4=M.ipv4(value)
+    if v4 then return "4:"..tostring(v4) end
+    local v6=ipv6_key(value)
+    return v6 and "6:"..v6 or value
 end
 function M.prefix(mask)
     if type(mask) ~= "string" then return nil end
@@ -231,7 +260,9 @@ function M.validate_settings(input)
     out.netmask=M.mask(prefix)
     if out.ip6addr~="" then
         local address,p=out.ip6addr:match("^(.+)/(%d+)$")
-        M.require(address and M.ipv6(address) and tonumber(p)>=16 and tonumber(p)<=112 and address:lower():sub(1,2)~="ff", "invalid_ipv6_pool")
+        local key=ipv6_key(address)
+        p=tonumber(p)
+        M.require(unicast6(key) and p and p>=16 and p<=112 and network6(key,p), "invalid_ipv6_pool")
     end
     M.require(out.default_domain=="" or M.domain(out.default_domain), "invalid_domain")
     M.require(out.easy_public_url=="" or M.url(out.easy_public_url), "invalid_url")
@@ -241,9 +272,10 @@ function M.validate_settings(input)
     for _,address in ipairs(input.dns) do
         local number=M.ipv4(address)
         M.require((number and number>0 and number<3758096384 and math.floor(number/16777216)~=127) or
-            (M.ipv6(address) and address~="::" and address~="::1" and address:lower():sub(1,2)~="ff"), "invalid_dns")
-        M.require(address~=endpoint, "dns_is_endpoint")
-        M.require(not seen[address], "duplicate_dns"); seen[address]=true
+            unicast6(ipv6_key(address)), "invalid_dns")
+        local key=address_key(address)
+        M.require(key~=address_key(endpoint), "dns_is_endpoint")
+        M.require(not seen[key], "duplicate_dns"); seen[key]=true
         dns[#dns+1]={ip=address}
     end
     M.require(input.route_mode=="all" or input.route_mode=="split", "invalid_route_mode")
@@ -258,7 +290,7 @@ function M.validate_settings(input)
                 M.require(p and number%2^(32-p)==0, "invalid_routes")
                 mask=M.mask(p)
             else
-                M.require(M.ipv6(address) and mask and mask:match("^%d+$") and tonumber(mask)<=128, "invalid_routes")
+                M.require(mask and mask:match("^%d+$") and network6(ipv6_key(address),tonumber(mask)), "invalid_routes")
                 M.require(out.ip6addr~="", "route_needs_ipv6")
             end
             routes[#routes+1]={ip=address,netmask=mask}

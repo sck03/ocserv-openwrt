@@ -1,6 +1,7 @@
 // Exercise the patched official Windows Script Host launcher before any adapter is created.
 #include "session.h"
 #include <cerrno>
+#include <fstream>
 #include <iostream>
 #include <stdexcept>
 
@@ -37,6 +38,35 @@ int wmain(int argc, wchar_t **argv) {
                 throw std::runtime_error("The pre-init script failure was not propagated");
             ++passed;
         }
+        // Each invocation must inherit SetEnvironmentVariableW changes, including
+        // later sessions after the C runtime has cached its first environment.
+        auto environment_script = directory / L"environment.js";
+        std::wstring environment_error;
+        if (!write_atomic(environment_script,
+                "try { var e = WScript.CreateObject('WScript.Shell').Environment('Process');"
+                "var f = WScript.CreateObject('Scripting.FileSystemObject').OpenTextFile(e('BULIJIE_SCRIPT_LOG'), 2, true);"
+                "f.WriteLine(e('BULIJIE_SCRIPT_FIXTURE')); f.Close(); } finally { WScript.Quit(1); }",
+                environment_error))
+            throw std::runtime_error("Could not write environment fixture");
+        for (int session = 1; session <= 2; ++session) {
+            auto log = directory / (L"日志-" + std::to_wstring(session) + L".txt");
+            auto expected = std::to_wstring(session);
+            if (!SetEnvironmentVariableW(L"BULIJIE_SCRIPT_LOG", log.c_str()) ||
+                !SetEnvironmentVariableW(L"BULIJIE_SCRIPT_FIXTURE", expected.c_str()))
+                throw std::runtime_error("Could not set session fixture environment");
+            openconnect_info *vpn = openconnect_vpninfo_new("script-fixture", nullptr, nullptr, nullptr,
+                                                           progress, nullptr);
+            if (!vpn) throw std::runtime_error("Could not create environment test context");
+            int result = openconnect_setup_tun_device(vpn, utf8(environment_script.wstring()).c_str(), "ScriptFixture");
+            openconnect_vpninfo_free(vpn);
+            std::ifstream stream(log);
+            std::string actual;
+            std::getline(stream, actual);
+            if (result != -EIO || actual != std::to_string(session))
+                throw std::runtime_error("Script inherited a stale session environment");
+            ++passed;
+        }
+        SetEnvironmentVariableW(L"BULIJIE_SCRIPT_FIXTURE", nullptr);
         // This path cannot be opened: verify that the shipped helper converts a real
         // FileSystemObject exception to a failed pre-init, without reaching adapter setup.
         auto invalid_log = directory / L"missing-parent" / L"script.log";

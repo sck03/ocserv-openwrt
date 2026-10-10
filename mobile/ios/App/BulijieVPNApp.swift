@@ -50,10 +50,7 @@ final class VPNModel: ObservableObject {
 
     func connect(server: String, username: String, password: String, pin: String) async {
         guard !busy && !connected && !disconnecting else { return }
-        let address = server.trimmingCharacters(in: .whitespacesAndNewlines)
-        let normalized = address.contains("://") ? address : "https://" + address
-        guard let url = URL(string: normalized), url.scheme == "https", url.host != nil,
-              url.user == nil, url.password == nil, url.fragment == nil,
+        guard let url = BVPNServerURL(server),
               !username.isEmpty, !password.isEmpty else {
             status = "请填写 HTTPS 服务器、用户名和密码"; return
         }
@@ -74,7 +71,7 @@ final class VPNModel: ObservableObject {
             }) ?? NETunnelProviderManager()
             let config = NETunnelProviderProtocol()
             config.providerBundleIdentifier = tunnelID
-            config.serverAddress = normalized
+            config.serverAddress = url.absoluteString
             config.providerConfiguration = ["pin": fingerprint, "username": username]
             config.includeAllNetworks = true
             config.excludeLocalNetworks = false

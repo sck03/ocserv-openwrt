@@ -21,6 +21,8 @@ Android 基于 **OpenTunnel** 固定提交 `0535533dfb7d3a656bfdb880d51f731c1091
 
 本仓库加强了上游行为：保存的证书指纹必须是完整、规范的 `pin-sha256`；固定公钥变化时拒绝连接，需向管理员核实后手动更新。已配置指纹优先于系统/自定义 CA。失败后不自动降低 TLS 安全等级；旧服务器兼容模式仅由用户明确选择。应用禁用 Android 系统备份，避免配置和凭据随系统备份迁移。三种架构的 ELF 和 APK 均检查 16 KB 内存页兼容性。
 
+`0.1.1` 保留完整域名、IPv6 地址、端口和认证路径，由 OpenConnect 解析 A/AAAA 并按服务端 DDNS 设置重新解析，移除独立的 IPv4 DoH 缓存。隧道 MTU 不超过服务器协商值；重连后刷新 MTU、DNS 和路由，配置失败时结束连接。Android 8.0 起均支持 IPv4/IPv6 排除路由，并在分流路由中应用排除项。
+
 默认 `build_type=debug` 无需 Secrets，适合测试。GitHub 临时运行器每次可能生成不同的 debug 密钥；不能保证覆盖安装前一次 debug 包，必要时先卸载。正式使用选择 `release`，在仓库 **Settings → Secrets and variables → Actions** 配置：
 
 | Secret | 内容 |
@@ -41,6 +43,8 @@ iOS 为本仓库的原生 SwiftUI 界面和 Objective-C `NEPacketTunnelProvider`
 首版支持 ocserv 用户名/密码认证、IPv4/IPv6 数据通道、服务端 DNS、全隧道及 OpenConnect 的 TLS/DTLS。服务端必须分配 IPv4 地址和 DNS。服务端未分配 IPv6 时仍将 IPv6 导入隧道，避免绕过 VPN。分流规则暂不使用。尚不支持交互式 MFA、分组选择、客户端证书、自动登录及 `.bvpn` 导入；遇到额外认证字段会取消，不能拿密码填充验证码。
 
 iOS 要求服务器 MTU 至少为 1280。收包使用最多 32 个数据包的批次，避免持续流量阻塞断开操作；校验 IP 版本、长度和 IPv6 前缀。启动尚未完成时请求停止，也会等待资源清理完成；断开过程中禁用重新连接。
+
+`0.1.1` 的应用和隧道扩展共用 HTTPS 地址校验，支持带方括号的 IPv6，拒绝错误端口和含凭据的地址。重连后重新应用协商的 MTU、DNS 和远端地址；网络设置失败时结束连接。
 
 `signing=unsigned` 无需 Apple 账户，生成带应用及扩展的未签名 Xcode archive，供编译验证和后续 Xcode 签名。
 
@@ -82,7 +86,7 @@ bash scripts/build-ios.sh unsigned
 
 2026-09-29 已完成 GitHub 全流程构建验证：
 
-- [Android debug 构建成功](https://github.com/sck03/ocserv-openwrt/actions/runs/36556596555)，提交 `60d0d2e`：三个架构的 VPN 核心、上游及新增证书策略单元测试、APK 签名与 16 KB 对齐检查通过。下载的 artifact 及其内部 `SHA256SUMS.txt` 已再次校验。其后提交未改变 Android 源码和构建脚本。
+- [Android debug 构建成功](https://github.com/sck03/ocserv-openwrt/actions/runs/36556596555)，提交 `60d0d2e`：三个架构的 VPN 核心、上游及新增证书策略单元测试、APK 签名与 16 KB 对齐检查通过。下载的 artifact 及其内部 `SHA256SUMS.txt` 已再次校验。这是历史构建记录，最新修订的验证见 [验证记录](VALIDATION.md)。
 - [iOS unsigned 构建成功](https://github.com/sck03/ocserv-openwrt/actions/runs/36558263182)，提交 `b469017`：Xcode 16.4 / iPhoneOS 18.5 SDK，最低目标 iOS 15；C 数据包校验测试、arm64 静态库检查、应用和 Packet Tunnel 扩展编译及 archive 打包通过。构建使用 OpenConnect 自带的 `strchrnul` 兼容实现，避免依赖 iOS 18.4 新增函数。
 
 尚未进行手机实机验收，也未使用真实发布密钥验证 Android release 或 iOS Ad Hoc 签名导出。实机仍须确认：证书错误时拒绝认证、正确连接、DNS/IPv4/IPv6 路由、Wi-Fi/蜂窝切换、锁屏、断开恢复、错误密码和签名安装。编译及脚本检查不等同于已验证的手机连接结果。
