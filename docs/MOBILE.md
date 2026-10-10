@@ -15,7 +15,7 @@ Android 同时编译 `arm64-v8a`、`armeabi-v7a`、`x86_64` 并打入一个 APK�
 
 ## Android
 
-Android 基于 **OpenTunnel** 固定提交 `0535533dfb7d3a656bfdb880d51f731c109135c1`，保留上游连接功能。启动器、主页、设置和日志分享统一显示 **Linkora VPN**；界面仍以英文/波斯文为主。
+Android 基于 **OpenTunnel** 固定提交 `0535533dfb7d3a656bfdb880d51f731c109135c1`，保留上游连接功能。启动器、主页、设置、通知、桌面小组件和日志分享统一显示 **Linkora VPN**；界面仍以英文/波斯文为主。
 
 新建服务器，填写 `https://域名:4443`、用户名、密码，使用 AnyConnect 协议。首次证书确认必须核对管理员提供的公钥指纹。允许系统 VPN 授权后连接。不直接导入 Windows `.vpn` 文件。
 

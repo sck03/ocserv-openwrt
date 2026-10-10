@@ -28,8 +28,12 @@ def prepare(app, root):
     for resource in resources.glob("values*/strings.xml"):
         value = resource.read_text(encoding="utf-8")
         if 'name="app_name"' in value:
-            resource.write_text(once(value, '<string name="app_name">OpenTunnel</string>',
-                                     '<string name="app_name">Linkora VPN</string>'), encoding="utf-8")
+            value = once(value, '<string name="app_name">OpenTunnel</string>',
+                         '<string name="app_name">Linkora VPN</string>')
+            resource.write_text(value.replace("OpenTunnel", "Linkora VPN"), encoding="utf-8")
+    widget = resources / "layout/widget_opentunnel_4x1.xml"
+    widget.write_text(once(widget.read_text(encoding="utf-8"), 'android:text="OpenTunnel"',
+                           'android:text="@string/app_name"'), encoding="utf-8")
     # These visible names bypass Android string resources in the pinned upstream.
     source = app / "app/src/main/java/dev/opentunnel/vpn"
     for file, replacements in {
