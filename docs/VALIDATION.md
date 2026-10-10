@@ -1,5 +1,31 @@
 # 验证记录
 
+## 2026-10-10 局域网 IPv4 兼容性复查
+
+代码提交：`ad551b6`。Windows 保持 `0.5.2`，iOS 保持 `0.1.1`；Android 更新为 `0.1.2`，ocserv 为 `1.5.0-r6`，管理页为 `0.4.1-r7`。
+
+- 管理页仅修改员工连接地址时只保存导出信息，不重启服务，不重建 DNS、路由或账号段；重复保存相同设置不写入配置。实际网络参数变更仍执行配置检查和重启确认。
+- 启动脚本显式重置 IPv6 开关和认证后缀的局部状态。新增回归实际执行启动脚本并与 LuCI 渲染结果比较，验证默认 IPv4、仅更换公网地址、连续切换 IPv6，以及保留自定义 IPv4 网段/DNS/分流路由。
+- Android 根据实际协商的隧道 IPv6 地址处理 MTU、路由和 DNS。允许 IPv6 但服务器只分配 IPv4 时，合法的小 MTU 不再被 IPv6 最小值误拒绝；IPv6 公网入口和隧道内 IPv6 配置继续独立。
+- Windows 运行时代码和网络脚本保持原样，增加原局域网 IPv4 全隧道、IPv6 不可用、局域网无互联网默认网关的覆盖。服务端原 IPv4 默认地址池、DNS、NAT 和专用上网规则保留。
+
+| 平台 | 本次 GitHub 验证 |
+|---|---|
+| Windows | [运行 38024500027](https://github.com/sck03/ocserv-openwrt/actions/runs/38024500027)：x86/x64 编译、PE 审计、便携包启动、认证/界面/资源回归和 x64 Wintun 检查全部通过 |
+| Android | [运行 38024503479](https://github.com/sck03/ocserv-openwrt/actions/runs/38024503479)：三个架构核心、单元测试、debug APK 构建、签名和 16 KB 对齐检查通过 |
+| iOS | [运行 38024505852](https://github.com/sck03/ocserv-openwrt/actions/runs/38024505852)：地址/数据包校验、应用及隧道扩展编译、未签名 archive 通过 |
+| 服务端 | [运行 38024501848](https://github.com/sck03/ocserv-openwrt/actions/runs/38024501848)：功能回归及六个 OpenWrt 25.12.5 目标的 APK 编译、打包全部通过 |
+
+Windows 两个架构各通过配置/DPAPI 46 项、界面 26 项、真实 WSH 6 项、资源 8 组和回环 TLS/认证 26 项；x64 另通过真实 Wintun 3 项，包含连接、配置失败、重连失败及网卡清理。各处理 60 万事件及 1,000 轮回收后，x64/x86 句柄分别保持 124/143 个。
+
+服务端已通过 Lua 逻辑 51 项、启动配置一致性 4 项、事务 36 项、进程 9 项、安装 25 项、密码文件 9 项、真实证书检查 11 项、隔离网络 20 项、浏览器操作 15 组和轮询 5 组。隔离网络覆盖 LAN IPv4 的 TCP/UDP 入口、VPN DNS、NAT 与透明代理，以及 IPv6/公网入口和原有管理隔离。
+
+本地通过 175 项回归、20 项浏览器检查和 16 项 Kotlin/JUnit 测试；移动端 C 数据包校验、Ruff F、脚本语法与差异空白检查通过。Kotlin 使用真实编译器/JUnit，Android 框架边界使用旧 API 级别桩；完整 Android 编译与测试以上述 GitHub 结果为准。
+
+移除 Android 未使用的 IPv4 路由补集/地址转换函数及多余路由包装，合并服务端重复的结构比较函数。对比适配后的四个 Android 运行时文件，源码从 40,946 字节减至 40,040 字节。清理脚本增加 Ruff 缓存；已删除约 214 MiB 临时编译环境和缓存，源码、许可证、备份及验证报告保留。
+
+所有运行针对 `ad551b6`；Windows/服务端使用 `publish_release=false`，移动端为 debug/unsigned，未发布 Release。报告与产物元数据保存在本地 `test-results/lan-ipv4-ci.json`、`test-results/ci-ad551b6/`。代码与自动回归未发现原局域网 IPv4 行为被新功能破坏；未修改或连接运行中的用户 N1，真实公网、手机网络切换和 Win7 仍需实机验收。
+
 ## 2026-10-10 全平台 IPv6、公网与重连复查
 
 本次版本：Windows `0.5.2`、Android/iOS `0.1.1`、ocserv `1.5.0-r5`、管理页 `0.4.1-r6`。主体修订为 `b192792`，iOS 地址校验补充为 `bf5e4db`，Android IPv6 DNS 补充为 `bc1acbc`。
