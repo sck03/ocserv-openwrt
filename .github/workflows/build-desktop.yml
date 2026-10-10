@@ -1,8 +1,6 @@
 name: 手动构建 macOS 和 Linux 桌面客户端
 on:
   workflow_dispatch:
-  push:
-    branches: [codex/desktop-clients]
 permissions:
   contents: read
 concurrency:

@@ -87,8 +87,13 @@ if (!$Apply) {
 foreach ($target in $plan) {
     $resolved = (Resolve-Path -LiteralPath (Assert-WorkspacePath $target.Path)).Path
     if ($resolved -ne $target.Path) { throw "A reviewed path changed: $($target.Path)" }
-    Remove-Item -LiteralPath $resolved -Recurse -Force
-    if (Test-Path -LiteralPath $resolved) { throw "Cleanup did not finish: $resolved" }
+    # A directory can remain pending deletion while Windows closes child handles.
+    # Finish each traversal and retry briefly; never report success with leftovers.
+    for ($attempt = 0; $attempt -lt 3 -and (Test-Path -LiteralPath $resolved); $attempt++) {
+        Remove-Item -LiteralPath $resolved -Recurse -Force -ErrorAction SilentlyContinue -ErrorVariable cleanupErrors
+        if (Test-Path -LiteralPath $resolved) { Start-Sleep -Milliseconds 200 }
+    }
+    if (Test-Path -LiteralPath $resolved) { throw "Cleanup did not finish: $resolved; $($cleanupErrors[0])" }
 }
 Write-Output ('Deleted {0:N3} GiB of generated files.' -f ($totalBytes / 1GB))
 Write-Output 'Release packages, backups, source files and toolchains were retained.'
