@@ -104,6 +104,12 @@ def prepare(app, root):
     }
 
 ''')
+    # A DNS server also enables its address family in VpnService.Builder.
+    # Do not reopen IPv6 through DNS when the profile explicitly disabled it.
+    for loop in ('            for (server in customDnsList) {',
+                 '            for (server in ip.DNS.orEmpty()) {'):
+        value = once(value, loop + '\n                if (Net.isValidIp(server)) {',
+                     loop + "\n                if (Net.isValidIp(server) && (profile.enableIpv6 || ':' !in server)) {")
     value = once(value, '    private var passwordConsumed = false',
                  '    private var connectionFailure: String? = null\n    private var passwordConsumed = false')
     value = section(value, '        val ipInfo = lib.getIPInfo()', '        if (profile.enableDtls)',
