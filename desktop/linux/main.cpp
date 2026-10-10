@@ -178,7 +178,7 @@ public:
         for (guint i = 0; i < profiles->len; ++i) {
             auto *connection = NM_CONNECTION(g_ptr_array_index(profiles, i));
             auto *vpn = nm_connection_get_setting_vpn(connection);
-            auto *user = nm_connection_get_setting_user(connection);
+            auto *user = NM_SETTING_USER(nm_connection_get_setting(connection, NM_TYPE_SETTING_USER));
             if (!vpn || g_strcmp0(nm_setting_vpn_get_service_type(vpn), Service) || !user ||
                 g_strcmp0(nm_setting_user_get_data(user, Marker), "1"))
                 continue;
