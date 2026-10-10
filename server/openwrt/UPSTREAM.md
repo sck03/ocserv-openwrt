@@ -7,7 +7,7 @@ The `ocserv/` directory is the OpenWrt packages feed recipe, including its UCI/p
 - Upstream package: ocserv 1.5.0-r1; local package release: 1.5.0-r5.
 - Source archive SHA-256: `42ced08958b9576ab134fcb7bdc7f8df5e13214fd147855f99021fedcf0eedbe`
 - License: GPL-2.0-or-later (upstream copyright notices retained).
-- Build system: Meson. The maintained target is OpenWrt 25.12 APK on armsr/armv8.
+- Build system: Meson. Maintained OpenWrt 25.12 APK targets are listed in [targets.json](targets.json), including armsr/armv8 for N1.
 
 Local changes provide first-install certificate initialization, current VPN defaults, and explicit use of the firmware's existing TUN support. The APK does not depend on a stock `kmod-tun`; the installer checks `/dev/net/tun` before proceeding. Installation and configuration are documented in [OPENWRT-N1.md](../../docs/OPENWRT-N1.md).
 

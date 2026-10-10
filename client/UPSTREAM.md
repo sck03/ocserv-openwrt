@@ -16,7 +16,7 @@ An IPv6-only uplink can carry the IPv4 tunnel. The helper skips IPv4 split-exclu
 
 Library source URLs, versions and SHA-256 values live in scripts/sources.json. Extraction is unmodified; patches apply with zero fuzz to a build-local copy.
 
-## OpenConnect patch
+## OpenConnect patches
 
 patches/openconnect/0001-windows-script-errors.patch fixes the official 9.21 core:
 

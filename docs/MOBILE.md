@@ -82,7 +82,9 @@ bash scripts/build-ios.sh unsigned
 
 ## 验证范围
 
-`python3 tests/mobile_build_tests.py` 在 Windows/Linux/macOS 检查下载完整性、缓存篡改、解包路径、ELF 架构/页对齐和 Apple 描述文件校验。Android 工作流另外执行上游及本地证书策略单元测试、APK 架构/16 KB 对齐和签名验证；iOS 工作流运行 `tests/mobile_protocol_tests.c`，再编译并归档两个 target。
+2026-10-10 的 `0.1.1` 已通过新一轮完整构建：[Android debug](https://github.com/sck03/ocserv-openwrt/actions/runs/38020917457)（`bc1acbc`）和 [iOS unsigned](https://github.com/sck03/ocserv-openwrt/actions/runs/38020562173)（`bf5e4db`）。Android 包含地址、MTU、IPv4/IPv6 排除路由和证书策略单元测试；iOS 包含共用地址校验的 20 项用例及应用/扩展编译。完整结果见 [验证记录](VALIDATION.md)。
+
+`python3 tests/mobile_build_tests.py` 在 Windows/Linux/macOS 检查下载完整性、缓存篡改、解包路径、ELF 架构/页对齐和 Apple 描述文件校验。Android 工作流另外执行上游及本地策略单元测试、APK 架构/16 KB 对齐和签名验证；iOS 工作流运行 `tests/mobile_protocol_tests.c` 和 `tests/ios_connection_tests.m`，再编译并归档两个 target。
 
 2026-09-29 已完成 GitHub 全流程构建验证：
 

@@ -1,5 +1,31 @@
 # 验证记录
 
+## 2026-10-10 全平台 IPv6、公网与重连复查
+
+本次版本：Windows `0.5.2`、Android/iOS `0.1.1`、ocserv `1.5.0-r5`、管理页 `0.4.1-r6`。主体修订为 `b192792`，iOS 地址校验补充为 `bf5e4db`，Android IPv6 DNS 补充为 `bc1acbc`。
+
+- Windows 在尝试新的 DDNS 地址前安装绕行路由，记录并清理自己创建的 IPv4/IPv6 路由；保留已有路由，断网后按保存的下一跳清理。修复 Windows 环境变量缓存导致后续会话继承旧日志/路由文件路径的问题。
+- Android 去掉独立的 IPv4 DoH 缓存和单地址预解析，保留域名、IPv6、端口和认证路径；MTU 以协商值为上限。统一各系统版本的双栈排除路由，重连时刷新隧道设置，并阻止 IPv6 DNS 绕过关闭 IPv6 的设置。
+- iOS 应用和扩展共用 HTTPS/IPv6 地址校验，拒绝错误端口、含凭据的地址和有歧义的 IPv4 写法；重连时刷新协商设置，失败时结束连接。
+- 服务端修正 IPv6 地址、地址池网络边界和等价 DNS 地址校验；使用外部证书时不再依赖默认本地 CA 文件。
+
+| 平台 | GitHub 运行与结果 |
+|---|---|
+| Windows | [运行 38020268252](https://github.com/sck03/ocserv-openwrt/actions/runs/38020268252)，`b192792`：x86/x64 编译、PE 审计、便携包中英文启动、原生回归全部通过 |
+| 服务端 | [运行 38020270864](https://github.com/sck03/ocserv-openwrt/actions/runs/38020270864)，`b192792`：回归及六个 OpenWrt 25.12.5 目标的 APK 编译、打包全部通过 |
+| Android | [运行 38020917457](https://github.com/sck03/ocserv-openwrt/actions/runs/38020917457)，`bc1acbc`：三个架构的 OpenConnect 核心、上游及地址/MTU/双栈路由/证书单元测试、APK 签名和 16 KB 对齐全部通过 |
+| iOS | [运行 38020562173](https://github.com/sck03/ocserv-openwrt/actions/runs/38020562173)，`bf5e4db`：20 项地址用例、C 数据包/前缀校验、arm64 静态库、应用和 Packet Tunnel 扩展编译及未签名 archive 全部通过 |
+
+Windows 两个架构各通过配置/DPAPI 46 项、真实 TLS/认证 26 项、界面 26 项、真实 Windows Script Host 6 项及资源回归 8 组；新增的两项 WSH 用例验证连续会话继承当前环境。x64 另通过 3 项真实 Wintun/CSTP 隧道检查。资源测试各处理 60 万事件和 1,000 轮回收，x64/x86 句柄分别保持 124/143 个。
+
+服务端回归通过 Lua 逻辑 49 项、开关事务 36 项、进程管理 9 项、安装 25 项、密码文件 9 项、真实 certtool/OpenSSL 证书检查 11 项、Linux 网络隔离 20 项、浏览器操作 14 组和轮询 5 组。六个目标为 `x86/64`、`armsr/armv8`、`mediatek/filogic`、`ipq806x/generic`、`ramips/mt7621`、`ath79/generic`。
+
+本地通过 167 项回归：Lua 49、开关事务 36、进程 9、构建参数 11、客户端构建/源码包 9、移动构建脚本 15、Windows 网络脚本 22、服务端打包 6、发布元数据 6、清理边界 4。移动端 C 校验、Python Ruff F 检查、修改脚本的语法及 `git diff --check` 通过。OpenConnect 两个补丁检查通过，并已在 Windows 两个架构实际编译。
+
+清理 Windows 不再使用的路由分支，以及 Android 重复 DNS 解析、旧路由实现和无用导入。按已适配的 Android 隧道、网络工具及新增策略源文件合计，运行时代码净减少 75 行、2,353 字节；回归测试和上游许可证保留。验证完成后运行清理脚本，删除约 164 MiB 临时构建环境和 Python 缓存，发行档案、源码缓存、备份和测试报告保留。详细运行结果与 artifacts 元数据记录于本地 `test-results/ci-summary.json`。
+
+Windows/服务端构建使用 `publish_release=false`；移动端使用 debug/unsigned 模式。产物位于各运行的 artifacts，不代表已发布正式发行版。WSH 环境继承、回环 TLS/Wintun 和隔离防火墙有实际运行证据；DDNS 路由脚本仍使用模拟 Windows 命令，手机网络切换、真实公网入口、N1、Win7 和移动设备仍须实机验收。
+
 ## 2026-10-10 域名与公网连接复查
 
 本次代码提交为 `75a2257`：Windows 客户端 `0.5.1`、ocserv `1.5.0-r4`、管理页 `0.4.1-r5`。修复专用模式绑定 LAN IPv4、阻断 IPv6 入口的问题；服务端通知客户端在重连时重新解析域名；增加固定公钥指纹导出，避免自签证书换成公网域名后误用 CA 配置。Windows 增强地址校验，并允许只有 IPv6 上游时配置 IPv4 隧道。
