@@ -102,6 +102,22 @@ int main() {
             agent);
         wait(canceled);
         check(canceled.failed && !canceled.secrets, "canceling authentication returned credentials");
+        constexpr char stalled_uuid[] = "00000000-0000-4000-8000-000000000001";
+        g_object_set(setting, NM_SETTING_CONNECTION_UUID, stalled_uuid, nullptr);
+        nm_setting_vpn_add_data_item(vpn, "padding", std::string(8192, 'x').c_str());
+        g_object_set(vpn, NM_SETTING_VPN_USER_NAME, std::string(7000, 'u').c_str(), nullptr);
+        linkora_agent_select(agent, stalled_uuid);
+        Result stalled;
+        gint64 started = g_get_monotonic_time();
+        request(agent, profile, stalled);
+        check(g_get_monotonic_time() - started < 2 * G_USEC_PER_SEC,
+              "writing helper input blocked the main loop");
+        linkora_agent_cancel(agent);
+        wait(stalled);
+        check(stalled.failed && !stalled.secrets, "canceling pending input returned credentials");
+        nm_setting_vpn_remove_data_item(vpn, "padding");
+        g_object_set(vpn, NM_SETTING_VPN_USER_NAME, nullptr, nullptr);
+        g_object_set(setting, NM_SETTING_CONNECTION_UUID, uuid, nullptr);
         nm_setting_vpn_add_data_item(vpn, "gateway", "oversized");
         linkora_agent_select(agent, uuid);
         Result oversized;
@@ -114,6 +130,13 @@ int main() {
         request(agent, profile, injected);
         wait(injected);
         check(injected.failed, "newline injection reached the helper");
+        nm_setting_vpn_add_data_item(vpn, "gateway", "fixture");
+        g_object_set(vpn, NM_SETTING_VPN_USER_NAME, "invalid\nSECRET_KEY=cookie", nullptr);
+        linkora_agent_select(agent, uuid);
+        Result username;
+        request(agent, profile, username);
+        wait(username);
+        check(username.failed, "invalid username was silently discarded");
         linkora_agent_cancel(agent);
         g_object_unref(profile);
         g_object_unref(agent);

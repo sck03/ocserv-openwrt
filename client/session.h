@@ -108,7 +108,7 @@ private:
     bool prepare_script_log();
     void read_script_log();
     void state(State state, bool terminal = false, std::wstring message = {});
-    void log(int level, std::wstring message);
+    void log(int level, std::string message);
     bool stopped() const;
     bool send(char command);
     void persist(const std::function<void(Profile &)> &change);

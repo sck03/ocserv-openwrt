@@ -23,7 +23,7 @@ struct Request {
     GSubprocess *process = nullptr;
     GCancellable *cancel = g_cancellable_new();
     AuthReply reply;
-    std::string path;
+    std::string path, input;
     Request(LinkoraAgent *owner, NMConnection *profile, NMSecretAgentOldGetSecretsFunc done, gpointer context)
         : agent(reinterpret_cast<LinkoraAgent *>(g_object_ref(owner))),
           connection(NM_CONNECTION(g_object_ref(profile))), callback(done), data(context) {}
@@ -88,6 +88,17 @@ void read_reply(Request *request) {
     g_input_stream_read_bytes_async(g_subprocess_get_stdout_pipe(request->process), 4096, G_PRIORITY_DEFAULT,
                                     request->cancel, read_ready, request);
 }
+void write_ready(GObject *stream, GAsyncResult *result, gpointer data) {
+    auto *request = static_cast<Request *>(data);
+    GError *error = nullptr;
+    bool written = g_output_stream_write_all_finish(G_OUTPUT_STREAM(stream), result, nullptr, &error);
+    g_clear_error(&error);
+    request->input.clear();
+    if (!written || g_cancellable_is_cancelled(request->cancel))
+        complete(request, false);
+    else
+        read_reply(request);
+}
 void cancel_request(LinkoraAgent *agent) {
     if (agent->request) {
         g_cancellable_cancel(agent->request->cancel);
@@ -121,17 +132,23 @@ void get_secrets(NMSecretAgentOld *base, NMConnection *connection, const char *p
             vpn,
             [](const char *key, const char *value, gpointer data) {
                 auto &input = *static_cast<Input *>(data);
+                if (!input.valid)
+                    return;
                 if (!key || !value || !field(key) || !field(value)) {
                     input.valid = false;
                     return;
                 }
                 input.text += std::string("DATA_KEY=") + key + "\nDATA_VAL=" + value + "\n";
+                input.valid = input.text.size() <= 16384;
             },
             &builder);
     auto &input = builder.text;
     const char *username = vpn ? nm_setting_vpn_get_user_name(vpn) : nullptr;
-    if (username && field(username))
-        input += std::string("SECRET_KEY=form:main:username\nSECRET_VAL=") + username + "\n";
+    if (username) {
+        builder.valid = builder.valid && field(username);
+        if (builder.valid)
+            input += std::string("SECRET_KEY=form:main:username\nSECRET_VAL=") + username + "\n";
+    }
     input += "DONE\n";
     if (!vpn || !builder.valid || input.size() > 16384) {
         complete(request, false);
@@ -145,14 +162,16 @@ void get_secrets(NMSecretAgentOld *base, NMConnection *connection, const char *p
                                         "Linkora VPN", "--service", Service, "--allow-interaction", nullptr);
     // The helper owns authentication forms and the system keyring. Its output is
     // a private protocol channel; never route stdout/stderr into application logs.
-    if (!request->process ||
-        !g_output_stream_write_all(g_subprocess_get_stdin_pipe(request->process), input.data(), input.size(),
-                                   nullptr, request->cancel, &error)) {
+    if (!request->process) {
         g_clear_error(&error);
         complete(request, false);
         return;
     }
-    read_reply(request);
+    request->input = std::move(input);
+    // A full pipe must not prevent the main loop from processing cancellation.
+    g_output_stream_write_all_async(g_subprocess_get_stdin_pipe(request->process), request->input.data(),
+                                    request->input.size(), G_PRIORITY_DEFAULT, request->cancel, write_ready,
+                                    request);
 }
 void cancel_secrets(NMSecretAgentOld *base, const char *path, const char *) {
     auto *agent = reinterpret_cast<LinkoraAgent *>(base);

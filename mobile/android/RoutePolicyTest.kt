@@ -52,4 +52,22 @@ class RoutePolicyTest {
         assertNull(Net.parseCidr("10.0.0.2", "invalid"))
         assertEquals("10.0.0.2", Net.parseCidr("10.0.0.2", "255.255.255.0")!!.address)
     }
+
+    @Test fun manyHostExclusionsPreserveEveryOtherAddressInBothFamilies() {
+        for ((network, format) in listOf(
+            "192.0.2.0/24" to { host: Int -> "192.0.2.$host" },
+            "2001:db8::/120" to { host: Int -> "2001:db8::${host.toString(16)}" }
+        )) {
+            val prefix = if (network.contains(':')) 128 else 32
+            val excluded = (0..255 step 3).map { route("${format(it)}/$prefix") }
+            val included = listOf(route(network))
+            val routes = RoutePolicy.routes(included, excluded)
+            val reversed = RoutePolicy.routes(included, excluded.reversed())
+            for (host in 0..255) {
+                assertEquals(format(host), host % 3 != 0, covered(routes, format(host)))
+                assertEquals(format(host), host % 3 != 0, covered(reversed, format(host)))
+            }
+            assertEquals(routes.size, routes.distinct().size)
+        }
+    }
 }

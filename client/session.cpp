@@ -189,12 +189,12 @@ bool Session::fail(ErrorCategory category, int code) {
     error_code_ = code;
     return false;
 }
-void Session::log(int level, std::wstring message) {
+void Session::log(int level, std::string message) {
     if (level > log_level_.load())
         return;
     // Redact the complete message before splitting, including secrets that
     // cross a chunk boundary. Queue entries have a fixed maximum size.
-    auto text = wide(redactor_.clean(utf8(message)));
+    auto text = wide(redactor_.clean(std::move(message)));
     for (size_t begin = 0; begin < text.size(); begin += 8192) {
         Event event;
         event.kind = Event::Kind::Log;
@@ -234,7 +234,7 @@ void Session::persist(const std::function<void(Profile &)> &change) {
         return;
     std::wstring error;
     if (!store_->update_secrets(profile_.id, profile_.gateway, change, error))
-        log(PRG_ERR, error);
+        log(PRG_ERR, utf8(error));
     else {
         Event event;
         event.kind = Event::Kind::ProfilesChanged;
@@ -270,11 +270,11 @@ int Session::authenticate(oc_auth_form *form) {
     }
     state(State::Authenticating);
     if (form->banner)
-        log(PRG_INFO, safe(form->banner));
+        log(PRG_INFO, form->banner);
     if (form->message)
-        log(PRG_INFO, safe(form->message));
+        log(PRG_INFO, form->message);
     if (form->error)
-        log(PRG_ERR, safe(form->error));
+        log(PRG_ERR, form->error);
     const bool same_server = current_origin() == origin_;
     const bool failure = form->error && *form->error;
     if (failure) {
@@ -538,8 +538,8 @@ void Session::progress_callback(void *context, int level, const char *format, ..
     va_end(args);
     try {
         self->log(level, size < 0 || static_cast<size_t>(size) >= sizeof(buffer)
-                             ? L"[oversized log entry omitted]"
-                             : wide(buffer));
+                             ? "[oversized log entry omitted]"
+                             : buffer);
     } catch (...) {
     }
     SecureZeroMemory(buffer, sizeof(buffer));
@@ -689,7 +689,7 @@ void Session::read_script_log() {
                             FILE_ATTRIBUTE_NORMAL, nullptr));
     if (file)
         script_log_read_ = 0;
-    log(PRG_INFO, text);
+    log(PRG_INFO, utf8(text));
 }
 void Session::cleanup() noexcept {
     tunnel_loop_.store(false);
@@ -943,8 +943,8 @@ bool Session::run_attempt() {
         return false;
     }
     if (!profile_.disable_udp && openconnect_setup_dtls(vpn_, profile_.dtls_period) < 0)
-        log(PRG_INFO, tr(language_, L"UDP 暂不可用，继续使用 TLS 连接。",
-                         L"UDP is unavailable; continuing with the TLS connection."));
+        log(PRG_INFO, utf8(tr(language_, L"UDP 暂不可用，继续使用 TLS 连接。",
+                              L"UDP is unavailable; continuing with the TLS connection.")));
     if (!tun_ready_)
         state(State::Configuring);
     while (!stopped()) {

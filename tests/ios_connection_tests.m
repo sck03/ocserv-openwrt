@@ -21,7 +21,28 @@ int main(void) {
         for (NSString *input in invalid) {
             if (VPNServerURL(input)) { fprintf(stderr, "Invalid server address accepted: %s\n", input.UTF8String); return 1; }
         }
-        printf("iOS server address policy: %lu cases passed\n", (unsigned long)(valid.count + invalid.count));
+        NSString *encoded = [[NSMutableData dataWithLength:32] base64EncodedStringWithOptions:0];
+        NSString *pin = [@"pin-sha256:" stringByAppendingString:encoded];
+        if (!VPNServerPinValid(pin) || VPNServerPinValid(nil)) return 1;
+        NSArray<NSString *> *invalidPins = @[
+            @"", @"sha256:abcd", [pin substringToIndex:54], [pin stringByAppendingString:@"="],
+            [pin stringByReplacingCharactersInRange:NSMakeRange(53, 1) withString:@"B"],
+            [pin stringByAppendingString:@"\n"], [@"pin-sha256:" stringByAppendingString:[@"A" stringByPaddingToLength:65536 withString:@"A" startingAtIndex:0]]
+        ];
+        for (NSString *input in invalidPins) {
+            if (VPNServerPinValid(input)) { fprintf(stderr, "Invalid server pin accepted\n"); return 1; }
+        }
+        NSString *boundary = [@"a" stringByPaddingToLength:8192 withString:@"a" startingAtIndex:0];
+        NSString *unicodeBoundary = [@"密" stringByPaddingToLength:2730 withString:@"密" startingAtIndex:0];
+        unichar nul[] = {'a', 0, 'b'};
+        if (!VPNCredentialValid(@" 密码 ") || !VPNCredentialValid(boundary) || !VPNCredentialValid(unicodeBoundary) ||
+            VPNCredentialValid(nil) || VPNCredentialValid(@"") ||
+            VPNCredentialValid([NSString stringWithCharacters:nul length:3]) ||
+            VPNCredentialValid([boundary stringByAppendingString:@"a"]) ||
+            VPNCredentialValid([unicodeBoundary stringByAppendingString:@"码"])) {
+            fprintf(stderr, "Credential byte limits or NUL validation failed\n"); return 1;
+        }
+        printf("Apple server address, canonical pin and credential policies passed\n");
     }
     return 0;
 }

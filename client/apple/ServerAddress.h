@@ -2,8 +2,23 @@
 #define VPN_SERVER_ADDRESS_H
 #import <Foundation/Foundation.h>
 #include <arpa/inet.h>
+#include <string.h>
 
 // The app and extension use the same validation before any authentication.
+static inline BOOL VPNServerPinValid(NSString * _Nullable pin) {
+    if (![pin isKindOfClass:NSString.class] || pin.length != 55 || ![pin hasPrefix:@"pin-sha256:"]) return NO;
+    NSString *encoded = [pin substringFromIndex:11];
+    NSData *hash = [[NSData alloc] initWithBase64EncodedString:encoded options:0];
+    return hash.length == 32 && [[hash base64EncodedStringWithOptions:0] isEqualToString:encoded];
+}
+
+static inline BOOL VPNCredentialValid(NSString * _Nullable value) {
+    if (![value isKindOfClass:NSString.class]) return NO;
+    NSUInteger length = [value lengthOfBytesUsingEncoding:NSUTF8StringEncoding];
+    const char *bytes = value.UTF8String;
+    return length && length <= 8192 && bytes && !memchr(bytes, '\0', length);
+}
+
 static inline NSURL * _Nullable VPNServerURL(NSString * _Nullable raw) {
     if (![raw isKindOfClass:NSString.class]) return nil;
     NSString *value = [raw stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];

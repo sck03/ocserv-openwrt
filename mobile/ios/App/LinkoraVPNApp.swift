@@ -50,15 +50,11 @@ final class VPNModel: ObservableObject {
 
     func connect(server: String, username: String, password: String, pin: String) async {
         guard !busy && !connected && !disconnecting else { return }
-        guard let url = VPNServerURL(server),
-              !username.isEmpty, !password.isEmpty else {
+        guard let url = VPNServerURL(server), VPNCredentialValid(username), VPNCredentialValid(password) else {
             status = "请填写 HTTPS 服务器、用户名和密码"; return
         }
         let fingerprint = pin.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard fingerprint.hasPrefix("pin-sha256:"),
-              let decodedPin = Data(base64Encoded: String(fingerprint.dropFirst(11))),
-              decodedPin.count == 32,
-              decodedPin.base64EncodedString() == String(fingerprint.dropFirst(11)) else {
+        guard VPNServerPinValid(fingerprint) else {
             status = "请输入管理员核实的完整 pin-sha256 指纹"; return
         }
         busy = true

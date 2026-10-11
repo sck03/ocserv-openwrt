@@ -188,7 +188,7 @@ local function change_user(s,request)
     local was_running=running()
     if was_running then logic.require(logic.standard_auth(read(runtime_path) or ""),"custom_auth_file") end
     local users,revoke=logic.change_user(s.users,request,hash_password)
-    if logic.same_users(users,s.users) then return {effect="unchanged"} end
+    if logic.equal(users,s.users) then return {effect="unchanged"} end
     if was_running and revoke then logic.require(capabilities().terminate,"upgrade_required") end
     return transaction(s,was_running,function(mark)
         write_users(s,users); commit(s)
@@ -212,12 +212,12 @@ local function change_user(s,request)
         return {effect=effect}
     end)
 end
-local managed={"tcp-port","udp-port","max-clients","max-same-clients","dpd","ipv4-network","ipv4-netmask","ipv6-network","dns","route","auth","compression","predictable-ips","cisco-client-compat","default-domain"}
+local managed={}
+for _,key in ipairs({"tcp-port","udp-port","max-clients","max-same-clients","dpd","ipv4-network","ipv4-netmask","ipv6-network","dns","route","auth","compression","predictable-ips","cisco-client-compat","default-domain"}) do managed[key]=true end
 local function apply_settings(s,request)
     local values,dns,routes=logic.validate_settings(request.settings)
-    for _,key in ipairs(managed) do
-        local pattern="^%s*"..key:gsub("%-","%%-").."%s*="
-        for line in (s.extra.."\n"):gmatch("([^\n]*)\n") do logic.require(not line:match(pattern),"custom_override") end
+    for line in (s.extra.."\n"):gmatch("([^\n]*)\n") do
+        logic.require(not managed[line:match("^%s*([%w-]+)%s*=")],"custom_override")
     end
     local previous=logic.settings(s.config,s.dns,s.routes)
     local proposed=logic.settings(values,dns,routes)

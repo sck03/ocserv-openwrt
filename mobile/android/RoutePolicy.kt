@@ -9,12 +9,12 @@ internal object RoutePolicy {
         fun contains(other: Block) = bits == other.bits && prefix <= other.prefix &&
             address.shiftRight(bits - prefix) == other.address.shiftRight(bits - prefix)
 
-        fun subtract(other: Block): List<Block> {
-            if (other.contains(this)) return emptyList()
-            if (!contains(other)) return listOf(this)
+        fun subtract(other: Block, result: MutableList<Block>) {
+            if (other.contains(this)) return
+            if (!contains(other)) { result.add(this); return }
             val child = prefix + 1
-            return Block(address, child, bits).subtract(other) +
-                Block(address.setBit(bits - child), child, bits).subtract(other)
+            Block(address, child, bits).subtract(other, result)
+            Block(address.setBit(bits - child), child, bits).subtract(other, result)
         }
 
         fun cidr(): Cidr {
@@ -43,7 +43,7 @@ internal object RoutePolicy {
         }
         var remaining: List<Block> = unique
         for (excludedBlock in excluded.map(::block).distinct()) {
-            remaining = remaining.flatMap { it.subtract(excludedBlock) }
+            remaining = buildList { for (route in remaining) route.subtract(excludedBlock, this) }
         }
         return remaining.map { it.cidr() }
     }

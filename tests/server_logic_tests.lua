@@ -151,6 +151,23 @@ test("unknown templates and proxy ARP not silently overwritten",function()
     expect("unknown_template",function()logic.render("|NEW_UNSUPPORTED_OPTION|","",cfg,{}, {})end)
     cfg.proxy_arp="1";expect("proxy_arp_managed",function()logic.render(TEST_TEMPLATE,"",cfg,{}, {})end)
 end)
+test("large configurations preserve custom content and all route and DNS entries",function()
+    local input=fixture_settings();input.routes={};input.dns={"1.1.1.1","8.8.8.8","2001:4860:4860::8888"}
+    for i=0,127 do input.routes[#input.routes+1]="10."..i..".0.0/24" end
+    local cfg,dns,routes=logic.validate_settings(input)
+    local extra=string.rep("# preserved custom setting\n",4096)
+    local rendered=logic.render(TEST_TEMPLATE,extra,cfg,dns,routes)
+    check(rendered:find(extra,1,true) and logic.standard_auth(rendered))
+    local addresses,servers={},{}
+    for line in rendered:gmatch("[^\n]+") do
+        local address,mask=line:match("^route = ([^/]+)/(.+)$")
+        if address then check(mask=="255.255.255.0");addresses[#addresses+1]=address end
+        local server=line:match("^dns = (.+)$")
+        if server then servers[#servers+1]=server end
+    end
+    check(#addresses==128 and logic.equal(servers,input.dns))
+    for i=0,127 do check(addresses[i+1]=="10."..i..".0.0") end
+end)
 
 -- In-memory OpenWrt boundary. Exercises real backend transactions, not a rewrite
 -- of them. External UCI, nixio, occtl and procd are the mocked interfaces.
@@ -374,8 +391,13 @@ test("service stopped remains stopped when settings saved",function()
     check(result.effect=="saved" and not contains_command("restart") and not S.running)
 end)
 test("custom extra configuration is preserved and not silently overridden",function()
-    reset();S.files["/etc/ocserv/ocserv.conf.local"]="max-same-clients = 7\n"
-    expect("custom_override",function()request({action="settings",settings=fixture_settings(),allow_restart=true})end)
+    for _,directive in ipairs({"max-same-clients = 7\n", "\t dns\t= 8.8.8.8", "route=10.0.0.0/8\r\n", "auth = pam"}) do
+        reset();S.files["/etc/ocserv/ocserv.conf.local"]="# retained comment\n"..directive
+        expect("custom_override",function()request({action="settings",settings=fixture_settings(),allow_restart=true})end)
+    end
+    reset();S.files["/etc/ocserv/ocserv.conf.local"]="# dns = 8.8.8.8\nroute-add-cmd = /bin/true\n"
+    local result=request({action="settings",settings=fixture_settings(),allow_restart=true})
+    check(result.effect=="restarted" and S.candidate:find("route-add-cmd = /bin/true",1,true))
 end)
 test("downloads include public CA only and reject private-key mixtures",function()
     reset();local profile,name=backend.export("profile","https://vpn.example.com:4443")

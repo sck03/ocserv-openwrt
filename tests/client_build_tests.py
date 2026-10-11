@@ -124,6 +124,32 @@ class SourceBundleTests(unittest.TestCase):
         self.assertNotEqual(self.bundle().returncode, 0)
         self.assertEqual(package.read_bytes(), previous)
 
+    def test_windows_source_retains_build_dependencies_without_other_platforms(self):
+        retained = ("scripts/build-client-linux.sh", "scripts/build-dependencies.sh", "scripts/prepare-build.py",
+                    "scripts/sdk_config.py", "tests/build_config_tests.py", "server/openwrt/targets.json",
+                    "client/vendor/json-LICENSE.MIT", "client/patches/openconnect/0001-windows-script-errors.patch")
+        unrelated = ("client/apple/PacketTunnelProvider.m", "server/openwrt/ocserv/Makefile",
+                     "scripts/build-ios.sh", "tests/server_logic_tests.lua", ".github/workflows/build-server.yml")
+        for name in retained:
+            target = self.root / name
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(ROOT / name, target)
+        for name in unrelated:
+            target = self.root / name
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text("unrelated platform source\n", encoding="utf-8")
+        result = self.bundle()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        with zipfile.ZipFile(next((self.root / "dist").glob("*-source.zip"))) as source:
+            for name in retained:
+                self.assertIn("LinkoraVPN/" + name, source.namelist())
+            for name in unrelated:
+                self.assertNotIn("LinkoraVPN/" + name, source.namelist())
+            source.extractall(self.root / "unpacked")
+        result = subprocess.run([sys.executable, "tests/build_config_tests.py"],
+                                cwd=self.root / "unpacked/LinkoraVPN", capture_output=True, text=True, timeout=30)
+        self.assertEqual(result.returncode, 0, result.stderr)
+
     def test_archive_paths_cannot_escape_download_directory(self):
         self.manifest["../private.key"] = self.manifest.pop(self.archive.name)
         (self.root / "scripts/sources.json").write_text(json.dumps(self.manifest), encoding="utf-8")

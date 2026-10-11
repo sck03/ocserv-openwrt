@@ -20,9 +20,7 @@ struct VPNProfile: Codable, Identifiable, Equatable {
 
     func validated() throws -> VPNProfile {
         guard let url = VPNServerURL(server), !name.trimmingCharacters(in: .whitespaces).isEmpty,
-              name.count <= 128, username.utf8.count <= 8192, !username.isEmpty, !username.contains("\0"),
-              pin.hasPrefix("pin-sha256:"), let hash = Data(base64Encoded: String(pin.dropFirst(11))),
-              hash.count == 32, hash.base64EncodedString() == String(pin.dropFirst(11)), UUID(uuidString: id) != nil else {
+              name.count <= 128, VPNCredentialValid(username), VPNServerPinValid(pin), UUID(uuidString: id) != nil else {
             throw ClientError.invalidProfile
         }
         var result = self
@@ -256,7 +254,7 @@ final class DesktopVPN: NSObject, ObservableObject, OSSystemExtensionRequestDele
         guard !busy, storageReady, save() else { return }
         do {
             sessionPassword = password.isEmpty && draft.rememberPassword ? try Credentials.read(draft.id) : password
-            guard !sessionPassword.isEmpty, sessionPassword.utf8.count <= 8192, !sessionPassword.contains("\0") else { throw ClientError.missingPassword }
+            guard VPNCredentialValid(sessionPassword) else { throw ClientError.missingPassword }
             epoch &+= 1
             sessionID = UUID().uuidString
             wanted = true

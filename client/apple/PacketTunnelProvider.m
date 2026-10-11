@@ -163,13 +163,8 @@ static void Reconnected(void *data) {
         [options[@"password"] isKindOfClass:NSString.class] ? (NSString *)options[@"password"] : @"";
     NSURL *server = VPNServerURL(config.serverAddress);
     self.server = server;
-    NSData *hash = [self.pin hasPrefix:@"pin-sha256:"]
-                       ? [[NSData alloc] initWithBase64EncodedString:[self.pin substringFromIndex:11]
-                                                             options:0]
-                       : nil;
-    if (!server || hash.length != 32 ||
-        ![[hash base64EncodedStringWithOptions:0] isEqualToString:[self.pin substringFromIndex:11]] ||
-        !self.username.length || !self.password.length) {
+    if (!server || !VPNServerPinValid(self.pin) ||
+        !VPNCredentialValid(self.username) || !VPNCredentialValid(self.password)) {
         self.password = nil;
         NSArray<dispatch_block_t> *stopped;
         @synchronized(self) {
@@ -316,14 +311,14 @@ static void Reconnected(void *data) {
             openconnect_vpninfo_free(self.vpn);
             self.vpn = NULL;
         }
+        if (coreTunFD >= 0)
+            close(coreTunFD);
+        canceled = self.stopping;
+        [self recordState:canceled || !failure ? @"idle" : @"failed"];
+        // Publish completion and take every pending stop callback under the same
+        // lock. A later stop observes running == NO and completes immediately.
         stopped = self.stopCompletions.copy;
         self.stopCompletions = nil;
-        canceled = self.stopping;
-    }
-    if (coreTunFD >= 0)
-        close(coreTunFD);
-    [self recordState:canceled ? @"idle" : failure ? @"failed" : @"idle"];
-    @synchronized(self) {
         self.running = NO;
     }
     if (!started)

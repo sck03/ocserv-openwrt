@@ -12,11 +12,20 @@ def main():
     metadata = build_metadata()
     destination = ROOT / "dist" / f"LinkoraVPN-{metadata['release_label']}-source.zip"
     destination.parent.mkdir(exist_ok=True)
-    directories = ("client", "resources", "scripts", "tests", "docs", "server", ".github")
-    files = source_files(ROOT, directories, (
+    scripts = (
+        "audit-pe.py", "build-client-linux.sh", "build-dependencies.sh", "build.ps1", "build_common.py",
+        "clean-workspace.ps1", "fetch-deps.ps1", "fetch-sources.py", "make-icon.py", "package-client.py",
+        "package-source.py", "package.ps1", "prepare-build.py", "publish-release.sh", "release_metadata.py",
+        "sdk_config.py", "source-directory.py", "sources.json", "test-client.py",
+    )
+    tests = ("build_config_tests.py", "cleanup_tests.py", "client_build_tests.py", "release_tests.py", "release_metadata_tests.py")
+    files = source_files(ROOT, ("client", "resources", "docs"), (
         "CMakeLists.txt", "README.md", "LICENSE", "THIRD-PARTY-NOTICES.md",
         ".gitignore", ".gitattributes", ".clang-format",
+        ".github/workflows/build-client.yml", "server/openwrt/targets.json",
+        *("scripts/" + name for name in scripts), *("tests/" + name for name in tests),
     ))
+    files = [path for path in files if not path.is_relative_to(ROOT / "client/apple")]
     upstream = json.loads((ROOT / "scripts/sources.json").read_text(encoding="utf-8"))
     archives = []
     for name, entry in upstream.items():

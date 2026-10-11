@@ -162,14 +162,6 @@ function M.passwd(users)
     end
     return table.concat(rows)
 end
-function M.same_users(left,right)
-    if #left~=#right then return false end
-    for i,u in ipairs(left) do
-        local v=right[i]
-        for _,key in ipairs({"id","name","group","password"}) do if u[key]~=v[key] then return false end end
-    end
-    return true
-end
 function M.change_user(users, request, hash_password)
     M.require(type(request) == "table", "bad_request")
     M.require(request.action == "save_user" or request.action == "delete_user", "bad_action")
@@ -301,11 +293,11 @@ function M.render(template, extra, config, dns, routes, context)
         ENABLE_IPV6=config.ip6addr and config.ip6addr~="" and "" or "#",
         SERVER_CERT=config.server_cert or "/etc/ocserv/server-cert.pem", SERVER_KEY=config.server_key or "/etc/ocserv/server-key.pem" }
     for _,value in pairs(values) do M.require(M.text(value,512) and not value:find("[~&]"), "unsafe_config_value") end
-    local output=template:gsub("|([A-Z0-9_]+)|",function(key) M.require(values[key]~=nil,"unknown_template"); return values[key] end)
-    output=output.."\n"..(extra or "").."\n"
-    for _,row in ipairs(routes) do output=output.."route = "..row.ip.."/"..row.netmask.."\n" end
-    for _,row in ipairs(dns) do output=output.."dns = "..row.ip.."\n" end
-    return output
+    local output={template:gsub("|([A-Z0-9_]+)|",function(key) M.require(values[key]~=nil,"unknown_template"); return values[key] end),
+        "\n",extra or "","\n"}
+    for _,row in ipairs(routes) do output[#output+1]="route = "..row.ip.."/"..row.netmask.."\n" end
+    for _,row in ipairs(dns) do output[#output+1]="dns = "..row.ip.."\n" end
+    return table.concat(output)
 end
 function M.standard_auth(runtime)
     local count=0
