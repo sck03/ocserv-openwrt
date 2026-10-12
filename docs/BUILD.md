@@ -36,7 +36,7 @@ Actions 使用官方 checkout、cache、setup-node、setup-python、upload-artif
 
 版本和 SHA-256 集中在 scripts/sources.json。静态组件：OpenConnect 9.21、GnuTLS 3.8.13、GMP 6.3.0、Nettle 3.10.2、stoken 0.92、libxml2 2.15.3、zlib 1.3.2。驱动为未修改的官方 Wintun 0.14.1。支持软件令牌、Windows 系统证书；PKCS#11、TPM、浏览器 SSO 未启用。
 
-旧 src/ 的网络/WFP 实现、默认 INI、OpenSSL 配方和旧测试已移除。上游及补丁说明见 [client/UPSTREAM.md](../client/UPSTREAM.md)。
+上游及补丁说明见 [client/UPSTREAM.md](../client/UPSTREAM.md)。
 
 ## Linux 交叉编译
 
@@ -123,7 +123,7 @@ PE 审计要求正确架构、Windows 10 操作系统标识、系统加载器接
 
 标签为 `client-版本或时间-运行ID-尝试次数` 或 `server-版本或时间-运行ID-尝试次数`，指向实际提交。重跑创建新条目，不覆盖已有附件。Release 标题始终显示北京时间，例如“Linkora VPN Windows 客户端 v0.5.1（构建 2026-09-29 10:20:59 +08:00）”；留空版本号时标题只显示构建时间。原来的“9.1”是运行次数与尝试次数，不是日期。Release 附件长期保留，地址写入工作流 Summary。
 
-客户端附件包含 x64/x86 便携 ZIP、对应源码 ZIP 和校验文件。打包只 strip 本项目 EXE，Wintun 保持原样；附带许可证、使用说明和 BUILDINFO。源码包包含项目源码、配方、补丁及全部锁定第三方归档；在 Git 工作区中仅收录受版本控制的项目文件，排除未跟踪备份、本机工具、测试数据和旧代码。客户端与服务端均在临时目录生成 ZIP，完成后替换目标文件，失败不会覆盖之前的完整包。
+客户端附件包含 x64/x86 便携 ZIP、对应源码 ZIP 和校验文件。打包只 strip 本项目 EXE，Wintun 保持原样；附带许可证、使用说明和 BUILDINFO。Windows 源码包仅包含本平台的客户端、构建配方、补丁、回归、工作流和共享文档，保留构建参数回归所需的 SDK 目标表及全部锁定第三方归档。在 Git 工作区中仅收录跟踪文件，排除无关平台代码、未跟踪备份、本机工具和测试数据。打包回归会在解压的源码包中运行构建参数检查，以确认依赖清单完整。客户端与服务端均在临时目录生成 ZIP，完成后替换目标文件，失败不会覆盖之前的完整包。
 
 移动端和桌面端共用源码清单函数，直接从 Git 收集跟踪文件的当前内容，避免遍历无关缓存；完整生成后替换旧包，上游压缩归档直接存入 ZIP。两端也共用下载校验、网络重试和独立临时文件清理逻辑。
 

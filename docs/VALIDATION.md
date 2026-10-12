@@ -1,242 +1,70 @@
 # 验证记录
 
-## 2026-10-11 桌面客户端、会话归属和诊断
+本页保留当前支持平台的验证证据与实机边界。早期重构、旧命名及 Windows 7 的记录见 [历史版本](https://github.com/sck03/ocserv-openwrt/blob/af2394d/docs/VALIDATION.md)，不作为当前版本的验收要求。
 
-最终应用代码为 `670f650`；Windows 0.7.0、macOS/Linux 0.1.0、iOS 0.2.1。按全新安装维护，Windows 基线调整到 10/11，删除 Win7 清单及 API 审计规则；macOS 13+ 同包支持 Apple Silicon / Intel，Linux 支持 Debian 12 / Ubuntu 24.04 的 amd64 / arm64。
+## 2026-10-12 代码质量与体积优化
 
-| 平台 | GitHub 验证与边界 |
+应用代码为 [`114018b`](https://github.com/sck03/ocserv-openwrt/commit/114018b)，以下工作流均针对该提交；后续收尾只更新文档。
+
+服务端配置改为一次合并字符串，覆写检查只扫描一次附加配置，账号比较复用已有函数。Windows 核心日志在脱敏后才转换为宽字符；Android 路由拆分共用输出列表，去掉递归过程中反复创建和拼接的中间列表。Linux 认证输入改为可取消的异步管道写入，并拒绝非法用户名。Apple 共用指纹与凭据校验，限制 UTF-8 字节数及内嵌 NUL；收尾时在同一把锁内收集断开回调并标记完成，避免遗漏迟到的停止请求。
+
+| 平台 | GitHub 验证 |
 |---|---|
-| Windows | [运行 38086011288](https://github.com/sck03/ocserv-openwrt/actions/runs/38086011288)，`670f650`：x86/x64 编译、PE 审计、实际便携包启动和原生回归通过；x64 另通过真实 Wintun/CSTP 隧道回归 |
-| macOS / Linux | [运行 38084910520](https://github.com/sck03/ocserv-openwrt/actions/runs/38084910520)，`670f650`：macOS Universal 应用与系统扩展、Linux 两种架构的编译、测试、图形启动、DEB 与对应源码打包均通过 |
-| iOS | [运行 38082843251](https://github.com/sck03/ocserv-openwrt/actions/runs/38082843251)，`9c313bd`：共用 Apple 地址/数据包校验、核心、应用与隧道扩展编译及未签名归档通过；其后 Apple 运行时代码未变 |
+| Windows | [运行 38185269509](https://github.com/sck03/ocserv-openwrt/actions/runs/38185269509)：x86/x64 编译、PE 审计、便携包启动、原生回归全部通过；x64 七项真实 Wintun 隧道回归通过 |
+| macOS / Linux | [运行 38185274006](https://github.com/sck03/ocserv-openwrt/actions/runs/38185274006)：macOS Universal 编译及源码打包、Linux 两种架构编译、IPC/协议回归、图形启动及 DEB 打包全部通过 |
+| iOS | [运行 38185276972](https://github.com/sck03/ocserv-openwrt/actions/runs/38185276972)：共用地址、指纹、凭据和数据包校验、核心、应用与扩展的 unsigned 归档全部通过 |
+| Android | [运行 38185279525](https://github.com/sck03/ocserv-openwrt/actions/runs/38185279525)：三个架构核心、JUnit、debug APK、签名和 16 KB 对齐检查全部通过 |
+| OpenWrt | [运行 38185271897](https://github.com/sck03/ocserv-openwrt/actions/runs/38185271897)：服务端功能回归及六架构 APK 编译、打包全部通过 |
 
-Windows 两种架构各通过配置/DPAPI 47 项、连接/脱敏/启动注册 60 项、原生界面 29 项、真实 WSH 6 项、资源 8 组及回环 TLS/认证 35 项。资源测试各处理 60 万事件、1,000 轮回收；最终 x64 句柄保持 118 个。新增 TLS 预热后的快速取消回归，区分系统首次初始化与会话句柄泄漏。
+已下载并核对 Windows 和服务端回归附件的 SHA-256 及 ZIP CRC。Windows 每个架构均通过连接 60、配置/DPAPI 47、界面 29、WSH 6、资源 8 组及回环认证 35 项；x64 另有真实隧道 7 项。服务端报告确认逻辑 51、事务 36、证书 11、安装 24、密码文件 9、浏览器 15 组及轮询 5 组通过。Linux 新增写入阶段取消和非法用户名回归；Apple 新增完整指纹、非规范 Base64、UTF-8 长度及内嵌 NUL 边界；Android 新增 IPv4/IPv6 密集排除路由的逐地址检查。
 
-x64 的七项真实隧道用例覆盖正常流量、首次配置失败、重连配置失败、网络变化、睡眠唤醒、暂停时取消和断开脚本失败。测试发现并修复暂停后仅释放核心数据、却未关闭 Wintun 的问题：终止暂停会话时重新进入核心取消路径，完成网络回收后才报告结束；断开脚本错误归入清理失败。七项均确认网卡移除，网络变化和唤醒后重新验证了 UDP 往返。
+本地配置、脚本、打包和浏览器回归通过；实际生成的 Windows 源码 ZIP 解压后，构建参数 11、客户端打包 10、发布元数据 6 项再次通过。Ruff F、Python/JavaScript 语法及 C 数据包检查通过。
 
-会话事件带编号和状态代次；界面拒绝旧会话、过期状态和取消后迟到的连接消息，并防止认证弹窗期间重入事件回收。错误分为网络、超时、认证、证书、配置、权限、网卡、占用和内部错误等。Windows 在日志入队前脱敏，回归检查隐藏字段、Cookie、XML/JSON/URL 编码及超长输入；Linux 的认证数据通过独立私有管道传递。网络失败重试最多三次，等待期间可取消；登录后自动连接默认关闭。
+128 条路由、117,336 字节配置的对照实验生成完全一致的内容。暂停垃圾回收时，单次渲染的 Lua 堆增长从 14,844.59 KiB 降到 337.60 KiB；这是本地 Lua 5.1 分配对照，不能换算成 N1 常驻内存或吞吐提升。Windows 源码包的项目文件从 161 个减至 90 个，去除 71 个无关平台文件，保留所有必要构建输入与第三方归档。过时验证说明转为历史链接。清理生成目录约 22 MiB，并卸载本次安装的测试依赖；源码、许可证、备份、发行档案和验证报告保留。
 
-Linux 在私有 D-Bus 和真实 GIO 子进程管道上验证成功认证、重复使用、取消、超大输出与换行注入；仅把系统 VPN 服务所需的临时秘密传给 NetworkManager，丢弃其他认证字段并关闭子进程 stderr 日志。协议测试验证地址、代次、输入编码与重试上限。两种架构的真实 GTK 窗口均启动并保存截图；上述 IPC 测试使用合成认证子进程，没有连接真实 VPN。
+## 2026-10-11 桌面客户端与会话生命周期
 
-macOS 与 iOS 共用 `client/apple`，删除重复源文件位置与原 iOS 专用核心构建脚本。增加证书有效期、服务器来源校验、代次隔离、暂停请求合并和数据包回调同步。macOS 使用系统扩展、钥匙串和系统登录项；诊断只导出允许的状态字段，扩展响应不能覆盖新会话的导出。
+该轮应用代码为 `670f650`；Windows 0.7.0、macOS/Linux 0.1.0、iOS 0.2.1。Windows 支持 10/11，macOS 支持 13+ Universal，Linux 支持 Debian 12 / Ubuntu 24.04 的 amd64 / arm64。
 
-下载后复核安装包校验和、源码范围和窗口布局：Linux amd64 / arm64 DEB 分别为 **33,468 / 31,632 字节**（动态使用系统库），macOS Universal 应用 ZIP 为 **5,093,444 字节**，本地 Windows x64 便携 ZIP 为 **3,040,857 字节**。对应源码包按平台选择文件，包含 macOS 图标输入，排除无关客户端及本机数据。静态组件的上游源码和许可证随对应源码包保留。
-
-清理构建目录、提取后的依赖、临时工具链、参考文件、重复下载包和旧测试二进制，按文件大小合计约 **1.90 GiB**。清理保留源码、当前校验过的下载缓存、最终安装包及验证报告；遇到目录待删除时仅作有界重试，并继续检查工作区边界、符号链接、进程占用及 Git 跟踪文件。清理脚本四项回归通过。收尾移除仅供开发分支验证的临时触发器，桌面工作流保留手动构建。
-
-Windows 构建设为 `publish_release=false`，Apple 构建为 unsigned；本次没有发布 Release。macOS 实际加载系统扩展需要有效的 Apple 签名和描述文件，未在 Mac、Linux 或移动设备上完成真实 VPN 流量验收；没有修改用户 N1 或在本地开发机创建 VPN 网卡。产物与签名说明见[桌面客户端说明](DESKTOP.md)。
-
-## 2026-10-10 Linkora VPN 全新安装命名与精简
-
-主体代码为 `7ec2c05`，Android 通知及桌面小组件名称补全为 `6d0867c`。Windows 版本 `0.6.0`、Android/iOS `0.2.0`、ocserv `1.5.0-r6`、管理页 `0.5.0-r1`。
-
-客户端、服务端管理页、发行包和文档统一使用 Linkora VPN。Windows 使用新的 DPAPI 上下文、配置 schema 2 和 `.vpn` 导出；移动端默认 ID 为 `io.github.sck03.linkoravpn`，防火墙对象使用新的产品前缀。本版按全新安装部署，不提供旧版数据迁移。
-
-移除旧密码迁移函数、命令行工具、管理入口和旧页面跳转，替换原字母图标及重复的图形生成代码。Windows 从 CMake 统一生成版本头和清单，修复界面/协议版本落后于 EXE 属性的问题；便携包回归实际检查 EXE 产品名、文件名和版本资源。源码打包共用 Git 文件清单，避免扫描无关缓存；Release 对本项目 C++ 启用体积优化及无用节清理。
-
-| 平台 | 本次 GitHub 验证 |
+| 平台 | 已完成的 GitHub 验证 |
 |---|---|
-| Windows | [运行 38028344769](https://github.com/sck03/ocserv-openwrt/actions/runs/38028344769)，`7ec2c05`：x86/x64 编译、PE 审计、版本资源、中英文便携包启动及原生回归全部通过 |
-| 服务端 | [运行 38028346418](https://github.com/sck03/ocserv-openwrt/actions/runs/38028346418)，`7ec2c05`：功能回归及六个 OpenWrt 25.12.5 目标编译、打包全部通过 |
-| Android | [运行 38028911546](https://github.com/sck03/ocserv-openwrt/actions/runs/38028911546)，`6d0867c`：三个架构核心、单元测试、debug APK、签名和 16 KB 对齐检查通过 |
-| iOS | [运行 38028349382](https://github.com/sck03/ocserv-openwrt/actions/runs/38028349382)，`7ec2c05`：地址/数据包校验、应用与隧道扩展编译及未签名 archive 通过 |
+| Windows | [运行 38086011288](https://github.com/sck03/ocserv-openwrt/actions/runs/38086011288)，`670f650`：x86/x64 编译、PE 审计、便携包启动与原生回归；x64 另通过真实 Wintun/CSTP 隧道回归 |
+| macOS / Linux | [运行 38084910520](https://github.com/sck03/ocserv-openwrt/actions/runs/38084910520)，`670f650`：macOS Universal 应用与系统扩展、Linux 两种架构编译、测试、图形启动、DEB 与源码打包 |
+| iOS | [运行 38082843251](https://github.com/sck03/ocserv-openwrt/actions/runs/38082843251)，`9c313bd`：Apple 共用地址/数据包校验、核心、应用与隧道扩展编译及未签名归档 |
 
-Windows 两个架构各通过配置/DPAPI 46 项、界面 26 项、WSH 6 项、资源 8 组和真实回环 TLS/认证 26 项；x64 另通过真实 Wintun 隧道 3 项。服务端通过 Lua 逻辑 50 项、启动配置一致性 4 项、事务 36 项、进程 9 项、安装 24 项、密码文件 9 项、证书 11 项、隔离网络 20 项、浏览器 15 组和轮询 5 组。
+Windows 两种架构各通过配置/DPAPI 47 项、连接/脱敏/启动注册 60 项、原生界面 29 项、真实 WSH 6 项、资源 8 组及回环 TLS/认证 35 项。资源测试各处理 60 万事件、1,000 轮回收；x64 最终句柄保持 118 个。x64 七项真实隧道回归覆盖正常流量、首次/重连配置失败、网络变化、睡眠唤醒、暂停时取消和断开脚本失败，均确认网卡移除。
 
-与上一轮同组件版本的 [Windows 构建 38024500027](https://github.com/sck03/ocserv-openwrt/actions/runs/38024500027) 比较，实际便携包体积下降如下：
+Linux 在私有 D-Bus 和真实 GIO 子进程管道中验证成功认证、重复使用、取消、超大输出与换行注入。仅将 VPN 服务所需的临时秘密交给 NetworkManager，丢弃其他认证字段。图形启动与截图覆盖两种架构；认证子进程为合成测试程序，没有连接真实 VPN。
 
-| 文件 | 调整前（字节） | 调整后（字节） | 减少 |
-|---|---:|---:|---:|
-| Windows x64 ZIP | 3,117,467 | 2,987,290 | 4.18% |
-| Windows x86 ZIP | 3,204,959 | 3,072,888 | 4.12% |
-| Windows 图标 | 62,347 | 34,392 | 44.84% |
+macOS 与 iOS 共用 `client/apple`。该轮验证覆盖地址、数据包和证书有效期校验、会话代次、暂停合并及编译归档。macOS 实际加载系统扩展仍需要有效的 Apple 签名和描述文件。
 
-本地另通过原生配置/DPAPI、构建与打包、Lua 事务、浏览器及脚本检查，并使用校验过的 Android 上游源码核对通知与小组件名称。清理脚本删除约 217 MiB 临时编译环境、参考源码副本和缓存；验证报告与日志保留在 `test-results/`，不进入 Git 或发行包。
+该轮安装包复核结果：Linux amd64 / arm64 DEB 分别为 33,468 / 31,632 字节，macOS Universal 应用 ZIP 为 5,093,444 字节，本地 Windows x64 ZIP 为 3,040,857 字节。源码包保留对应上游源码和许可证。清理构建目录、展开的依赖及重复临时文件约 1.90 GiB；保留校验过的下载、发行档案、备份和验证报告。
 
-Windows/服务端使用 `publish_release=false`，移动端使用 debug/unsigned；未发布 Release。本次为编译和自动回归，未连接用户 N1，也未执行 Win7 或手机实机验收。GlobalProtect 参考及后续功能建议见[客户端增强建议](CLIENT-ENHANCEMENTS.md)。
+## 2026-10-10 服务端与移动端基线
 
-## 2026-10-10 局域网 IPv4 兼容性复查
-
-代码提交：`ad551b6`。Windows 保持 `0.5.2`，iOS 保持 `0.1.1`；Android 更新为 `0.1.2`，ocserv 为 `1.5.0-r6`，管理页为 `0.4.1-r7`。
-
-- 管理页仅修改员工连接地址时只保存导出信息，不重启服务，不重建 DNS、路由或账号段；重复保存相同设置不写入配置。实际网络参数变更仍执行配置检查和重启确认。
-- 启动脚本显式重置 IPv6 开关和认证后缀的局部状态。新增回归实际执行启动脚本并与 LuCI 渲染结果比较，验证默认 IPv4、仅更换公网地址、连续切换 IPv6，以及保留自定义 IPv4 网段/DNS/分流路由。
-- Android 根据实际协商的隧道 IPv6 地址处理 MTU、路由和 DNS。允许 IPv6 但服务器只分配 IPv4 时，合法的小 MTU 不再被 IPv6 最小值误拒绝；IPv6 公网入口和隧道内 IPv6 配置继续独立。
-- Windows 运行时代码和网络脚本保持原样，增加原局域网 IPv4 全隧道、IPv6 不可用、局域网无互联网默认网关的覆盖。服务端原 IPv4 默认地址池、DNS、NAT 和专用上网规则保留。
-
-| 平台 | 本次 GitHub 验证 |
+| 平台 | 该轮验证及提交 |
 |---|---|
-| Windows | [运行 38024500027](https://github.com/sck03/ocserv-openwrt/actions/runs/38024500027)：x86/x64 编译、PE 审计、便携包启动、认证/界面/资源回归和 x64 Wintun 检查全部通过 |
-| Android | [运行 38024503479](https://github.com/sck03/ocserv-openwrt/actions/runs/38024503479)：三个架构核心、单元测试、debug APK 构建、签名和 16 KB 对齐检查通过 |
-| iOS | [运行 38024505852](https://github.com/sck03/ocserv-openwrt/actions/runs/38024505852)：地址/数据包校验、应用及隧道扩展编译、未签名 archive 通过 |
-| 服务端 | [运行 38024501848](https://github.com/sck03/ocserv-openwrt/actions/runs/38024501848)：功能回归及六个 OpenWrt 25.12.5 目标的 APK 编译、打包全部通过 |
+| 服务端 | [运行 38028346418](https://github.com/sck03/ocserv-openwrt/actions/runs/38028346418)，`7ec2c05`：服务端回归及六个 OpenWrt 25.12.5 目标的 APK 编译、打包 |
+| Android | [运行 38028911546](https://github.com/sck03/ocserv-openwrt/actions/runs/38028911546)，`6d0867c`：三个架构核心、单元测试、debug APK、签名与 16 KB 对齐检查 |
 
-Windows 两个架构各通过配置/DPAPI 46 项、界面 26 项、真实 WSH 6 项、资源 8 组和回环 TLS/认证 26 项；x64 另通过真实 Wintun 3 项，包含连接、配置失败、重连失败及网卡清理。各处理 60 万事件及 1,000 轮回收后，x64/x86 句柄分别保持 124/143 个。
+服务端当轮通过 Lua 逻辑 50 项、启动配置一致性 4 项、事务 36 项、进程 9 项、安装 24 项、密码文件 9 项、证书 11 项、隔离网络 20 项、浏览器 15 组和轮询 5 组。六个目标为 `x86/64`、`armsr/armv8`、`mediatek/filogic`、`ipq806x/generic`、`ramips/mt7621`、`ath79/generic`。
 
-服务端已通过 Lua 逻辑 51 项、启动配置一致性 4 项、事务 36 项、进程 9 项、安装 25 项、密码文件 9 项、真实证书检查 11 项、隔离网络 20 项、浏览器操作 15 组和轮询 5 组。隔离网络覆盖 LAN IPv4 的 TCP/UDP 入口、VPN DNS、NAT 与透明代理，以及 IPv6/公网入口和原有管理隔离。
+更早的域名/IPv6、N1 运行库接口、账号认证和防火墙事务记录均保留在上述历史版本及其链接的 Actions 中。历史结果只证明当时注明的提交。
 
-本地通过 175 项回归、20 项浏览器检查和 16 项 Kotlin/JUnit 测试；移动端 C 数据包校验、Ruff F、脚本语法与差异空白检查通过。Kotlin 使用真实编译器/JUnit，Android 框架边界使用旧 API 级别桩；完整 Android 编译与测试以上述 GitHub 结果为准。
+## 验证方法与范围
 
-移除 Android 未使用的 IPv4 路由补集/地址转换函数及多余路由包装，合并服务端重复的结构比较函数。对比适配后的四个 Android 运行时文件，源码从 40,946 字节减至 40,040 字节。清理脚本增加 Ruff 缓存；已删除约 214 MiB 临时编译环境和缓存，源码、许可证、备份及验证报告保留。
-
-所有运行针对 `ad551b6`；Windows/服务端使用 `publish_release=false`，移动端为 debug/unsigned，未发布 Release。报告与产物元数据保存在本地 `test-results/lan-ipv4-ci.json`、`test-results/ci-ad551b6/`。代码与自动回归未发现原局域网 IPv4 行为被新功能破坏；未修改或连接运行中的用户 N1，真实公网、手机网络切换和 Win7 仍需实机验收。
-
-## 2026-10-10 全平台 IPv6、公网与重连复查
-
-本次版本：Windows `0.5.2`、Android/iOS `0.1.1`、ocserv `1.5.0-r5`、管理页 `0.4.1-r6`。主体修订为 `b192792`，iOS 地址校验补充为 `bf5e4db`，Android IPv6 DNS 补充为 `bc1acbc`。
-
-- Windows 在尝试新的 DDNS 地址前安装绕行路由，记录并清理自己创建的 IPv4/IPv6 路由；保留已有路由，断网后按保存的下一跳清理。修复 Windows 环境变量缓存导致后续会话继承旧日志/路由文件路径的问题。
-- Android 去掉独立的 IPv4 DoH 缓存和单地址预解析，保留域名、IPv6、端口和认证路径；MTU 以协商值为上限。统一各系统版本的双栈排除路由，重连时刷新隧道设置，并阻止 IPv6 DNS 绕过关闭 IPv6 的设置。
-- iOS 应用和扩展共用 HTTPS/IPv6 地址校验，拒绝错误端口、含凭据的地址和有歧义的 IPv4 写法；重连时刷新协商设置，失败时结束连接。
-- 服务端修正 IPv6 地址、地址池网络边界和等价 DNS 地址校验；使用外部证书时不再依赖默认本地 CA 文件。
-
-| 平台 | GitHub 运行与结果 |
-|---|---|
-| Windows | [运行 38020268252](https://github.com/sck03/ocserv-openwrt/actions/runs/38020268252)，`b192792`：x86/x64 编译、PE 审计、便携包中英文启动、原生回归全部通过 |
-| 服务端 | [运行 38020270864](https://github.com/sck03/ocserv-openwrt/actions/runs/38020270864)，`b192792`：回归及六个 OpenWrt 25.12.5 目标的 APK 编译、打包全部通过 |
-| Android | [运行 38020917457](https://github.com/sck03/ocserv-openwrt/actions/runs/38020917457)，`bc1acbc`：三个架构的 OpenConnect 核心、上游及地址/MTU/双栈路由/证书单元测试、APK 签名和 16 KB 对齐全部通过 |
-| iOS | [运行 38020562173](https://github.com/sck03/ocserv-openwrt/actions/runs/38020562173)，`bf5e4db`：20 项地址用例、C 数据包/前缀校验、arm64 静态库、应用和 Packet Tunnel 扩展编译及未签名 archive 全部通过 |
-
-Windows 两个架构各通过配置/DPAPI 46 项、真实 TLS/认证 26 项、界面 26 项、真实 Windows Script Host 6 项及资源回归 8 组；新增的两项 WSH 用例验证连续会话继承当前环境。x64 另通过 3 项真实 Wintun/CSTP 隧道检查。资源测试各处理 60 万事件和 1,000 轮回收，x64/x86 句柄分别保持 124/143 个。
-
-服务端回归通过 Lua 逻辑 49 项、开关事务 36 项、进程管理 9 项、安装 25 项、密码文件 9 项、真实 certtool/OpenSSL 证书检查 11 项、Linux 网络隔离 20 项、浏览器操作 14 组和轮询 5 组。六个目标为 `x86/64`、`armsr/armv8`、`mediatek/filogic`、`ipq806x/generic`、`ramips/mt7621`、`ath79/generic`。
-
-本地通过 167 项回归：Lua 49、开关事务 36、进程 9、构建参数 11、客户端构建/源码包 9、移动构建脚本 15、Windows 网络脚本 22、服务端打包 6、发布元数据 6、清理边界 4。移动端 C 校验、Python Ruff F 检查、修改脚本的语法及 `git diff --check` 通过。OpenConnect 两个补丁检查通过，并已在 Windows 两个架构实际编译。
-
-清理 Windows 不再使用的路由分支，以及 Android 重复 DNS 解析、旧路由实现和无用导入。按已适配的 Android 隧道、网络工具及新增策略源文件合计，运行时代码净减少 75 行、2,353 字节；回归测试和上游许可证保留。验证完成后运行清理脚本，删除约 164 MiB 临时构建环境和 Python 缓存，发行档案、源码缓存、备份和测试报告保留。详细运行结果与 artifacts 元数据记录于本地 `test-results/ci-summary.json`。
-
-Windows/服务端构建使用 `publish_release=false`；移动端使用 debug/unsigned 模式。产物位于各运行的 artifacts，不代表已发布正式发行版。WSH 环境继承、回环 TLS/Wintun 和隔离防火墙有实际运行证据；DDNS 路由脚本仍使用模拟 Windows 命令，手机网络切换、真实公网入口、N1、Win7 和移动设备仍须实机验收。
-
-## 2026-10-10 域名与公网连接复查
-
-本次代码提交为 `75a2257`：Windows 客户端 `0.5.1`、ocserv `1.5.0-r4`、管理页 `0.4.1-r5`。修复专用模式绑定 LAN IPv4、阻断 IPv6 入口的问题；服务端通知客户端在重连时重新解析域名；增加固定公钥指纹导出，避免自签证书换成公网域名后误用 CA 配置。Windows 增强地址校验，并允许只有 IPv6 上游时配置 IPv4 隧道。
-
-[GitHub Windows 构建与运行验证](https://github.com/sck03/ocserv-openwrt/actions/runs/38010803655) 已通过。x86/x64 使用实际便携包完成 PE 审计及中英文启动，各自通过：
-
-| 项目 | 结果 |
-|---|---|
-| 配置与 DPAPI | 46 项，新增域名大小写、中文域名、IPv6、错误地址与端口边界 |
-| 真实 OpenConnect TLS/认证 | 26 项，含域名 SNI、IPv6、CA、固定指纹、过期证书、重试、跨来源跳转和取消 |
-| 原生界面 | 26 项 |
-| Windows Script Host | 4 项，真实错误及异常传播 |
-| 资源与队列 | 8 组，60 万事件、1,000 轮回收；x64/x86 句柄分别保持 124/143 个 |
-| x64 真实 Wintun 隧道 | 3 项，覆盖 UDP 往返、连接/重连配置失败和网卡清理 |
-
-[GitHub 服务端验证任务](https://github.com/sck03/ocserv-openwrt/actions/runs/38010806799) 已通过 Lua 逻辑 46 项、开关事务 36 项、进程管理 9 项、安装 25 项、密码文件 9 项、真实 certtool/OpenSSL 证书检查 8 项、Linux 网络命名空间隔离 20 项、浏览器操作 14 组及轮询 5 组。网络测试新增 IPv6 VPN 入口与非 LAN 来源的 IPv4/IPv6 接入，同时验证管理端口、代理入口和未配置的隧道 IPv6 仍被拦截。
-
-同一次服务端工作流的六个 OpenWrt 25.12 目标全部编译和打包成功：`x86/64`、`armsr/armv8`、`mediatek/filogic`、`ipq806x/generic`、`ramips/mt7621`、`ath79/generic`。两个工作流均使用 `publish_release=false`，产物在对应运行的 artifacts 中；发布步骤按预期跳过。
-
-本地另通过构建参数 11 项、客户端构建/源码包 9 项、移动构建脚本 15 项、服务端打包 6 项、发布元数据 6 项、清理边界 4 项、网络脚本 18 项及移动端 IP/前缀 C 回归。Python Ruff F 检查、脚本语法、`git diff --check` 通过；Windows 配置回归使用 `-Wall -Wextra -Wpedantic -Werror` 编译。Linux 专属测试以以上 GitHub 结果为准，本次未重新编译 Android/iOS 应用。
-
-清理硬编码旧 LAN 地址的重复导出脚本，统一使用管理页和 Windows 客户端导出。配置模板从 17,911 字节缩至 2,716 字节，保留有效配置项；移除约 7 MiB 本地构建缓存并卸载本次测试依赖。临时环境整体递归删除被执行策略拦截，按用户要求将约 0.52 MiB 启动文件及一次性检查脚本集中到本地 `artifacts/待手动删除/`；它们不被 Git 跟踪，也不进入发行包。原有备份、发行档案和本次测试报告保留。
-
-用户反馈局域网实际使用正常。本次没有修改运行中的 N1，也未从真实外网连接用户设备；回环 TLS 和隔离网络测试不能证明运营商入口可达。CGNAT、公网 IPv6、主路由端口转发、旧版专用模式升级后的重新启用及公网验收步骤见[域名与公网连接](WAN.md)。
-
-## 历史验证背景
-
-客户端 0.5 重构日期：2026-09-17；服务端管理页 0.4.1 修复验证日期：2026-09-17。本地 Windows 环境为 10.0.17763，客户端 CI 使用 Windows Server 2022。测试使用临时合成账号、证书和独立目录，不读取真实 VPN 密码，也没有修改用户 N1。
-
-## 2026-10-05 工作流更新与清理
-
-本地通过 186 项检查：构建参数 11、发布脚本 13、发布元数据 6、客户端构建/源码包 9、移动端构建 15、服务端打包 6、清理边界 4、LuCI 逻辑 43、防火墙事务 35、进程管理 9、浏览器页面 13、轮询超时 5、Windows 网络脚本 17。浏览器回归使用 Playwright 1.63.0 / Chromium 153，未发现页面错误。
-
-四份工作流通过 actionlint 1.7.12 检查；Bash/JavaScript 语法、Python 未使用导入检查和 `git diff --check` 通过。SDK 自动选择实测为 25.12.5，六个目标均从官方目录取得唯一 SDK 和 SHA-256。删除冗余的单目标 SDK 清单及旧 `.tools/python-test` 路径注入，测试依赖由当前 Python 环境提供。
-
-本地回归解释器为 Python 3.13、Node.js 24；工作流已配置 Python 3.14、Node.js 26。本次未重新执行 GitHub 全平台原生编译或设备验收，历史构建结果不代表本次新运行。
-
-## 0.4.1 实际运行接口修复
-
-在官方 OpenWrt 25.12.5 AArch64 rootfs 中复现并修正：Lua `%x` 不接受超过有符号 32 位范围的参数、nixio 权限参数需要八进制数字而非十进制位掩码，以及实际 ocserv 版本输出为 `OpenConnect VPN Server 1.5.0`。
-
-真实 Lua/nixio/UCI/rpcd 回归通过 15 项，覆盖创建账号、密码文件同步、哈希校验、停用/恢复、旧明文密码迁移及文件权限。原版 OpenConnect CLI 对 APK 中的 ocserv 通过 7 项认证检查：正确密码、错误密码、改密立即生效、旧密码失效、停用、恢复和删除。该测试停在认证成功获取 cookie 阶段，不创建 VPN 隧道。
-
-`tests/openwrt_runtime_tests.lua` 和 `tests/ocserv_auth_tests.py` 仅允许在带 `/tmp/ocserv-easy-test-root` 标记的独立 OpenWrt 测试根目录内运行。测试目录使用官方 rootfs、真实 LuCI 运行库与合成账号；通过 QEMU 运行 AArch64 程序，不代表已在用户 N1 上验证流量转发。
-
-## Windows 客户端 0.5
-
-旧版客户端的测试和结果不用于证明重构版。新版发布工作流必须通过以下独立检查，实际结果和窗口截图保存在 client-windows-regressions artifact：
-
-| 检查 | 覆盖范围 |
-|---|---|
-| 原生配置与 DPAPI | 多配置、Unicode、加密、来源绑定、损坏配置保护、公开配置导入/导出 |
-| 真实 TLS/登录 | 固定指纹、CA、首次确认、更换公钥、密码重试、验证码、认证分组、取消、跨来源跳转及过期证书 |
-| 原生窗口 | 中英文主窗口、配置编辑、VPN 信息页、日志、托盘、保存/取消与控件边界 |
-| Windows Script Host | 真实执行失败的 pre-init 脚本，检查普通错误、退出码 259 和脚本异常传播 |
-| 网络脚本 | 执行随包 JScript，模拟 netsh/route；必要操作失败、空 DNS/WINS 清理、UTF-16 日志 |
-| x64 隔离隧道 | GitHub Windows 运行器上的真实 Wintun、回环 CSTP、198.18.0.0/24 路由和 UDP 往返；脚本失败后的状态及网卡清理 |
-| 便携 EXE | 清空开发工具 PATH 后，解压包内实际 EXE 以中英文启动并退出 |
-| PE 与打包 | x86/x64、子系统 6.1、系统 DLL、已知 Win7 后新增 API、Wintun 哈希、源码归档校验及本机数据排除 |
-
-认证回归使用真实 OpenConnect/GnuTLS 和临时回环 HTTPS 服务，取消或拒绝证书时密码提交次数必须为 0。Windows Script Host 测试在创建网卡前故意退出。普通本地回归不创建网卡；只有显式启用 --network 的独立 Windows 测试机执行隧道检查，且不改默认路由、不接入真实 N1。
-
-Wintun 是显式加载的独立驱动组件，不属于“静态导入表仅含系统 DLL”这一结论。它与官方对应架构的 DLL 单独核对，不会被 strip 或修改。
-
-## 服务端与管理页
-
-| 检查 | 结果与范围 |
-|---|---|
-| Lua 5.1 管理逻辑 | 43 项，覆盖账号管理、密码迁移、OpenWrt 整数/权限接口约束、版本查询失败、会话撤销、并发、失败回滚、公开配置导出 |
-| VPN 专用上网事务 | 23 项，覆盖开关、配置保留、确认超时和开机恢复；UCI/nixio/服务边界为模拟接口 |
-| 全新安装与重试 | 20 项，执行实际 install.sh 和 preflight-n1.sh；模拟 APK/UCI/服务，覆盖 btrfs 存储报告失败、aarch64、旧页面清理、手动安装后的补修、备份与回滚 |
-| 证书初始化 | 7 项，以真实 GnuTLS certtool/OpenSSL 验证 IP/主机名、用途、私钥权限及保留现有证书 |
-| 浏览器交互 | 12 组流程，验证账号增改删、密码二次确认、停用/恢复、服务设置保存、开关完整操作、网络编辑锁、两种配置下载、中英文及移动端；无脚本错误 |
-| nftables 隔离 | 18 项，真实 Linux 网络命名空间、路由、连接跟踪、NAT、REDIRECT 与 TPROXY；覆盖 LAN 网关/DNS/代理绕过、VPN 来源伪造、IPv6、管理访问和恢复 |
-
-隔离网络使用 veth 模拟 VPN 接口；登录入口和代理监听为测试服务。它验证规则的实际行为，不代表真实 ocserv 认证或 OpenClash 分流已在 N1 验收。
-
-本地详细结果位于 test-results。服务端仅维护 OpenWrt 25.12.x 的 APK 构建；旧发行版历史记录由 Git 历史和 GitHub Actions 保留。
-
-## 2026-09-28 项目复查
-
-修复命令执行器在子进程持续输出、缓慢输出或父进程退出后仍有子进程输出时绕过限制的问题，管理页 APK 修订号升为 0.4.1-r2。新增 8 项 Lua 5.1 回归，验证输出上限、超时、进程组终止、退出码和尾部输出；底层 nixio 为模拟接口。管理逻辑 43 项、开关事务 26 项、管理页浏览器 12 组流程通过。
-
-移除客户端未使用的活动名称、日志事件级别和协议描述成员，简化清理脚本中按历史日期和提交号选择文件的分支。Windows x86/x64 配置与 DPAPI 测试各 24 项、清理脚本 4 项、发布脚本 11 项通过。此次未重新完整构建静态依赖、服务端 APK 或执行真实隧道与 N1 防火墙测试。
-
-## 2026-09-29 构建与发布复查
-
-修复发布标题把工作流次数“9.1”显示为构建信息的问题。两个工作流支持可选发行套装版本，留空以北京时间命名；构建时间只生成一次，传递给各架构、源码包及 Release。服务端增加仅构建开关、main 发布限制、提前 SDK 检查及失败报告保留。打包采用临时目录，避免旧文件混入或失败覆盖完整 ZIP；服务端包名补充 APK 修订号，Git 工作区源码包排除未跟踪文件。
-
-修复客户端允许保存 8192 字节用户名/分组、却按 4096 字节读取而导致配置无法重新打开的问题。Windows x86/x64 原生配置与 DPAPI 各 26 项通过。构建参数 8 项、发布脚本 13 项、时间/版本元数据 6 项、客户端打包与 PE 9 项、服务端打包 4 项、管理逻辑 43 项、开关事务 26 项、命令执行器 8 项、清理 4 项、网络脚本 15 项及浏览器 12 组流程通过；actionlint 和脚本语法检查通过。服务端打包使用合成 SDK，未用其替代真实 APK 编译验收。
-
-清理项目 Python 字节码缓存及过期的本地客户端重构进度文件。未修改 N1，也未在本机创建 VPN 网卡。
-
-提交 `f04eb3e` 的 GitHub 实际构建均通过：[客户端](https://github.com/sck03/ocserv-openwrt/actions/runs/36515946175) 完成 x86/x64 编译、原生回归及 x64 真实 Wintun/CSTP 隧道测试；[服务端](https://github.com/sck03/ocserv-openwrt/actions/runs/36515949264) 完成 Linux 证书、防火墙回归和 OpenWrt 25.12.5 AArch64 APK 编译打包。两次均设置 `publish_release=false`，发布任务按预期跳过。客户端实际 ZIP 名称使用 `20260929-111019`，x86/x64 BUILDINFO 的 UTC 时间及北京时间完全一致。
-
-## 2026-09-29 长期运行复查
-
-管理页修订为 0.4.1-r4。修复管道 EOF 引起的服务命令等待空转，使用 uptime 限定命令时长；减少禁用状态下的 OpenClash/LAN/WAN 探测；浏览器增加请求超时、刷新合并及过期响应防护。客户端限制日志事件的总字符数并合并状态/统计消息，降低日志重绘频率，按整个临时文件约束脚本日志并在读取后清空。
-
-Windows x64/x86 原生资源回归各 8 组通过：60 万事件、1,000 轮队列回收，句柄分别维持 152/173 个；队列测试阶段私有内存分别从 2,273,280 到 2,297,856 字节、从 2,162,688 到 2,244,608 字节。真实 Win32 控件验证隐藏时不重绘、显示后刷新及日志历史上限。修改的会话和主窗口通过两架构编译检查；此项本地测试未链接完整 VPN 核心或创建网卡。
-
-Lua 管理逻辑 43 项、开关事务 35 项、命令执行器 9 项、JScript 17 项、浏览器完整操作 13 组及请求生命周期 5 组通过。构建参数 8 项、版本元数据 6 项、客户端打包边界 9 项、服务端合成打包 4 项通过。Linux 专属测试在本地 Windows 上跳过，需以 GitHub 构建结果为准。模拟压力测试不等价于 N1 连续运行多天，详见 [长期运行说明](LONG-RUNNING.md)。
-
-提交 `32c4161` 的 [GitHub 客户端构建](https://github.com/sck03/ocserv-openwrt/actions/runs/36540838944) 已通过 x86/x64 编译、PE 审计、便携包启动、原生配置/界面/资源回归及 21 项回环认证。x64 另外通过 3 项真实 Wintun/CSTP 隧道检查，覆盖正常转发、配置失败、重连失败及网卡清理。此后至 `249dbba` 仅修正服务端浏览器测试环境和文档，客户端实现未改变；构建设为 `publish_release=false`。
-
-提交 `249dbba` 的 [GitHub 服务端构建](https://github.com/sck03/ocserv-openwrt/actions/runs/36542001573) 已通过服务端逻辑、证书、防火墙、浏览器操作及请求生命周期回归，并完成 OpenWrt 25.12 AArch64 APK 编译打包。构建设为 `publish_release=false`，发布任务按预期跳过。
-
-## 2026-09-29 清理收尾
-
-移除无引用的 `ProfilePassword` 控件编号，以及未被程序、文档或打包流程使用的 `resources/app.png`，图标生成脚本不再输出这份副本。保留实际使用的 ICO、SVG 原稿、认证回归所需字段及第三方许可证。
-
-清理后 Windows x86/x64 客户端与测试入口均通过 `-Wall -Wextra -Wpedantic -Werror` 编译语法检查，重新编译运行资源回归各 8 组通过，句柄分别保持 174/153 个。清理脚本 4 项回归通过；本地执行默认清理释放 0.746 GiB 构建临时文件和 Python 缓存，保留工具链、源码归档、配置备份及有效测试结果。本次收尾未重新执行完整 VPN 认证、隧道或服务端 APK 构建，以上 GitHub 结果对应各自注明的提交。
-
-## 2026-09-30 代码质量与打包复查
-
-移动端复用共用 SHA-256 下载器，移除重复哈希、下载和动态模块加载代码及无用导入。每次下载使用独立临时目录，避免并发构建互相覆盖；网络失败最多尝试三次，校验失败或重试耗尽后清理临时文件。
-
-移动端对应源码包只收录 Git 跟踪文件的当前内容，排除未跟踪备份；检查源码路径及归档名，完整生成 ZIP 后再替换旧包。上游压缩归档使用 ZIP_STORED，避免重复压缩开销。新增并发交错下载、失败恢复、缓存复用、路径边界、旧包保留和打包内容回归。
-
-移动构建回归 15 项、构建参数 8 项、客户端打包与 PE 9 项、服务端合成打包 4 项、发布 13 项、版本元数据 6 项、清理脚本 4 项、命令执行器 9 项通过。Lua 管理逻辑 43 项、开关事务 35 项、网络脚本 17 项、浏览器操作 13 组和请求生命周期 5 组通过。项目 Python 的 Ruff F 系列检查、actionlint 及移动端 IP 数据包/IPv6 前缀 C 回归通过。
-
-重新编译 Windows x64/x86 原生配置与 DPAPI 回归，各 26 项通过；资源回归各 8 组通过，分别处理 60 万事件、1,000 轮回收，句柄保持 158/181 个。编译使用 `-Wall -Wextra -Wpedantic -Werror`。本次未完整编译 Android/iOS、静态 VPN 依赖或 OpenWrt APK，未执行真实隧道及 N1 实机测试。
-
-清理项目构建目录和 Python 字节码缓存共约 245 MiB，保留发行包、工具链、源码归档和测试结果。未引用的两个本地参考仓库合计约 138 MiB，因执行策略拒绝删除而保留，不属于 Git 跟踪文件或发行包。
+- Windows 原生回归运行实际 OpenConnect/GnuTLS、临时回环 HTTPS 服务、DPAPI、Win32 控件和 Windows Script Host。便携包检查清空开发工具 PATH。普通本地测试不创建网卡；仅隔离的 Windows 管理员运行器使用 `--network` 验证 Wintun、分流路由和 UDP 往返。
+- 服务端 Lua 测试模拟 UCI/nixio 与服务边界；配置一致性测试执行实际启动脚本。证书测试使用真实 certtool/OpenSSL。防火墙测试使用独立 Linux 网络命名空间、veth、nftables、NAT 与 TPROXY，不操作用户 N1。
+- `openwrt_runtime_tests.lua` 和 `ocserv_auth_tests.py` 仅允许在带 `/tmp/ocserv-easy-test-root` 标记的独立 OpenWrt 测试根目录运行。QEMU/rootfs 或模拟接口通过不等于真实设备验收。
+- Android 的完整编译与 JUnit 结果以对应 GitHub 工作流为准。Apple 的地址、凭据和数据包单元检查及 unsigned 编译归档不证明系统扩展获准加载。
+- 本地报告放在 `test-results/`，不进入 Git 或安装包。验证工作流使用 `publish_release=false`、Android debug 和 Apple unsigned；构建附件不等于正式发布。
 
 ## 仍需实机验收
 
-- Windows 7 SP1 x86/x64 启动、凭据存储、SHA-2 驱动安装与网络通信。
-- 提权后的 Wintun、路由、DNS 配置和退出/异常退出后的回收。重构客户端不再实现旧版自定义 WFP 开关。
-- OPL v0.0.8 / 6.12.66-flippy-94+ 的 APK 依赖与安装、实际 CSTP/DTLS 数据转发、同账号连接限制。
-- OpenClash 各模式、DNS/IPv6 防绕过、断网重连、睡眠唤醒、重启持久化及长期性能。
+- Windows 10/11 实际设备上的管理员授权、Wintun、DNS/路由，以及异常退出后的回收。
+- macOS 签名、系统扩展授权、睡眠恢复和真实 VPN 流量；Linux 的系统 NetworkManager、认证助手及真实隧道。
+- Android/iOS 真机的公网入口、网络切换、后台运行、MTU 与双栈流量。
+- OPL v0.0.8 / 6.12.66-flippy-94+ 的 APK 依赖与安装、CSTP/DTLS 转发、同账号连接限制。
+- OpenClash 各模式、DNS/IPv6 隔离、断网重连、重启持久化及长期性能。
 
-编译、模拟事务和回环测试不能代替以上设备验收。
+这些设备与网络检查仍需对应环境，自动回归不能替代。
