@@ -21,8 +21,6 @@ def package():
                 archive.write(path, 'LinkoraVPN/' + path.relative_to(ROOT).as_posix())
         staged.replace(out / staged.name)
     write_checksums(out, [out / 'LinkoraVPN-linux-source.zip'])
-    runtime = ROOT / 'dist/linux'
-    write_checksums(runtime, list(runtime.glob('linkora-vpn_*.deb')))
 
 
 if __name__ == '__main__':

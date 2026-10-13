@@ -50,7 +50,7 @@ DEB 只有几十 KB、解压后的可执行文件约一百 KB 可以是正常的
 从源码构建：
 
 ```sh
-sudo apt install build-essential cmake ninja-build pkg-config python3 \
+sudo apt install build-essential cmake ninja-build pkg-config python3 file \
   libgtk-3-dev libnm-dev libsecret-1-dev network-manager-openconnect-gnome \
   dbus-x11 xvfb xauth desktop-file-utils
 bash scripts/build-linux.sh

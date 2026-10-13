@@ -17,4 +17,5 @@ packages=("$stage"/linkora-vpn_*_"$arch".deb)
 python3 tests/linux_package_tests.py "${packages[0]}"
 mkdir -p dist/linux
 cp "${packages[0]}" dist/linux/
+(cd dist/linux && sha256sum "${packages[0]##*/}" > SHA256SUMS.txt)
 python3 scripts/package-linux-source.py
