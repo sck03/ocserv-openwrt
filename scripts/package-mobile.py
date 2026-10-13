@@ -1,15 +1,16 @@
 #!/usr/bin/env python3
-"""Package corresponding sources with mobile outputs, never signing secrets."""
+"""Package corresponding sources separately from applications and signing data."""
 import argparse
 import json
 from pathlib import Path
 import tempfile
 import zipfile
-from build_common import ROOT, sha256, source_files
+from build_common import ROOT, sha256, source_files, write_checksums
 
 
 def package(platform):
     out = ROOT / "dist" / platform
+    sources = ROOT / "dist" / (platform + "-source")
     info = ROOT / ("build/desktop" if platform == "macos" else "build/mobile") / platform / "BUILDINFO.json"
     entries = json.loads(info.read_text(encoding="utf-8"))
     if not (ROOT / ".git").exists():
@@ -19,14 +20,23 @@ def package(platform):
         "ios": ("mobile/ios", "client/apple"),
         "macos": ("desktop/macos", "client/apple", "resources"),
     }[platform]
-    paths = source_files(ROOT, (*directories, "scripts", ".github/workflows"), (
+    scripts = (
+        "build_common.py", "mobile-sources.py", "package-mobile.py", "ios-signing.py",
+        "audit-android.py", "prepare-mobile-android.py",
+        "build-" + platform + ".sh",
+        *(("build-apple-core.sh",) if platform != "android" else ()),
+    )
+    paths = source_files(ROOT, directories, (
         "mobile/sources.json",
         "LICENSE", "README.md", "THIRD-PARTY-NOTICES.md", "docs/MOBILE.md", "docs/DESKTOP.md",
         "tests/mobile_build_tests.py", "tests/mobile_protocol_tests.c", "tests/ios_connection_tests.m",
+        ".github/workflows/build-" + ("desktop" if platform == "macos" else platform) + ".yml",
+        *("scripts/" + name for name in scripts),
     ))
-    out.mkdir(parents=True, exist_ok=True)
-    with tempfile.TemporaryDirectory(prefix="source-", dir=out) as work:
-        staged = Path(work) / "corresponding-source.zip"
+    sources.mkdir(parents=True, exist_ok=True)
+    destination = sources / f"LinkoraVPN-{platform}-source.zip"
+    with tempfile.TemporaryDirectory(prefix="source-", dir=sources) as work:
+        staged = Path(work) / destination.name
         with zipfile.ZipFile(staged, "w", zipfile.ZIP_DEFLATED) as bundle:
             for path in paths:
                 bundle.write(path, "project/" + path.relative_to(ROOT).as_posix())
@@ -38,10 +48,15 @@ def package(platform):
                 if archive.is_symlink() or not archive.resolve().is_relative_to(ROOT) or sha256(archive) != entry["sha256"]:
                     raise ValueError("Source changed before packaging")
                 bundle.write(archive, "upstream/" + archive.name, compress_type=zipfile.ZIP_STORED)
-        staged.replace(out / staged.name)
-    (out / "SHA256SUMS.txt").write_text("".join(
-        f"{sha256(path)}  {path.name}\n" for path in sorted(out.iterdir())
-        if path.is_file() and path.name != "SHA256SUMS.txt"), encoding="utf-8")
+        staged.replace(destination)
+    write_checksums(sources, [destination])
+    patterns = {
+        "android": ("LinkoraVPN-android-*.apk", "BUILDINFO.json"),
+        "ios": ("LinkoraVPN-ios-unsigned.xcarchive.zip", "LinkoraVPN-ios.ipa", "BUILDINFO.json"),
+        "macos": ("LinkoraVPN-*-macos-universal-*.zip", "BUILDINFO.json"),
+    }[platform]
+    out.mkdir(parents=True, exist_ok=True)
+    write_checksums(out, [path for pattern in patterns for path in out.glob(pattern) if path.is_file()])
 
 
 if __name__ == "__main__":

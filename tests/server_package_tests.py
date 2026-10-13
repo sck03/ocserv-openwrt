@@ -2,12 +2,15 @@
 import importlib.util
 import hashlib
 import json
+import io
 import os
 from pathlib import Path
 import shutil
 import struct
+import subprocess
 import sys
 import tempfile
+import tarfile
 import unittest
 from unittest.mock import patch
 import zipfile
@@ -28,6 +31,7 @@ class ServerPackageTests(unittest.TestCase):
         self.sdk = Path(temporary.name) / "sdk"
         for directory in ("server", "docs"):
             shutil.copytree(ROOT / directory, self.root / directory)
+        shutil.copyfile(ROOT / ".gitattributes", self.root / ".gitattributes")
         self.sdk.mkdir()
         (self.sdk / "sdk-info.json").write_text(json.dumps({"version": "25.12.5", "target": "armsr/armv8"}))
         (self.sdk / ".config").write_text('CONFIG_USE_APK=y\nCONFIG_TARGET_armsr_armv8=y\nCONFIG_TARGET_ARCH_PACKAGES="aarch64_generic"\n')
@@ -65,7 +69,16 @@ class ServerPackageTests(unittest.TestCase):
         path.write_bytes(data)
 
     def bundle(self):
+        original_output = subprocess.check_output
+        original_run = subprocess.run
+        def command_output(args, **kwargs):
+            if "ls-files" in args:
+                return original_output(args, **kwargs)
+            return "synthetic audit or revision\n"
+
         def command(args, **kwargs):
+            if "archive" not in args:
+                return original_run(args, **kwargs)
             destination = next(arg.removeprefix("--output=") for arg in args if arg.startswith("--output="))
             Path(destination).write_bytes(b"synthetic LuCI source")
 
@@ -81,7 +94,7 @@ class ServerPackageTests(unittest.TestCase):
 
         with patch.object(package, "ROOT", self.root), patch.object(sys, "argv", ["package-server", str(self.sdk)]), \
                 patch.dict(os.environ, RELEASE_VERSION="1.5.0", BUILD_TIMESTAMP="2026-09-29T01:02:03Z"), \
-                patch.object(package.subprocess, "check_output", return_value="synthetic audit or revision\n"), \
+                patch.object(package.subprocess, "check_output", side_effect=command_output), \
                 patch.object(package.subprocess, "run", side_effect=command), patch.object(Path, "stat", sdk_stat):
             package.main()
         return next((self.root / "dist").glob("*.zip"))
@@ -95,9 +108,28 @@ class ServerPackageTests(unittest.TestCase):
             info = json.loads(contents.read(prefix + "BUILDINFO.json"))
             self.assertEqual(info["build_timestamp"], "2026-09-29T01:02:03Z")
             self.assertEqual(info["management_ui_release"], "2")
+            self.assertFalse(any("/validation/" in name or name.endswith("ocserv-elf-dependencies.txt")
+                                 for name in contents.namelist()))
+            self.assertEqual(contents.getinfo(prefix + "source/ocserv-1.5.0.tar.xz").compress_type, zipfile.ZIP_STORED)
             for line in contents.read(prefix + "SHA256SUMS").decode().splitlines():
                 checksum, filename = line.split("  ", 1)
                 self.assertEqual(hashlib.sha256(contents.read(prefix + filename)).hexdigest(), checksum)
+        audit = self.root / "test-results/package-openwrt-aarch64_generic"
+        self.assertTrue((audit / "ocserv-elf-dependencies.txt").is_file())
+        hashes = json.loads((audit / "ui-assets.json").read_text())
+        for filename, checksum in hashes.items():
+            self.assertEqual(checksum, package.sha256(self.ui_stage / "www/luci-static/resources/ocserv-easy" / filename))
+
+    def test_recipe_source_excludes_untracked_backups_and_old_builds(self):
+        subprocess.run(["git", "init", "-q", str(self.root)], check=True)
+        subprocess.run(["git", "-C", str(self.root), "add", "server/openwrt"], check=True)
+        private = self.root / "server/openwrt/ocserv/private.key"
+        private.write_text("synthetic untracked backup")
+        archive = self.bundle()
+        with zipfile.ZipFile(archive) as contents:
+            with tarfile.open(fileobj=io.BytesIO(contents.read(archive.stem + "/source/openwrt-recipes.tar.gz"))) as recipes:
+                self.assertIn("openwrt/ocserv/Makefile", recipes.getnames())
+                self.assertNotIn("openwrt/ocserv/private.key", recipes.getnames())
 
     def test_existing_unpacked_output_cannot_contaminate_next_bundle(self):
         archive = self.bundle()

@@ -3,6 +3,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 mode=${1:-unsigned}
 [[ "$mode" == unsigned || "$mode" == signed ]] || { echo 'Expected unsigned or signed'; exit 2; }
+test ! -e dist/macos || { echo 'Move dist/macos before rebuilding'; exit 2; }
 export VPN_BUNDLE_ID="${VPN_BUNDLE_ID:-io.github.sck03.linkoravpn.macos}"
 [[ "$VPN_BUNDLE_ID" =~ ^[A-Za-z0-9]+([.-][A-Za-z0-9]+)+$ ]] || { echo 'Invalid bundle identifier'; exit 2; }
 root="$PWD"

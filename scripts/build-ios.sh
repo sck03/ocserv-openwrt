@@ -47,9 +47,9 @@ else
   xcodebuild "${args[@]}" "DEVELOPMENT_TEAM=$IOS_TEAM_ID" \
     "VPN_APP_PROFILE=$app_profile" "VPN_TUNNEL_PROFILE=$tunnel_profile" \
     CODE_SIGN_IDENTITY='Apple Distribution' "OTHER_CODE_SIGN_FLAGS=--keychain $keychain" archive
-  xcodebuild -exportArchive -archivePath "$archive" -exportPath "$root/dist/ios/export" \
+  xcodebuild -exportArchive -archivePath "$archive" -exportPath "$root/build/mobile/ios/export" \
     -exportOptionsPlist "$signing/ExportOptions.plist"
-  cp dist/ios/export/*.ipa dist/ios/LinkoraVPN-ios.ipa
+  cp build/mobile/ios/export/*.ipa dist/ios/LinkoraVPN-ios.ipa
 fi
 cp build/mobile/ios/BUILDINFO.json dist/ios/BUILDINFO.json
 python3 scripts/package-mobile.py ios

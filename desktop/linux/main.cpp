@@ -2,6 +2,7 @@
 #include "protocol.h"
 #include <gtk/gtk.h>
 #include <glib/gstdio.h>
+#include <cstdio>
 #include <deque>
 #include <sstream>
 
@@ -544,7 +545,7 @@ public:
         if (gtk_dialog_run(GTK_DIALOG(dialog)) == GTK_RESPONSE_ACCEPT) {
             char *path = gtk_file_chooser_get_filename(GTK_FILE_CHOOSER(dialog));
             std::ostringstream report;
-            report << "Linkora VPN 0.1.0\nPlatform: Linux\nNetworkManager: "
+            report << "Linkora VPN " LINKORA_VERSION "\nPlatform: Linux\nNetworkManager: "
                    << (client ? nm_client_get_version(client) : "unavailable")
                    << "\nSession: " << request.value << "\nGeneration: " << stateGeneration
                    << "\nState: " << state << "\nError: " << error << "\nAttempt: " << attempt << "\n\n";
@@ -699,6 +700,10 @@ public:
 };
 } // namespace
 int main(int argc, char **argv) {
+    if (argc == 2 && !strcmp(argv[1], "--version")) {
+        std::puts("Linkora VPN " LINKORA_VERSION);
+        return 0;
+    }
     bool startup = argc == 2 && !strcmp(argv[1], "--autoconnect");
     bool smoke = argc == 2 && !strcmp(argv[1], "--smoke-test");
     if (argc > 1 && !startup && !smoke)

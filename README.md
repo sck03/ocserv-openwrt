@@ -52,6 +52,8 @@ sh install.sh
 - Windows 交叉编译、服务端和 Android 使用 `ubuntu-24.04`，iOS 使用 `macos-15`。Actions/管理页脚本检查使用 Node.js 26。运行器系统版本与 N1 固件版本是不同概念。
 - Windows 和服务端工作流均可填写 `release_version` 设置发行套装版本，留空使用北京时间日期和时分秒；标题始终显示真实构建时间。`publish_release=false` 可只构建，两端仅允许 main 发布。
 - Windows 和服务端手动工作流全部检查成功后发布独立 Pre-release；[Releases](https://github.com/sck03/ocserv-openwrt/releases) 附件长期保留，Actions artifacts 保留 7 天。移动端工作流目前仅上传 artifacts。
+- 客户端下载附件仅包含应用、必要运行文件和校验信息。对应源码单独放在 `corresponding-source`（Windows）或 `linux-source`、`macos-source`、`android-source`、`ios-source` 附件中；测试程序和报告单独上传，安装时无需下载。再分发时仍须提供匹配的对应源码和许可证。
+- Linux DEB 使用系统 GTK、NetworkManager 和 OpenConnect 插件，包本身只有几十 KB 是正常的；首次安装所需依赖由 `apt` 下载。工作流检查真实 ELF、动态库依赖和安装内容，并在干净 Debian 12 / Ubuntu 24.04 环境验证两种架构的安装与启动。
 - 服务端 artifact 为 `openwrt-25.12-<架构>`，各架构分别包含两个 APK、安装工具、源码、BUILDINFO 和 SHA256SUMS；ZIP 名称带架构和管理页版本。
 
 ## 资料

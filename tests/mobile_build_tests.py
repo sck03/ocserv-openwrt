@@ -160,6 +160,8 @@ class PackagingTests(unittest.TestCase):
         self.root = Path(temporary.name).resolve()
         self.out = self.root / "dist/ios"
         self.out.mkdir(parents=True)
+        self.source_out = self.root / "dist/ios-source"
+        self.source_package = self.source_out / "LinkoraVPN-ios-source.zip"
         self.archive = self.root / ".tools/mobile-downloads/source.tar.gz"
         self.archive.parent.mkdir(parents=True)
         self.archive.write_bytes(b"upstream archive")
@@ -179,20 +181,24 @@ class PackagingTests(unittest.TestCase):
         (self.root / "mobile/ios/app.swift").write_text("current changes")
         (self.root / "mobile/ios/backup.txt").write_text("private backup")
         packaging.package("ios")
-        with zipfile.ZipFile(self.out / "corresponding-source.zip") as bundle:
+        with zipfile.ZipFile(self.source_package) as bundle:
             self.assertEqual(set(bundle.namelist()), {"project/mobile/ios/app.swift", "upstream/source.tar.gz"})
             self.assertEqual(bundle.read("project/mobile/ios/app.swift"), b"current changes")
             self.assertEqual(bundle.getinfo("upstream/source.tar.gz").compress_type, zipfile.ZIP_STORED)
-        checksum = build_common.sha256(self.out / "corresponding-source.zip")
-        self.assertIn(checksum, (self.out / "SHA256SUMS.txt").read_text())
+        checksum = build_common.sha256(self.source_package)
+        self.assertIn(checksum, (self.source_out / "SHA256SUMS.txt").read_text())
+        self.assertNotIn(checksum, (self.out / "SHA256SUMS.txt").read_text())
 
     def test_failed_package_preserves_previous_outputs(self):
         packaging.package("ios")
-        previous = {p.name: p.read_bytes() for p in self.out.iterdir()}
+        def outputs():
+            return {p.relative_to(self.root / "dist"): p.read_bytes()
+                    for p in (self.root / "dist").rglob("*") if p.is_file()}
+        previous = outputs()
         self.archive.write_bytes(b"corrupt")
         with self.assertRaises(ValueError):
             packaging.package("ios")
-        self.assertEqual({p.name: p.read_bytes() for p in self.out.iterdir()}, previous)
+        self.assertEqual(outputs(), previous)
 
     def test_macos_includes_icon_and_shared_core_without_other_apps(self):
         for name in ("resources/app.ico", "client/apple/PacketTunnelProvider.m", "desktop/macos/App/main.swift", "desktop/linux/main.cpp"):
@@ -204,13 +210,40 @@ class PackagingTests(unittest.TestCase):
         info.parent.mkdir(parents=True)
         info.write_text(json.dumps(self.entries))
         packaging.package("macos")
-        with zipfile.ZipFile(self.root / "dist/macos/corresponding-source.zip") as bundle:
+        with zipfile.ZipFile(self.root / "dist/macos-source/LinkoraVPN-macos-source.zip") as bundle:
             names = set(bundle.namelist())
         self.assertIn("project/resources/app.ico", names)
         self.assertIn("project/client/apple/PacketTunnelProvider.m", names)
         self.assertIn("project/desktop/macos/App/main.swift", names)
         self.assertNotIn("project/desktop/linux/main.cpp", names)
         self.assertNotIn("project/mobile/ios/app.swift", names)
+
+    def test_runtime_checksums_exclude_test_reports_and_source_archives(self):
+        for name in ("LinkoraVPN-ios.ipa", "BUILDINFO.json", "validation.log", "corresponding-source.zip"):
+            (self.out / name).write_bytes(b"fixture output")
+        packaging.package("ios")
+        names = {line.split("  ", 1)[1] for line in (self.out / "SHA256SUMS.txt").read_text().splitlines()}
+        self.assertEqual(names, {"LinkoraVPN-ios.ipa", "BUILDINFO.json"})
+        self.assertTrue(self.source_package.is_file())
+
+    def test_source_keeps_mobile_build_inputs_without_unrelated_scripts(self):
+        retained = ("scripts/build-ios.sh", "scripts/build-apple-core.sh", "scripts/mobile-sources.py",
+                    "scripts/build_common.py", "scripts/ios-signing.py", "scripts/package-mobile.py",
+                    "scripts/prepare-mobile-android.py", "scripts/audit-android.py")
+        unrelated = ("scripts/build.ps1", "scripts/package-server.py", "scripts/build-linux.sh",
+                     ".github/workflows/build-client.yml", ".github/workflows/build-server.yml")
+        for name in (*retained, *unrelated):
+            path = self.root / name
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text("fixture build input")
+            subprocess.run(["git", "-C", str(self.root), "add", name], check=True)
+        packaging.package("ios")
+        with zipfile.ZipFile(self.source_package) as bundle:
+            names = set(bundle.namelist())
+            for name in retained:
+                self.assertIn("project/" + name, names)
+            for name in unrelated:
+                self.assertNotIn("project/" + name, names)
 
     def test_rejects_escaping_archive_name(self):
         self.entries["core"]["filename"] = "../source.tar.gz"

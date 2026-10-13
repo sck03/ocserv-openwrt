@@ -54,6 +54,12 @@ def sha256(path):
         return hashlib.file_digest(source, "sha256").hexdigest()
 
 
+def write_checksums(directory, files):
+    """Checksum an explicit set of outputs, excluding unrelated local artifacts."""
+    content = "".join(f"{sha256(path)}  {path.name}\n" for path in sorted(files))
+    (directory / "SHA256SUMS.txt").write_text(content, encoding="utf-8")
+
+
 def download_verified(destination, url, checksum):
     if destination.is_file():
         actual = sha256(destination)

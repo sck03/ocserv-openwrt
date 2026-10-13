@@ -126,7 +126,7 @@ jobs:
             test-results/server-install.json
             test-results/server-userfile.json
             test-results/vpn-guard-tests.log
-            test-results/server-ui-v041/
+            test-results/server-ui/
             test-results/server-polling.json
             test-results/server-preview.log
           if-no-files-found: error
@@ -181,6 +181,13 @@ jobs:
             dist/SHA256SUMS-openwrt-*.txt
           if-no-files-found: error
           compression-level: 0
+          retention-days: 7
+      - uses: actions/upload-artifact@v7.0.1
+        if: always()
+        with:
+          name: server-package-audit-${{ matrix.architecture }}
+          path: test-results/package-openwrt-${{ matrix.architecture }}/
+          if-no-files-found: ignore
           retention-days: 7
       - uses: actions/upload-artifact@v7.0.1
         if: failure()

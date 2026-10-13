@@ -2,17 +2,17 @@
 from pathlib import Path
 import tempfile
 import zipfile
-from build_common import ROOT, sha256, source_files
+from build_common import ROOT, source_files, write_checksums
 
 
 def package():
-    out = ROOT / 'dist/linux'
+    out = ROOT / 'dist/linux-source'
     out.mkdir(parents=True, exist_ok=True)
     paths = source_files(ROOT, ('desktop/linux',), (
         'scripts/build-linux.sh', 'scripts/package-linux-source.py', 'scripts/build_common.py',
-        'scripts/release_metadata.py', 'resources/app.svg', 'LICENSE', 'THIRD-PARTY-NOTICES.md',
+        'resources/app.svg', 'LICENSE', 'THIRD-PARTY-NOTICES.md',
         'docs/DESKTOP.md', 'tests/linux_desktop_tests.cpp', 'tests/linux_auth_fixture.cpp',
-        'tests/linux_agent_tests.cpp', '.github/workflows/build-desktop.yml',
+        'tests/linux_agent_tests.cpp', 'tests/linux_package_tests.py', '.github/workflows/build-desktop.yml',
     ))
     with tempfile.TemporaryDirectory(prefix='source-', dir=out) as work:
         staged = Path(work) / 'LinkoraVPN-linux-source.zip'
@@ -20,9 +20,9 @@ def package():
             for path in paths:
                 archive.write(path, 'LinkoraVPN/' + path.relative_to(ROOT).as_posix())
         staged.replace(out / staged.name)
-    (out / 'SHA256SUMS.txt').write_text(''.join(
-        f'{sha256(path)}  {path.name}\n' for path in sorted(out.iterdir())
-        if path.is_file() and path.name != 'SHA256SUMS.txt'), encoding='utf-8')
+    write_checksums(out, [out / 'LinkoraVPN-linux-source.zip'])
+    runtime = ROOT / 'dist/linux'
+    write_checksums(runtime, list(runtime.glob('linkora-vpn_*.deb')))
 
 
 if __name__ == '__main__':

@@ -23,8 +23,8 @@ def main():
     metadata = build_metadata()
     name = f"LinkoraVPN-{metadata['release_label']}-windows-{args.arch}"
     build = args.build.resolve()
-    validation = dist / f"validation-{args.arch}"
-    validation.mkdir(exist_ok=True)
+    validation = ROOT / "test-results" / f"package-windows-{args.arch}"
+    validation.mkdir(parents=True, exist_ok=True)
     licenses = {
         "LICENSE": "Application-GPL-3.0.txt",
         f".deps/sources/{source_directory('openconnect')}/COPYING.LGPL": "OpenConnect-LGPL-2.1.txt",
@@ -107,9 +107,6 @@ def main():
                 if file.is_file():
                     output.write(file, name + "/" + file.relative_to(folder).as_posix())
         staged_archive.replace(archive)
-    for filename in ("native_connection_tests.exe", "native_model_tests.exe", "native_session_tests.exe", "native_ui_tests.exe", "native_script_tests.exe", "native_resource_tests.exe",
-                     "wintun.dll", "vpnc-script-win.js"):
-        shutil.copyfile(build / filename, validation / filename)
     (dist / f"SHA256SUMS-windows-{args.arch}.txt").write_text(f"{sha256(archive)}  {archive.name}\n", encoding="ascii")
     print(f"Created {archive} ({archive.stat().st_size} bytes)")
 

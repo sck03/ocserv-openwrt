@@ -20,9 +20,6 @@ for abi in arm64-v8a armeabi-v7a x86_64; do
 done
 python3 "$root/scripts/audit-android.py" app/src/main/jniLibs
 if [[ "$mode" == release ]]; then
-  : "${KEYSTORE_FILE:?Release keystore required}"
-  : "${KEYSTORE_PASSWORD:?Keystore password required}"
-  : "${KEY_ALIAS:?Key alias required}"
   bash gradlew :app:assembleRelease :app:testReleaseUnitTest --no-daemon --stacktrace
 else
   bash gradlew :app:assembleDebug :app:testDebugUnitTest --no-daemon --stacktrace

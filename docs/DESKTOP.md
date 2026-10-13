@@ -41,6 +41,8 @@ sudo apt install ./linkora-vpn_0.1.0_amd64.deb
 
 依赖由 Debian/Ubuntu 软件源提供，包括 GTK、NetworkManager、OpenConnect 插件及认证窗口。桌面界面以普通用户运行，系统通过 Polkit 管理 VPN 权限。需要正在运行的 NetworkManager 和桌面会话；不作为无图形环境的命令行客户端使用。
 
+DEB 只有几十 KB、解压后的可执行文件约一百 KB 可以是正常的：它包含本项目的原生界面和认证代理，GTK、VPN 核心、路由及 DNS 管理由系统库和插件提供，并非将这些组件静态合并的独立便携包。请使用上面的 `apt install ./…deb` 安装命令自动满足依赖；仅复制可执行文件不能替代安装。首次下载及安装的总空间取决于系统已有依赖，可用 `apt --simulate install ./linkora-vpn_0.1.0_amd64.deb` 查看待安装的软件包。
+
 新建服务器时填写 HTTPS 网关，可预填用户名，并选择公共 CA 文件。连接时使用系统 OpenConnect 窗口核对证书并完成密码、分组或验证码认证。Linux 的证书策略由该窗口和所选 CA 管理，不将 Windows `.vpn` 固定指纹文件当成 Linux 系统配置直接导入。保存密码由系统认证窗口选择，诊断导出不收集该窗口的原始输出或系统日志。
 
 登录后连接绑定启用时的服务器配置；关闭开关即删除本用户的登录启动项。钥匙串未解锁、证书需要确认或启用 MFA 时，仍需完成系统交互。网络切换、休眠与路由恢复由 NetworkManager 管理；只有网络中断或连接超时触发最多三次重试。
@@ -54,10 +56,10 @@ sudo apt install build-essential cmake ninja-build pkg-config python3 \
 bash scripts/build-linux.sh
 ```
 
-发行包在 Debian 12 上分别原生构建两个架构，依赖基线覆盖 Ubuntu 24.04。程序动态使用系统库，发行包不复制 GTK 或 OpenConnect 依赖。诊断为 UTF-8 文本，包含客户端/NetworkManager 版本、会话状态、错误类别和最多 256 条状态记录。
+发行包在 Debian 12 上分别原生构建两个架构，由 CPack / `dpkg-shlibdeps` 从实际 ELF 生成动态库依赖，并声明 NetworkManager 和 OpenConnect 认证插件。DEB 只安装客户端、桌面入口、图标、说明和许可证；测试程序与截图单独归档。`linkora-vpn --version` 可在无图形环境确认程序能加载。诊断为 UTF-8 文本，包含客户端/NetworkManager 版本、会话状态、错误类别和最多 256 条状态记录。
 
 ## 构建与验证边界
 
-[桌面工作流](https://github.com/sck03/ocserv-openwrt/actions/workflows/build-desktop.yml) 构建 Linux 两种架构及 macOS Universal 包，运行协议/取消/重试回归、Linux 图形启动检查、Apple 地址和数据包校验，并归档对应源码。产物保留 7 天；该工作流不发布 Release。
+[桌面工作流](https://github.com/sck03/ocserv-openwrt/actions/workflows/build-desktop.yml) 构建 Linux 两种架构及 macOS Universal 包，运行协议/取消/重试回归、Linux 图形启动检查、Apple 地址和数据包校验。Linux 还检查安装包实际文件、ELF 架构、符号裁剪和动态库加载，并在未预装开发库的 Debian 12 / Ubuntu 24.04 容器中用 APT 安装再启动。Linux、macOS 应用与 `linux-source`、`macos-source` 对应源码附件分开上传，本地源码输出为 `dist/linux-source/`、`dist/macos-source/`。源码和测试附件不属于客户端安装内容。产物保留 7 天；该工作流不发布 Release。
 
 自动构建、隔离窗口及协议测试不替代 macOS 签名扩展加载、真实 Linux VPN 转发和设备网络切换验收。实际运行证据以[验证记录](VALIDATION.md)注明的提交和平台为准。

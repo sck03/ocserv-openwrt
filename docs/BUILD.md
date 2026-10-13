@@ -86,7 +86,7 @@ python -m pip install -r client/tests/requirements.txt
 .\scripts\clean-workspace.ps1 -Apply
 ~~~
 
-默认清理 `build/`、`.ruff_cache/` 和项目 Python 字节码缓存。添加 `-IncludeDependencies` 可清理 `.deps/`；添加 `-IncludeTestResults` 可清理 `test-results/`。发行包、备份、临时虚拟机、工具链和锁定的第三方源码归档保留，不再按某次开发日期或提交号选择文件。
+默认清理 `build/`、`.ruff_cache/`、项目 Python 字节码、生成的 Apple Xcode 工程/Info.plist/图标，以及旧版遗留的 `dist/validation-x64/`、`dist/validation-x86/` 测试二进制。添加 `-IncludeDependencies` 可清理 `.deps/`；添加 `-IncludeTestResults` 可清理 `test-results/`。发行包、备份、临时虚拟机、工具链和锁定的第三方源码归档保留，不再按某次开发日期或提交号选择文件。
 
 脚本拒绝删除 Git 跟踪的源码、链接到其他目录的路径及运行中进程引用的文件。清理 `.deps` 后，下次按上述构建流程重新生成依赖。默认只显示清单，只有 `-Apply` 才执行删除。
 
@@ -127,6 +127,8 @@ PE 审计要求正确架构、Windows 10 操作系统标识、系统加载器接
 
 移动端和桌面端共用源码清单函数，直接从 Git 收集跟踪文件的当前内容，避免遍历无关缓存；完整生成后替换旧包，上游压缩归档直接存入 ZIP。两端也共用下载校验、网络重试和独立临时文件清理逻辑。
 
+Actions 的 Windows 应用附件只上传便携 ZIP 和校验文件。原生测试程序直接从构建目录传给独立 Windows 测试任务，测试二进制附件保留 1 天，测试结果保留 7 天；打包器不再复制测试程序到 `dist/validation-*`。macOS/Linux/Android/iOS 对应源码输出到 `dist/<平台>-source/` 并作为独立附件上传，各自的 SHA256SUMS 只列出本附件的文件。移动/Apple 源码按构建与回归所需脚本清单收录，不再携带 Windows、OpenWrt 等无关构建脚本。
+
 ## OpenWrt 多架构服务端
 
 使用匹配固件的 OpenWrt 25.12.x / APK SDK。目标清单统一维护在 `server/openwrt/targets.json`，GitHub Actions 自动从该清单生成六目标矩阵。以下以 x86/64 为例；省略 `--target` 时仍使用 armsr/armv8：
@@ -137,7 +139,7 @@ bash server/tools/build-ocserv.sh /tmp/sdk-25.12
 python3 scripts/package-server.py /tmp/sdk-25.12
 ~~~
 
-服务端 ZIP 包含 ocserv 源码、配方、LuCI feed 源码、BUILDINFO、安装工具、架构白名单和逐文件校验。文件名和外部校验文件均包含架构，合并矩阵产物时不会互相覆盖。SDK 下载校验官方 SHA-256，构建和打包核对实际 SDK target 与软件包架构，包审计按目标检查 ELF 位数、字节序与机器类型。管理页保留原始 CSS，附带 validation/ui 供复核。目标列表和安装边界见 [OpenWrt 说明](OPENWRT.md)。
+服务端 ZIP 包含 ocserv 源码、配方、LuCI feed 源码、BUILDINFO、安装工具、架构白名单和逐文件校验。文件名和外部校验文件均包含架构，合并矩阵产物时不会互相覆盖。SDK 下载校验官方 SHA-256，构建和打包核对实际 SDK target 与软件包架构，包审计按目标检查 ELF 位数、字节序与机器类型。管理页保留原始 CSS；ELF 依赖与页面资源哈希保存在 `test-results/package-openwrt-<架构>/` 并单独上传，安装包不携带 `validation/` 或重复页面文件。源码配方只收录当前 Git 跟踪文件；APK 和已压缩上游源码直接存入 ZIP，避免重复压缩。目标列表和安装边界见 [OpenWrt 说明](OPENWRT.md)。
 
 安装 `lupa==2.8` 后，事务回归运行 `python tests/guard_integration.py`，命令执行边界回归运行 `python tests/process_tests.py`；网络隔离验证在 Linux 网络命名空间运行 sudo python3 tests/vpn_guard_tests.py。SDK/架构检查不替代 OPL 定制固件验收，不用官方模块替换 Flippy 内核模块。
 

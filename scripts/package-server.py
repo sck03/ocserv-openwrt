@@ -9,7 +9,8 @@ import struct
 import subprocess
 import tarfile
 import tempfile
-from build_common import ROOT, sha256
+import zipfile
+from build_common import ROOT, sha256, source_files
 from release_metadata import build_metadata
 from validate_sdk import validate_sdk
 
@@ -75,17 +76,15 @@ def main():
         for relative in ("etc/init.d/ocserv-easy-guard", "usr/libexec/ocserv-easy-guard"):
             if not (ui_roots[0] / relative).stat().st_mode & 0o111:
                 raise RuntimeError("Guard runtime is not executable: " + relative)
-        for name in ("guard.lua", "guard_log.lua", "process.lua", "backend.lua", "logic.lua"):
-            relative = "usr/lib/lua/luci/model/ocserv_easy/" + name
-            if sha256(ui_roots[0] / relative) != sha256(ROOT / "server/openwrt/luci-app-ocserv-easy/luasrc/model/ocserv_easy" / name):
-                raise RuntimeError("Stale management module: " + name)
+        for module in ("guard.lua", "guard_log.lua", "process.lua", "backend.lua", "logic.lua"):
+            relative = "usr/lib/lua/luci/model/ocserv_easy/" + module
+            if sha256(ui_roots[0] / relative) != sha256(ROOT / "server/openwrt/luci-app-ocserv-easy/luasrc/model/ocserv_easy" / module):
+                raise RuntimeError("Stale management module: " + module)
         for relative in ("controller/ocserv_easy.lua", "view/ocserv_easy/index.htm"):
             if sha256(ui_roots[0] / "usr/lib/lua/luci" / relative) != sha256(ROOT / "server/openwrt/luci-app-ocserv-easy/luasrc" / relative):
                 raise RuntimeError("Stale management entry point: " + relative)
         dynamic = subprocess.check_output(["readelf", "-d", str(executables[0])], text=True)
-        (output / "ocserv-elf-dependencies.txt").write_text(dynamic, encoding="utf-8")
-        ui_validation = output / "validation/ui"
-        ui_validation.mkdir(parents=True, exist_ok=True)
+        ui_hashes = {}
         for filename in ("app.js", "style.css"):
             assets = list((sdk / "build_dir").glob(
                 "target-*/luci-app-ocserv-easy/.pkgdir/luci-app-ocserv-easy/www/luci-static/resources/ocserv-easy/" + filename))
@@ -95,7 +94,7 @@ def main():
                 original = ROOT / "server/openwrt/luci-app-ocserv-easy/htdocs/luci-static/resources/ocserv-easy/style.css"
                 if sha256(assets[0]) != sha256(original):
                     raise RuntimeError("The SDK modified the management CSS; keep LUCI_MINIFY_CSS disabled")
-            shutil.copyfile(assets[0], ui_validation / filename)
+            ui_hashes[filename] = sha256(assets[0])
         revisions = {}
         for feed in ("packages", "luci"):
             revisions[feed] = subprocess.check_output(["git", "-C", str(sdk / "feeds" / feed), "rev-parse", "HEAD"], text=True).strip()
@@ -118,16 +117,26 @@ def main():
             raise RuntimeError("ocserv corresponding source checksum mismatch")
         shutil.copyfile(archive, source / archive.name)
         with tarfile.open(source / "openwrt-recipes.tar.gz", "w:gz") as tar:
-            tar.add(ROOT / "server/openwrt", arcname="openwrt")
+            for path in source_files(ROOT, ("server/openwrt",), ()):
+                tar.add(path, arcname="openwrt/" + path.relative_to(ROOT / "server/openwrt").as_posix())
         subprocess.run(["git", "-C", str(sdk / "feeds/luci"), "archive", "--format=tar.gz",
                         "--output=" + str(source / "luci-upstream-source.tar.gz"), "HEAD"], check=True)
         files = sorted(path for path in output.rglob("*") if path.is_file() and path.name != "SHA256SUMS")
         (output / "SHA256SUMS").write_text("".join(f"{sha256(path)}  {path.relative_to(output).as_posix()}\n" for path in files), encoding="utf-8")
-        bundle = Path(shutil.make_archive(str(output), "zip", root_dir=output.parent, base_dir=output.name))
+        bundle = output.parent / (output.name + ".zip")
+        with zipfile.ZipFile(bundle, "w", zipfile.ZIP_DEFLATED, compresslevel=7) as archive:
+            for path in (*files, output / "SHA256SUMS"):
+                archive.write(path, output.name + "/" + path.relative_to(output).as_posix(),
+                              compress_type=zipfile.ZIP_STORED if path.name.endswith((".apk", ".tar.gz", ".tar.xz"))
+                              else zipfile.ZIP_DEFLATED)
         destination = dist / bundle.name
         bundle.replace(destination)
         (dist / f"SHA256SUMS-openwrt-{entry['version']}-{architecture}.txt").write_text(
             f"{sha256(destination)}  {destination.name}\n", encoding="ascii")
+        validation = ROOT / "test-results" / f"package-openwrt-{architecture}"
+        validation.mkdir(parents=True, exist_ok=True)
+        (validation / "ocserv-elf-dependencies.txt").write_text(dynamic, encoding="utf-8")
+        (validation / "ui-assets.json").write_text(json.dumps(ui_hashes, indent=2) + "\n", encoding="utf-8")
         print(f"Collected {len(packages)} {fmt} packages; kernel modules are not included.")
         print(f"Created {destination} ({destination.stat().st_size} bytes)")
 

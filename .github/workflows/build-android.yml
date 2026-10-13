@@ -66,7 +66,17 @@ jobs:
       - uses: actions/upload-artifact@v7.0.1
         with:
           name: android-${{ inputs.build_type }}
-          path: dist/android/*
+          path: |
+            dist/android/LinkoraVPN-android-${{ inputs.build_type }}.apk
+            dist/android/BUILDINFO.json
+            dist/android/SHA256SUMS.txt
+          if-no-files-found: error
+          retention-days: 7
+          compression-level: 0
+      - uses: actions/upload-artifact@v7.0.1
+        with:
+          name: android-source
+          path: dist/android-source/
           if-no-files-found: error
           retention-days: 7
           compression-level: 0

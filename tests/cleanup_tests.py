@@ -26,6 +26,13 @@ class CleanupTests(unittest.TestCase):
             path = self.root / name
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text("fixture", encoding="ascii")
+        for name in ("dist/validation-x64/native_model_tests.exe", "dist/validation-x86/native_model_tests.exe",
+                     "desktop/macos/LinkoraVPN.xcodeproj/project.pbxproj", "desktop/macos/App/Info.plist",
+                     "desktop/macos/Tunnel/Info.plist", "desktop/macos/App/AppIcon.icns",
+                     "mobile/ios/LinkoraVPN.xcodeproj/project.pbxproj", "mobile/ios/App/Info.plist", "mobile/ios/Tunnel/Info.plist"):
+            path = self.root / name
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text("generated fixture", encoding="ascii")
         shutil.copyfile(ROOT / "scripts/clean-workspace.ps1", self.root / "scripts/clean-workspace.ps1")
         self.git("init", "-q")
         self.git("add", "client", "scripts/clean-workspace.ps1", "scripts/sources.json")
@@ -50,6 +57,10 @@ class CleanupTests(unittest.TestCase):
         self.assertFalse((self.root / "build").exists())
         self.assertFalse((self.root / "scripts/__pycache__").exists())
         self.assertFalse((self.root / ".ruff_cache").exists())
+        self.assertFalse((self.root / "dist/validation-x64").exists())
+        self.assertFalse((self.root / "dist/validation-x86").exists())
+        self.assertFalse((self.root / "desktop/macos/App/Info.plist").exists())
+        self.assertFalse((self.root / "mobile/ios/LinkoraVPN.xcodeproj").exists())
         for name in (".deps/library.a", "test-results/report.json", "dist/release.zip",
                      "artifacts/backups/config.zip", ".tools/tool.exe", "client/CMakeLists.txt"):
             self.assertTrue((self.root / name).is_file(), name)

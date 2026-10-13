@@ -4,7 +4,7 @@ import ctypes
 from ctypes import wintypes
 import json
 import os
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 import platform
 import subprocess
 import sys
@@ -82,10 +82,31 @@ def smoke_test(executable, directory, environment, language):
                 process.wait(timeout=5)
 
 
+def validate_package_members(archive):
+    required = {"LinkoraVPN.exe", "wintun.dll", "vpnc-script-win.js", "BUILDINFO.json",
+                "THIRD-PARTY-NOTICES.md", "WAN.md", "使用说明.txt"}
+    roots, files = set(), set()
+    for member in archive.infolist():
+        if member.is_dir():
+            continue
+        parts = PurePosixPath(member.filename).parts
+        if len(parts) < 2 or ".." in parts or "\\" in member.filename:
+            raise RuntimeError("Unexpected portable package path")
+        roots.add(parts[0])
+        relative = "/".join(parts[1:])
+        if relative in files or not (relative in required or
+                                    (len(parts) == 3 and parts[1] == "licenses" and parts[2].endswith(".txt"))):
+            raise RuntimeError("Unexpected file in portable package: " + member.filename)
+        files.add(relative)
+    if len(roots) != 1 or not required.issubset(files) or "licenses/Application-GPL-3.0.txt" not in files:
+        raise RuntimeError("Portable package is missing runtime files or licenses")
+
+
 def inspect_package(package, output, environment):
     with tempfile.TemporaryDirectory(prefix="package-", dir=output) as temporary:
         directory = Path(temporary)
         with zipfile.ZipFile(package) as archive:
+            validate_package_members(archive)
             for member in archive.infolist():
                 if not (directory / member.filename).resolve().is_relative_to(directory.resolve()):
                     raise RuntimeError("Package member escapes its directory")
@@ -121,8 +142,6 @@ def inspect_package(package, output, environment):
             raise RuntimeError("Wintun checksum mismatch")
         if sha256(folder / "vpnc-script-win.js") != sha256(ROOT / "client/vendor/vpnc-script-win.js"):
             raise RuntimeError("Package has an outdated routing script")
-        if (folder / "data").exists() or any(folder.glob("*.ini")):
-            raise RuntimeError("Package contains local or obsolete configuration")
         subprocess.run([sys.executable, str(ROOT / "scripts/audit-pe.py"),
                         str(folder / "LinkoraVPN.exe"), "--output", str(output / "package-imports.json")],
                        env=environment, check=True, capture_output=True)

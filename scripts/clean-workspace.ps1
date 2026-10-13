@@ -40,7 +40,11 @@ function Add-Candidate([string]$Relative) {
 
 # Keep release packages, backups, test environments, toolchains and source archives.
 foreach ($relative in @(
-    'build', '.ruff_cache', 'scripts\__pycache__', 'tests\__pycache__', 'client\tests\__pycache__'
+    'build', '.ruff_cache', 'scripts\__pycache__', 'tests\__pycache__', 'client\tests\__pycache__',
+    'dist\validation-x64', 'dist\validation-x86',
+    'mobile\ios\LinkoraVPN.xcodeproj', 'mobile\ios\App\Info.plist', 'mobile\ios\Tunnel\Info.plist',
+    'desktop\macos\LinkoraVPN.xcodeproj', 'desktop\macos\App\Info.plist',
+    'desktop\macos\Tunnel\Info.plist', 'desktop\macos\App\AppIcon.icns'
 )) { Add-Candidate $relative }
 if ($IncludeDependencies) { Add-Candidate '.deps' }
 if ($IncludeTestResults) { Add-Candidate 'test-results' }

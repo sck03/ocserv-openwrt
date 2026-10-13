@@ -4,7 +4,7 @@ Linkora VPN 移动端当前版本为 **Android 0.2.0 / iOS 0.2.1**，使用 **Op
 
 ## GitHub Actions 构建
 
-提交这些文件到 GitHub 的默认分支后，在 **Actions → 对应工作流 → Run workflow** 执行。两个工作流均为手动触发，仅上传保留 7 天的 artifacts，不自动发布 Releases。下载 artifact 后解压可获得客户端、`BUILDINFO.json`、`SHA256SUMS.txt` 和 `corresponding-source.zip`。
+提交这些文件到 GitHub 的默认分支后，在 **Actions → 对应工作流 → Run workflow** 执行。两个工作流均为手动触发，仅上传保留 7 天的 artifacts，不自动发布 Releases。应用附件只包含 APK、IPA 或未签名归档，以及 `BUILDINFO.json`、`SHA256SUMS.txt`。对应源码单独放在 `android-source` / `ios-source` 附件中，本地产物位于 `dist/android-source/` / `dist/ios-source/`；安装应用无需下载源码或测试报告，再分发时须提供匹配的对应源码和许可证。
 
 | 平台 | 工作流 | 默认产物 | 签名产物 |
 | --- | --- | --- | --- |

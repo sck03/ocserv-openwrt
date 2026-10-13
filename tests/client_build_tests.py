@@ -1,6 +1,7 @@
 """Exercise the release import audit and corresponding-source packaging boundaries."""
 import hashlib
 import importlib.util
+import io
 import json
 import os
 from pathlib import Path
@@ -13,9 +14,13 @@ import unittest
 import zipfile
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "scripts"))
 spec = importlib.util.spec_from_file_location("pe_audit", ROOT / "scripts/audit-pe.py")
 audit = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(audit)
+spec = importlib.util.spec_from_file_location("client_test_runner", ROOT / "scripts/test-client.py")
+runner = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(runner)
 
 
 def fixture_pe(arch="x64", dll="msvcrt.dll", function="malloc", subsystem=(6, 2), delayed=False):
@@ -69,6 +74,35 @@ class ImportAuditTests(unittest.TestCase):
         data = fixture_pe()
         struct.pack_into("<H", data, 0x84, 0x14C)
         self.assertFalse(audit.inspect(data)["passed"])
+
+
+class RuntimePackageTests(unittest.TestCase):
+    def validate(self, extra=None, omitted=None):
+        stream = io.BytesIO()
+        names = {"LinkoraVPN.exe", "wintun.dll", "vpnc-script-win.js", "BUILDINFO.json",
+                 "THIRD-PARTY-NOTICES.md", "WAN.md", "使用说明.txt", "licenses/Application-GPL-3.0.txt"}
+        names.discard(omitted)
+        if extra:
+            names.add(extra)
+        with zipfile.ZipFile(stream, "w") as package:
+            for name in names:
+                package.writestr("LinkoraVPN/" + name, b"fixture")
+        with zipfile.ZipFile(stream) as package:
+            runner.validate_package_members(package)
+
+    def test_runtime_with_licenses_is_accepted(self):
+        self.validate(extra="licenses/Wintun-Prebuilt-License.txt")
+
+    def test_test_binaries_sources_and_local_data_are_rejected(self):
+        for name in ("validation/native_session_tests.exe", "native_model_tests.exe", "corresponding-source.zip",
+                     "data/profiles.json", "test-results/report.json", "obsolete.ini"):
+            with self.subTest(name=name), self.assertRaises(RuntimeError):
+                self.validate(extra=name)
+
+    def test_missing_runtime_or_license_is_rejected(self):
+        for name in ("wintun.dll", "vpnc-script-win.js", "licenses/Application-GPL-3.0.txt"):
+            with self.subTest(name=name), self.assertRaises(RuntimeError):
+                self.validate(omitted=name)
 
 
 class SourceBundleTests(unittest.TestCase):
