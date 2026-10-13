@@ -39,7 +39,7 @@ env:
 jobs:
   validate:
     name: 检查构建参数和脚本
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     timeout-minutes: 5
     outputs:
       release_version: ${{ steps.metadata.outputs.release_version }}
@@ -80,7 +80,7 @@ jobs:
   client:
     name: Windows ${{ matrix.arch }}（Linux 编译）
     needs: validate
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     timeout-minutes: 60
     env:
       RELEASE_VERSION: ${{ needs.validate.outputs.release_version }}
@@ -237,7 +237,7 @@ jobs:
   source:
     name: 客户端对应源码
     needs: validate
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     timeout-minutes: 15
     env:
       RELEASE_VERSION: ${{ needs.validate.outputs.release_version }}
@@ -272,7 +272,7 @@ jobs:
     name: 发布客户端到 Releases
     needs: [validate, windows-tests, source]
     if: ${{ inputs.publish_release && github.ref == 'refs/heads/main' }}
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     timeout-minutes: 15
     env:
       RELEASE_VERSION: ${{ needs.validate.outputs.release_version }}

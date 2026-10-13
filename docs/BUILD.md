@@ -2,7 +2,7 @@
 
 ## GitHub Actions
 
-使用 Actions 中的 **手动构建 Windows 客户端** 或 **手动构建 ocserv 服务端与中文管理页**，选择分支后手动运行。客户端在 Ubuntu 24.04 交叉编译，在 Windows Server 2022 原生回归；服务端使用 Ubuntu 24.04。没有 push、pull_request 或定时触发器。
+使用 Actions 中的 **手动构建 Windows 客户端** 或 **手动构建 ocserv 服务端与中文管理页**，选择分支后手动运行。客户端在 Ubuntu 26.04 交叉编译，在 Windows Server 2022 原生回归；服务端使用 Ubuntu 26.04。没有 push、pull_request 或定时触发器。
 
 | 客户端参数 | 默认值 | 用途 |
 |---|---|---|
@@ -40,7 +40,7 @@ Actions 使用官方 checkout、cache、setup-node、setup-python、upload-artif
 
 ## Linux 交叉编译
 
-使用 Ubuntu 24.04 或相同的 MSVCRT MinGW 工具链：
+使用 Ubuntu 26.04 或相同的 MSVCRT MinGW 工具链：
 
 ~~~sh
 sudo apt-get install build-essential cmake ninja-build perl pkg-config autoconf automake \

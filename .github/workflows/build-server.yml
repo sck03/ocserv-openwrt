@@ -43,7 +43,7 @@ env:
 jobs:
   validate:
     name: 服务端与构建参数回归
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     timeout-minutes: 10
     outputs:
       release_version: ${{ steps.metadata.outputs.release_version }}
@@ -135,7 +135,7 @@ jobs:
   server:
     name: OpenWrt 25.12 / ${{ matrix.target }} / APK
     needs: validate
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     timeout-minutes: 120
     strategy:
       fail-fast: false
@@ -200,7 +200,7 @@ jobs:
     name: 发布服务端到 Releases
     needs: [validate, server]
     if: ${{ inputs.publish_release && github.ref == 'refs/heads/main' }}
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     timeout-minutes: 15
     env:
       RELEASE_VERSION: ${{ needs.validate.outputs.release_version }}

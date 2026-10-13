@@ -1,6 +1,6 @@
 # macOS 与 Linux 桌面客户端
 
-桌面端均按全新安装提供。macOS 0.1.0 支持 macOS 13+，同一应用包含 Apple Silicon 和 Intel；Linux 0.1.0 支持 Debian 12 / Ubuntu 24.04 的 amd64、arm64。Windows 0.7.0 支持 Windows 10/11，见[Windows 使用说明](CLIENT.md)。
+桌面端均按全新安装提供。macOS 0.1.0 支持 macOS 13+，同一应用包含 Apple Silicon 和 Intel；Linux 0.1.0 支持 Debian 13 / Ubuntu 26.04 的 amd64、arm64。Windows 0.7.0 支持 Windows 10/11，见[Windows 使用说明](CLIENT.md)。
 
 | 平台 | 界面与隧道 | 认证与密码 | 安装包 |
 |---|---|---|---|
@@ -56,10 +56,10 @@ sudo apt install build-essential cmake ninja-build pkg-config python3 file \
 bash scripts/build-linux.sh
 ```
 
-发行包在 Debian 12 上分别原生构建两个架构，由 CPack / `dpkg-shlibdeps` 从实际 ELF 生成动态库依赖，并声明 NetworkManager 和 OpenConnect 认证插件。认证助手通过运行时 libnm 插件信息定位，兼容 Debian 的 `/usr/lib/NetworkManager/` 与 Ubuntu 的 `/usr/libexec/` 等安装路径。DEB 只安装客户端、桌面入口、图标、说明和许可证；测试程序与截图单独归档。`linkora-vpn --version` 可在无图形环境确认程序能加载，`linkora-vpn --check-runtime` 检查并显示实际认证助手路径。诊断为 UTF-8 文本，包含客户端/NetworkManager 版本、会话状态、错误类别和最多 256 条状态记录。
+发行包在 Debian 13 上分别原生构建两个架构，由 CPack / `dpkg-shlibdeps` 从实际 ELF 生成动态库依赖，并声明 NetworkManager 和 OpenConnect 认证插件。认证助手由运行时 libnm 根据当前安装的 OpenConnect 插件定位。DEB 只安装客户端、桌面入口、图标、说明和许可证；测试程序与截图单独归档。`linkora-vpn --version` 可在无图形环境确认程序能加载，`linkora-vpn --check-runtime` 检查并显示实际认证助手路径。诊断为 UTF-8 文本，包含客户端/NetworkManager 版本、会话状态、错误类别和最多 256 条状态记录。
 
 ## 构建与验证边界
 
-[桌面工作流](https://github.com/sck03/ocserv-openwrt/actions/workflows/build-desktop.yml) 构建 Linux 两种架构及 macOS Universal 包，运行协议/取消/重试回归、Linux 图形启动检查、Apple 地址和数据包校验。Linux 还检查安装包实际文件、ELF 架构、符号裁剪和动态库加载，并在未预装开发库的 Debian 12 / Ubuntu 24.04 容器中用 APT 安装再启动。Linux、macOS 应用与 `linux-source`、`macos-source` 对应源码附件分开上传，本地源码输出为 `dist/linux-source/`、`dist/macos-source/`。源码和测试附件不属于客户端安装内容。产物保留 7 天；该工作流不发布 Release。
+[桌面工作流](https://github.com/sck03/ocserv-openwrt/actions/workflows/build-desktop.yml) 构建 Linux 两种架构及 macOS Universal 包，运行协议/取消/重试回归、Linux 图形启动检查、Apple 地址和数据包校验。Linux 还检查安装包实际文件、ELF 架构、符号裁剪和动态库加载，并在未预装开发库的 Debian 13 / Ubuntu 26.04 容器中用 APT 安装再启动。Linux、macOS 应用与 `linux-source`、`macos-source` 对应源码附件分开上传，本地源码输出为 `dist/linux-source/`、`dist/macos-source/`。源码和测试附件不属于客户端安装内容。产物保留 7 天；该工作流不发布 Release。
 
 自动构建、隔离窗口及协议测试不替代 macOS 签名扩展加载、真实 Linux VPN 转发和设备网络切换验收。实际运行证据以[验证记录](VALIDATION.md)注明的提交和平台为准。

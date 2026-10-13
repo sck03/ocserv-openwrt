@@ -23,7 +23,7 @@ python3 scripts/package-server.py /tmp/sdk-25.12
 
 `--target` 可换成目标清单中的其他 target/subtarget，省略时默认为 armsr/armv8。SDK 必须放在源码 Git 仓库之外。构建记录保留目标、SDK 校验值、feed 提交、源码校验与 ELF 依赖。内核 TUN 使用设备固件自己的实现，不用官方 SDK 内核模块替换。
 
-构建工具链宿主使用 `ubuntu-24.04`，这是 GitHub 运行器系统，与 OpenWrt 版本选择无关。升级源码、SDK 或 LuCI feed 后，应重新运行本地和 CI 检查，并完成设备上登录、转发、DNS、重连与开关恢复验证。
+构建工具链宿主使用 `ubuntu-26.04`，这是 GitHub 运行器系统，与 OpenWrt 版本选择无关。升级源码、SDK 或 LuCI feed 后，应重新运行本地和 CI 检查，并完成设备上登录、转发、DNS、重连与开关恢复验证。
 
 ## 工作流稳定版本（2026-10-05 核对）
 

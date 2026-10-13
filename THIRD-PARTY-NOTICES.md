@@ -22,8 +22,8 @@ The application is GPL-3.0-or-later. Static linking does not remove third-party 
 | LuCI reference source | SDK-selected feed revision in BUILDINFO.json | Upstream LuCI notices | Feed source bundled; the shipped page is luci-app-ocserv-easy |
 | OpenTunnel | 0535533dfb7d3a656bfdb880d51f731c109135c1 | LGPL-2.1; upstream LICENSE and individual notices | Android app and native build recipe; separate application ID and Chinese launcher name |
 | OpenSSL (Android / Apple) | 3.5.8 | Apache-2.0 | Static mobile and macOS TLS library |
-| GTK 3 / GLib | Debian 12 / Ubuntu 24.04 system packages | LGPL-2.1-or-later and individual notices | Linux desktop system libraries; not bundled |
-| libnm / NetworkManager OpenConnect | Debian 12 / Ubuntu 24.04 system packages | LGPL-2.1-or-later / GPL-2.0-or-later and individual notices | Linux system VPN and authentication integration; not bundled |
+| GTK 3 / GLib | Debian 13 / Ubuntu 26.04 system packages | LGPL-2.1-or-later and individual notices | Linux desktop system libraries; not bundled |
+| libnm / NetworkManager OpenConnect | Debian 13 / Ubuntu 26.04 system packages | LGPL-2.1-or-later / GPL-2.0-or-later and individual notices | Linux system VPN and authentication integration; not bundled |
 | libsecret | System package | LGPL-2.1-or-later | Linux keyring cleanup; not bundled |
 | LZ4 (Android) | 1.10.0 | BSD-2-Clause for library; accompanying source notices | Android OpenConnect compression |
 

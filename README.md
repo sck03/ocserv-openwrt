@@ -1,6 +1,6 @@
 # Linkora VPN
 
-Linkora VPN 提供 Windows 10/11 原生客户端 0.7.0、macOS 13+ Universal 和 Linux amd64/arm64 桌面客户端 0.1.0，以及 Android / iOS 移动客户端。配套 ocserv 1.5.0-r6 服务端和中文管理页 0.5.0-r1。Windows 提供 x86/x64 便携包；Linux 支持 Debian 12 / Ubuntu 24.04，macOS 实际连接需要有效的 Apple 系统扩展签名。桌面安装方式见[桌面客户端说明](docs/DESKTOP.md)。服务端支持 **OpenWrt 25.12 / APK** 的六个目标，具体架构见 [OpenWrt 多架构说明](docs/OPENWRT.md)。
+Linkora VPN 提供 Windows 10/11 原生客户端 0.7.0、macOS 13+ Universal 和 Linux amd64/arm64 桌面客户端 0.1.0，以及 Android / iOS 移动客户端。配套 ocserv 1.5.0-r6 服务端和中文管理页 0.5.0-r1。Windows 提供 x86/x64 便携包；Linux 支持 Debian 13 / Ubuntu 26.04，macOS 实际连接需要有效的 Apple 系统扩展签名。桌面安装方式见[桌面客户端说明](docs/DESKTOP.md)。服务端支持 **OpenWrt 25.12 / APK** 的六个目标，具体架构见 [OpenWrt 多架构说明](docs/OPENWRT.md)。
 
 本版按全新安装部署，统一使用新的程序名、移动端安装 ID 和防火墙标识。Windows 使用新目录和新版 `.vpn` 配置；服务端重新添加账号并设置网络。部署前先关闭旧版专用上网开关、停用旧服务，不导入旧版数据目录或防火墙事务备份。
 
@@ -49,11 +49,11 @@ sh install.sh
 - [Android 客户端工作流](https://github.com/sck03/ocserv-openwrt/actions/workflows/build-android.yml)：基于固定版本 OpenTunnel，编译三个架构的 OpenConnect 核心和 APK；默认 debug，配置签名 Secrets 后可构建 release。
 - [iOS 客户端工作流](https://github.com/sck03/ocserv-openwrt/actions/workflows/build-ios.yml)：原生应用与 Packet Tunnel 扩展，默认未签名编译归档，配置 Apple 证书和两个 Ad Hoc 描述文件后导出 IPA。使用及签名见[移动客户端说明](docs/MOBILE.md)。
 - [macOS / Linux 桌面工作流](https://github.com/sck03/ocserv-openwrt/actions/workflows/build-desktop.yml)：macOS Universal 系统扩展编译，Linux 两种架构的原生构建、图形启动测试和 DEB 打包；使用方法见[桌面客户端说明](docs/DESKTOP.md)。
-- Windows 交叉编译、服务端和 Android 使用 `ubuntu-24.04`，iOS 使用 `macos-15`。Actions/管理页脚本检查使用 Node.js 26。运行器系统版本与 N1 固件版本是不同概念。
+- Windows 交叉编译、服务端和 Android 使用 `ubuntu-26.04`，iOS 使用 `macos-15`。Actions/管理页脚本检查使用 Node.js 26。运行器系统版本与 N1 固件版本是不同概念。
 - Windows 和服务端工作流均可填写 `release_version` 设置发行套装版本，留空使用北京时间日期和时分秒；标题始终显示真实构建时间。`publish_release=false` 可只构建，两端仅允许 main 发布。
 - Windows 和服务端手动工作流全部检查成功后发布独立 Pre-release；[Releases](https://github.com/sck03/ocserv-openwrt/releases) 附件长期保留，Actions artifacts 保留 7 天。移动端工作流目前仅上传 artifacts。
 - 客户端下载附件仅包含应用、必要运行文件和校验信息。对应源码单独放在 `corresponding-source`（Windows）或 `linux-source`、`macos-source`、`android-source`、`ios-source` 附件中；测试程序和报告单独上传，安装时无需下载。再分发时仍须提供匹配的对应源码和许可证。
-- Linux DEB 使用系统 GTK、NetworkManager 和 OpenConnect 插件，包本身只有几十 KB 是正常的；首次安装所需依赖由 `apt` 下载。工作流检查真实 ELF、动态库依赖和安装内容，并在干净 Debian 12 / Ubuntu 24.04 环境验证两种架构的安装与启动。
+- Linux DEB 使用系统 GTK、NetworkManager 和 OpenConnect 插件，包本身只有几十 KB 是正常的；首次安装所需依赖由 `apt` 下载。工作流检查真实 ELF、动态库依赖和安装内容，并在干净 Debian 13 / Ubuntu 26.04 环境验证两种架构的安装与启动。
 - 服务端 artifact 为 `openwrt-25.12-<架构>`，各架构分别包含两个 APK、安装工具、源码、BUILDINFO 和 SHA256SUMS；ZIP 名称带架构和管理页版本。
 
 ## 资料
