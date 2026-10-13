@@ -50,6 +50,8 @@ def audit(package):
         executable = Path(work) / "usr/bin/linkora-vpn"
         version = subprocess.check_output([executable, "--version"], text=True).strip()
         assert version == "Linkora VPN " + field("Version")
+        helper = subprocess.check_output([executable, "--check-runtime"], text=True).strip()
+        assert Path(helper).is_absolute() and Path(helper).is_file(), "Missing installed authentication helper"
         libraries = subprocess.check_output(["ldd", executable], text=True)
         assert "not found" not in libraries, libraries
         sections = subprocess.check_output(["readelf", "--sections", executable], text=True)
@@ -58,7 +60,8 @@ def audit(package):
     report = {
         "architecture": architecture, "package_bytes": package.stat().st_size,
         "executable_bytes": binary.size, "installed_bytes": installed_bytes,
-        "depends": depends, "files": sorted(files), "version": version, "passed": True,
+        "depends": depends, "files": sorted(files), "version": version,
+        "authentication_helper": helper, "passed": True,
     }
     output = Path("test-results/linux-package.json")
     output.parent.mkdir(parents=True, exist_ok=True)

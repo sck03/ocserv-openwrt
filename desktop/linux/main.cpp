@@ -670,7 +670,7 @@ public:
         }
         GError *failure = nullptr;
         client = nm_client_new(nullptr, &failure);
-        if (client && nm_client_get_nm_running(client))
+        if (client && nm_client_get_nm_running(client) && !linkora_auth_dialog().empty())
             agent = linkora_agent_new(&failure);
         if (!client || !agent || !nm_client_get_nm_running(client)) {
             error = "configuration";
@@ -702,6 +702,15 @@ public:
 int main(int argc, char **argv) {
     if (argc == 2 && !strcmp(argv[1], "--version")) {
         std::puts("Linkora VPN " LINKORA_VERSION);
+        return 0;
+    }
+    if (argc == 2 && !strcmp(argv[1], "--check-runtime")) {
+        const auto dialog = linkora_auth_dialog();
+        if (dialog.empty()) {
+            std::fputs("Install network-manager-openconnect-gnome to provide the authentication helper.\n", stderr);
+            return 1;
+        }
+        std::puts(dialog.c_str());
         return 0;
     }
     bool startup = argc == 2 && !strcmp(argv[1], "--autoconnect");

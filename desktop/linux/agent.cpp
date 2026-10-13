@@ -4,6 +4,21 @@
 #include <libsecret/secret.h>
 
 using namespace linkora;
+std::string linkora_auth_dialog() {
+#ifdef LINKORA_AUTH_DIALOG
+    return LINKORA_AUTH_DIALOG; // Isolated IPC test fixture only.
+#else
+    // libnm resolves the installed plugin's helper, including distribution-specific libexec paths.
+    auto *plugin = nm_vpn_plugin_info_new_search_file(nullptr, Service);
+    if (!plugin)
+        return {};
+    const char *path = nm_vpn_plugin_info_get_auth_dialog(plugin);
+    std::string result = path && g_file_test(path, G_FILE_TEST_IS_EXECUTABLE) ? path : "";
+    g_object_unref(plugin);
+    return result;
+#endif
+}
+
 struct Request;
 struct LinkoraAgent {
     NMSecretAgentOld parent;
@@ -155,10 +170,15 @@ void get_secrets(NMSecretAgentOld *base, NMConnection *connection, const char *p
         return;
     }
     GError *error = nullptr;
+    const auto dialog = linkora_auth_dialog();
+    if (dialog.empty()) {
+        complete(request, false);
+        return;
+    }
     request->process = g_subprocess_new(static_cast<GSubprocessFlags>(G_SUBPROCESS_FLAGS_STDIN_PIPE |
                                                                       G_SUBPROCESS_FLAGS_STDOUT_PIPE |
                                                                       G_SUBPROCESS_FLAGS_STDERR_SILENCE),
-                                        &error, LINKORA_AUTH_DIALOG, "--uuid", agent->uuid, "--name",
+                                        &error, dialog.c_str(), "--uuid", agent->uuid, "--name",
                                         "Linkora VPN", "--service", Service, "--allow-interaction", nullptr);
     // The helper owns authentication forms and the system keyring. Its output is
     // a private protocol channel; never route stdout/stderr into application logs.

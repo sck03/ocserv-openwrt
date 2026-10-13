@@ -4,7 +4,9 @@
 extern "C" GQuark nm_secret_agent_error_quark(void);
 #include <NetworkManager.h>
 #include <nm-secret-agent-old.h>
+#include <string>
 
+std::string linkora_auth_dialog();
 GType linkora_agent_get_type();
 NMSecretAgentOld *linkora_agent_new(GError **error);
 void linkora_agent_select(NMSecretAgentOld *agent, const char *uuid);

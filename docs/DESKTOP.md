@@ -56,7 +56,7 @@ sudo apt install build-essential cmake ninja-build pkg-config python3 file \
 bash scripts/build-linux.sh
 ```
 
-发行包在 Debian 12 上分别原生构建两个架构，由 CPack / `dpkg-shlibdeps` 从实际 ELF 生成动态库依赖，并声明 NetworkManager 和 OpenConnect 认证插件。DEB 只安装客户端、桌面入口、图标、说明和许可证；测试程序与截图单独归档。`linkora-vpn --version` 可在无图形环境确认程序能加载。诊断为 UTF-8 文本，包含客户端/NetworkManager 版本、会话状态、错误类别和最多 256 条状态记录。
+发行包在 Debian 12 上分别原生构建两个架构，由 CPack / `dpkg-shlibdeps` 从实际 ELF 生成动态库依赖，并声明 NetworkManager 和 OpenConnect 认证插件。认证助手通过运行时 libnm 插件信息定位，兼容 Debian 的 `/usr/lib/NetworkManager/` 与 Ubuntu 的 `/usr/libexec/` 等安装路径。DEB 只安装客户端、桌面入口、图标、说明和许可证；测试程序与截图单独归档。`linkora-vpn --version` 可在无图形环境确认程序能加载，`linkora-vpn --check-runtime` 检查并显示实际认证助手路径。诊断为 UTF-8 文本，包含客户端/NetworkManager 版本、会话状态、错误类别和最多 256 条状态记录。
 
 ## 构建与验证边界
 
