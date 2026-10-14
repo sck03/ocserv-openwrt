@@ -38,7 +38,7 @@
         guard_pool_overlap:t('VPN 地址池与局域网重叠，请先在服务设置中更换地址池。','The VPN pool overlaps the LAN. Change it in Service settings first.'),
         guard_port_conflict:t('VPN 端口与 SSH 或网页管理端口冲突。','The VPN port conflicts with SSH or web administration.'),
         guard_requires_dnsmasq:t('未找到 dnsmasq 配置。','No dnsmasq configuration was found.'),
-        guard_section_conflict:t('发现同名的旧防火墙配置，请先移除旧的手动 VPN-only 规则，再使用此开关。','Existing VPN-only firewall sections conflict. Remove the previous manual guard before using this switch.'),
+        guard_section_conflict:t('发现同名的防火墙配置，请先核对并处理冲突，再使用此开关。','Firewall sections already exist. Review and resolve the conflicts before enabling this switch.'),
         guard_worker_failed:t('后台配置进程未启动，请重试或查看系统日志。','The background configuration process did not start. Retry or check the system log.'),
         guard_firewall_failed:t('防火墙校验或应用失败，正在恢复原配置。','Firewall validation or apply failed. Restoring the previous configuration.'),
         guard_dns_failed:t('DNS 服务重启失败，正在恢复原配置。','DNS restart failed. Restoring the previous configuration.'),

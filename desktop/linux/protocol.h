@@ -12,8 +12,7 @@
 namespace lansyra {
 inline constexpr char Service[] = "org.freedesktop.NetworkManager.openconnect";
 inline constexpr char ProductID[] = "io.github.sck03.lansyra";
-// Existing NetworkManager profiles keep their ownership marker across renames.
-inline constexpr char Marker[] = "io.github.sck03.linkoravpn.managed";
+inline constexpr char Marker[] = "io.github.sck03.lansyra.managed";
 inline bool field(std::string_view text) {
     return text.size() <= 8192 && text.find_first_of("\r\n\0", 0, 3) == std::string_view::npos &&
            g_utf8_validate(text.data(), static_cast<gssize>(text.size()), nullptr);

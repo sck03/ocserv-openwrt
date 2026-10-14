@@ -111,11 +111,11 @@ with tempfile.TemporaryDirectory(prefix='lansyra-install-test-') as temporary:
         script = (ROOT / 'server/tools/install.sh').read_text(encoding='utf-8')
         script = re.sub(r'/(etc|root|tmp|usr)/', lambda match: str(root / match[1]) + '/', script)
         (root / 'bundle/install.sh').write_text(script, encoding='utf-8')
-        preflight=(ROOT/'server/tools/preflight-n1.sh').read_text(encoding='utf-8')
+        preflight=(ROOT/'server/tools/preflight.sh').read_text(encoding='utf-8')
         preflight=re.sub(r'/(etc|root|tmp|usr)/',lambda match:str(root/match[1])+'/',preflight)
         preflight=preflight.replace('[ -c /dev/net/tun ]','[ -f "'+str(root/'tun.available')+'" ]')
         (root/'tun.available').touch()
-        (root / 'bundle/preflight-n1.sh').write_text(preflight,encoding='utf-8')
+        (root / 'bundle/preflight.sh').write_text(preflight,encoding='utf-8')
         (root / 'bundle/APK-ARCHITECTURES').write_text(architectures)
         for package in ('ocserv-1.5.0-r3.apk', 'luci-app-ocserv-easy-0.4.1-r1.apk'):
             (root / 'bundle' / package).write_bytes(b'local test APK')
@@ -174,11 +174,12 @@ with tempfile.TemporaryDirectory(prefix='lansyra-install-test-') as temporary:
 
     root=fixture('manual',existing=True)
     previous=(root/'etc/config/ocserv').read_bytes()
+    network=(root/'etc/config/firewall').read_bytes()
     result=run(root,INSTALL_MANUAL='1')
     assert result.returncode==0,result.stdout+result.stderr
     assert (root/'etc/config/ocserv').read_bytes()==previous
-    assert 'ocserv_vpn' in json.loads((root/'etc/config/firewall').read_text())
-    checks.append('retry after manual APK installation finishes default VPN networking and retains accounts')
+    assert (root/'etc/config/firewall').read_bytes()==network
+    checks.append('existing APK configuration is not inferred to be a fresh installation')
 
     root=fixture('mixed_bundle')
     (root/'bundle/luci-app-ocserv-1.apk').write_bytes(b'stale upstream package')

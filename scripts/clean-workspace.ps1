@@ -42,8 +42,6 @@ function Add-Candidate([string]$Relative) {
 foreach ($relative in @(
     'build', '.ruff_cache', 'scripts\__pycache__', 'tests\__pycache__', 'client\tests\__pycache__',
     'dist\validation-x64', 'dist\validation-x86',
-    'mobile\ios\LinkoraVPN.xcodeproj', 'desktop\macos\LinkoraVPN.xcodeproj',
-    'mobile\ios\Linkora.xcodeproj', 'desktop\macos\Linkora.xcodeproj',
     'mobile\ios\Lansyra.xcodeproj', 'mobile\ios\App\Info.plist', 'mobile\ios\Tunnel\Info.plist',
     'desktop\macos\Lansyra.xcodeproj', 'desktop\macos\App\Info.plist',
     'desktop\macos\Tunnel\Info.plist', 'desktop\macos\App\AppIcon.icns'

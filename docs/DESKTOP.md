@@ -9,7 +9,7 @@
 
 两端提供服务器配置、连接/取消、明确的连接状态、可选登录后连接、最多三次网络失败重试及诊断导出。取消会使旧操作失效，异步完成的旧连接会被清理。认证、证书和配置问题不自动重试。
 
-当前界面名称统一为 **岚序 Lansyra**。更换旧版前先关闭旧版登录后自动连接并退出。macOS 默认安装标识改为 `io.github.sck03.lansyra.macos`，需重新配置和匹配的 Apple 描述文件；Linux 的 `lansyra` DEB 会替换旧的 `linkora-vpn` 包，继续识别原有 NetworkManager 服务器配置，在新客户端重新选择自动连接设置。
+当前界面名称统一为 **岚序 Lansyra**。本版按全新安装使用，不迁移旧配置、钥匙串密码、系统连接或登录项。测试机安装前先关闭旧版自动连接、退出并卸载旧客户端及其连接配置。macOS 使用 `io.github.sck03.lansyra.macos` 及匹配的 Apple 描述文件；Linux 安装 `lansyra` DEB 后重新创建 NetworkManager 服务器配置和自动连接设置。
 
 ## macOS
 

@@ -6,7 +6,7 @@ cd "$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)"
 [ "$(id -u)" = 0 ] || { echo '请以 root 运行此脚本。'; exit 1; }
 [ -f SHA256SUMS ] || { echo '请完整解压服务端套装后运行 install.sh。'; exit 1; }
 sha256sum -c SHA256SUMS
-sh ./preflight-n1.sh
+sh ./preflight.sh
 [ -s APK-ARCHITECTURES ] || { echo '缺少套装架构清单，请重新下载完整 ZIP。'; exit 1; }
 device_arch=$(apk --print-arch)
 grep -Fqx -- "$device_arch" APK-ARCHITECTURES || {
@@ -16,18 +16,6 @@ grep -Fqx -- "$device_arch" APK-ARCHITECTURES || {
 fresh=0
 pending=/etc/ocserv/easy-install-pending
 if [ -f "$pending" ] || { ! apk info -e ocserv >/dev/null 2>&1 && [ ! -e /etc/config/ocserv ]; }; then fresh=1; fi
-# An APK-only installation skipped this bundle's first-run network setup.
-# Repair that known default configuration, while retaining customized networks.
-if [ "$fresh" = 0 ] &&
-    [ "$(uci -q get ocserv.config.zone)" = ocvpn ] &&
-    [ "$(uci -q get ocserv.config.ipaddr)" = 10.77.0.0 ] &&
-    [ "$(uci -q get ocserv.config.netmask)" = 255.255.255.0 ] &&
-    [ "$(uci -q get ocserv.config.port)" = 4443 ] &&
-    [ "$(uci -q get ocserv.config.proxy_arp)" != 1 ] &&
-    ! uci -q show firewall | grep -Eq '(vpns|ocvpn|ocserv)'; then
-    fresh=1
-    echo '检测到此前只安装了 APK，正在补齐默认 VPN 的网络设置。'
-fi
 set -- ./*.apk
 [ "$#" -eq 2 ] || { echo '修复版套装应只包含 ocserv 和 luci-app-ocserv-easy 两个 APK。请解压到新目录，不要混入旧包。'; exit 1; }
 for package do [ -f "$package" ] || { echo "缺少安装包：$package"; exit 1; }; done

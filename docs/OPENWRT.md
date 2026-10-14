@@ -22,7 +22,7 @@ cd /tmp/lansyra
 sh install.sh
 ```
 
-脚本校验 SHA256SUMS 和 APK-ARCHITECTURES，再预演安装和备份配置；错架构时在安装前停止。`preflight-n1.sh` 保留旧文件名以兼容既有用法，其检查适用于上述所有目标。
+脚本校验 SHA256SUMS 和 APK-ARCHITECTURES，再预演安装和备份配置；错架构时在安装前停止。统一的 `preflight.sh` 检查适用于上述所有目标。套装按全新安装使用，不迁移旧账号、服务配置或防火墙事务。
 
 首次安装默认允许 LAN 访问 TCP/UDP 4443，VPN 地址池为 10.77.0.0/24，配置 VPN 到 LAN 的转发与源 NAT。公网接入需按实际拓扑设置 WAN 防火墙、上级路由端口转发和 DNS。确认地址池不与现有网络冲突。添加账号、检查设置后再启动服务。
 

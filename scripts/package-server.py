@@ -106,7 +106,7 @@ def main():
         (output / "BUILDINFO.json").write_text(json.dumps(info, indent=2) + "\n", encoding="utf-8")
         (output / "APK-ARCHITECTURES").write_text("\n".join(target["apk_architectures"]) + "\n", encoding="ascii")
         shutil.copyfile(sdk / "feeds.conf", output / "feeds.conf.build")
-        for filename in ("install.sh", "preflight-n1.sh", "diagnose-n1.sh", "add-user.sh"):
+        for filename in ("install.sh", "preflight.sh", "diagnose-n1.sh", "add-user.sh"):
             shutil.copyfile(ROOT / "server/tools" / filename, output / filename)
         for filename in ("OPENWRT-N1.md", "OPENWRT.md", "SERVER-UI.md", "VPN-ONLY-OPENCLASH.md", "WAN.md"):
             shutil.copyfile(ROOT / "docs" / filename, output / filename)

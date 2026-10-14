@@ -2,15 +2,15 @@
 
 岚序（Lansyra）提供 Windows 10/11 原生客户端 0.7.1、macOS 13+ Universal 和 Linux amd64/arm64 桌面客户端 0.1.1，以及 Android / iOS 移动客户端。配套 ocserv 1.5.0-r6 服务端和中文管理页 0.5.1-r1。Windows 提供 x86/x64 便携包；Linux 支持 Debian 13 / Ubuntu 26.04，macOS 实际连接需要有效的 Apple 系统扩展签名。桌面安装方式见[桌面客户端说明](docs/DESKTOP.md)。服务端支持 **OpenWrt 25.12 / APK** 的六个目标，具体架构见 [OpenWrt 多架构说明](docs/OPENWRT.md)。
 
-客户端界面名称统一为 **岚序 Lansyra**，Windows 程序为 `Lansyra.exe`，Linux 包和命令为 `lansyra`，Android / iOS 默认安装 ID 为 `io.github.sck03.lansyra`，macOS 为 `io.github.sck03.lansyra.macos`。安装前先在旧客户端关闭自动启动、断开连接并退出；移动端和 macOS 使用新安装标识并重新配置，Apple 签名描述文件须匹配新标识。Windows 的 `data/` 格式和密码加密上下文保持兼容，Linux 保留现有 NetworkManager 配置的识别标记。
+客户端界面名称统一为 **岚序 Lansyra**，Windows 程序为 `Lansyra.exe`，Linux 包和命令为 `lansyra`，Android / iOS 默认安装 ID 为 `io.github.sck03.lansyra`，macOS 为 `io.github.sck03.lansyra.macos`。所有客户端按全新安装使用，重新填写服务器、账号、证书指纹并设置启动项；Apple 签名描述文件须匹配新标识。不迁移旧客户端数据、加密凭据或系统连接配置。
 
-服务端首次部署仍按下述全新安装步骤操作；本次改名不改变服务端账号格式或防火墙标识。协议名称、系统 VPN 权限提示和 `.vpn` 配置格式保留原义。
+服务端也按全新安装部署，使用 Lansyra 防火墙标识，重新创建账号和网络设置。若测试机装过旧版，先在旧版关闭自动连接及专用上网开关，停用并卸载旧组件、清理旧配置，再安装本版；不导入旧数据目录或防火墙事务备份。协议名称、系统 VPN 权限提示和当前 `.vpn` 配置格式保留原义。
 
 Windows 客户端提供服务器配置列表、VPN 信息、独立日志、服务器认证弹窗和托盘，默认中文，可切换英文。静态合并 OpenConnect 9.21、GnuTLS、软件令牌和 XML/压缩库，无需安装 Qt、.NET 或 VC 运行库。完整保留随包的 `wintun.dll` 和 `vpnc-script-win.js`。会话编号与状态代次隔离旧回调，支持网络变化、睡眠恢复、可选登录后连接、有限重试及脱敏诊断导出。
 
 ## 客户端连接
 
-1. 完整解压对应架构的 ZIP，退出旧版，运行 `Lansyra.exe`。
+1. 将对应架构的 ZIP 完整解压到空目录，运行 `Lansyra.exe`。
 2. 从 **配置 → 新建配置** 保存服务器，也可直接输入 `192.168.19.253:4443`、`vpn.example.com:4443` 或 `[IPv6地址]:4443`（自动补上 `https://`）。高级配置可设置证书、HOTP/TOTP/STOKEN、系统代理、UDP 和重连。
 3. 点击 **连接**，按需完成 Windows 管理员授权。首次遇到未知证书时，核对地址及完整 `pin-sha256`，点击 **信息准确，记住并连接**。
 4. 按服务器返回的弹窗填写用户名、密码、分组或验证码。**VPN 信息** 显示地址、加密方式和流量，**查看日志** 可检查连接过程。

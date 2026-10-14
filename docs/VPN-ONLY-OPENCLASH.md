@@ -54,6 +54,6 @@
 
 ## 适用范围
 
-需要 fw4、dnsmasq、工作中的 ocserv 和已经配置好的 OpenClash（兼容 Clash 与 Meta/Mihomo 内核）。从同一 LAN 的 IPv4 管理地址开启；检测到活跃 WAN 的主路由不应用此旁路由规则。旧配置若把 `ipaddr` 填成地址池中的主机地址，开关会按掩码归一化隔离规则，同时保留原值以便关闭时恢复。若之前部署过旧的手动 `linkora_guard` 规则，先停用那套规则，避免两套规则同时管理同名对象。
+需要 fw4、dnsmasq、工作中的 ocserv 和已经配置好的 OpenClash（兼容 Clash 与 Meta/Mihomo 内核）。从同一 LAN 的 IPv4 管理地址开启；检测到活跃 WAN 的主路由不应用此旁路由规则。隔离规则使用按掩码规范化后的地址池，并保存操作前配置用于关闭时恢复。本版使用 `lansyra_guard` 等新标识，按全新安装重新配置，不复用旧规则或事务目录。
 
 实际 N1/OPL 固件仍需验证端口、DNS、TCP/UDP、OpenClash 模式和重启后的持久化。本功能的隔离网络测试不代表已经连接过用户的 N1。
