@@ -24,7 +24,7 @@ Actions 使用官方 checkout、cache、setup-node、setup-python、upload-artif
 
 根 CMakeLists.txt 统一维护 Windows 产品名和版本，生成 C++/RC 共用版本头及程序清单，再调用 client/CMakeLists.txt。界面、协议标识、EXE 属性和发行元数据使用同一版本。Release 使用 `-Os`、函数/数据独立节和链接清理，移除未使用代码。
 
-Windows 与 Linux Release 在工具链支持时启用链接时优化；Apple 扩展启用未引用代码裁剪。Android 发布构建沿用 R8 与资源裁剪。打包验证直接检查实际 EXE、DEB、APK 和 Apple 应用的名称；macOS ZIP 版本从已编译应用的 Info.plist 读取。
+Linux Release 在工具链支持时启用链接时优化；Windows 保留 `-Os` 和链接节清理，Apple 扩展启用未引用代码裁剪。Android 发布构建沿用 R8 与资源裁剪。打包验证直接检查实际 EXE、DEB、APK 和 Apple 应用的名称；macOS ZIP 版本从已编译应用的 Info.plist 读取。
 
 | 文件 | 职责 |
 |---|---|
