@@ -1,4 +1,4 @@
-name: Linkora
+name: Lansyra
 options:
   deploymentTarget:
     macOS: '13.0'
@@ -12,7 +12,7 @@ settings:
     ONLY_ACTIVE_ARCH: NO
     ENABLE_HARDENED_RUNTIME: YES
 targets:
-  Linkora:
+  Lansyra:
     type: application
     platform: macOS
     sources: [App]
@@ -25,7 +25,9 @@ targets:
     info:
       path: App/Info.plist
       properties:
-        CFBundleDisplayName: Linkora
+        CFBundleDisplayName: 岚序 Lansyra
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         CFBundleIconFile: AppIcon
         LSApplicationCategoryType: public.app-category.utilities
         NSHumanReadableCopyright: GPL-3.0-or-later
@@ -60,7 +62,9 @@ targets:
     info:
       path: Tunnel/Info.plist
       properties:
-        CFBundleDisplayName: Linkora 隧道
+        CFBundleDisplayName: 岚序 Lansyra 隧道
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         NetworkExtension:
           NEMachServiceName: $(TeamIdentifierPrefix)$(PRODUCT_BUNDLE_IDENTIFIER)
           NEProviderClasses:
@@ -69,7 +73,7 @@ targets:
       - sdk: NetworkExtension.framework
       - sdk: Security.framework
 schemes:
-  Linkora:
+  Lansyra:
     build:
       targets:
-        Linkora: all
+        Lansyra: all

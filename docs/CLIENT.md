@@ -1,8 +1,8 @@
-# Linkora Windows 客户端
+# Lansyra Windows 客户端
 
 ## 创建与连接
 
-完整解压对应架构的便携 ZIP，运行“Linkora.exe”。默认中文，通过 **设置 → 语言 → English** 切换。程序使用 Win32/C++17 和官方 OpenConnect 核心，参照 OpenConnect GUI 1.6.2 的配置、认证、日志及托盘交互。
+完整解压对应架构的便携 ZIP，运行“Lansyra.exe”。默认中文，通过 **设置 → 语言 → English** 切换。程序使用 Win32/C++17 和官方 OpenConnect 核心，参照 OpenConnect GUI 1.6.2 的配置、认证、日志及托盘交互。
 
 更换旧版前，先关闭旧客户端的登录后自动启动并退出，再替换程序和配套运行文件。现有 `data/`、`.vpn` 配置及同一 Windows 用户保存的加密密码可以继续使用；新程序名称不会改变密码解密所需的上下文。需要自动启动时，在新客户端重新开启。
 

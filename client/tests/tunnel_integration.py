@@ -19,7 +19,7 @@ import uuid
 
 from auth_integration import certificate, PASSWORD, COOKIE
 
-PAYLOAD = b"linkora-loopback-tunnel"
+PAYLOAD = b"lansyra-loopback-tunnel"
 
 
 def checksum(data):

@@ -35,7 +35,7 @@ def source_files(root, directories, names):
 
 def version():
     source = (ROOT / "CMakeLists.txt").read_text(encoding="utf-8")
-    match = re.search(r"project\(Linkora VERSION (\d+\.\d+\.\d+)", source)
+    match = re.search(r"project\(Lansyra VERSION (\d+\.\d+\.\d+)", source)
     if not match:
         raise RuntimeError("Cannot determine application version")
     return match.group(1)

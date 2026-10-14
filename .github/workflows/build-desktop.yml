@@ -99,12 +99,12 @@ jobs:
         run: |
           cd dist/linux
           sha256sum -c SHA256SUMS.txt
-          DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends ./linkora_*.deb
+          DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends ./lansyra_*.deb
           cd ../..
-          python3 tests/linux_package_tests.py dist/linux/linkora_*.deb
-          /usr/bin/linkora --version
-          NO_AT_BRIDGE=1 xvfb-run -a dbus-run-session -- /usr/bin/linkora --smoke-test
-          /usr/bin/linkora --check-runtime
+          python3 tests/linux_package_tests.py dist/linux/lansyra_*.deb
+          /usr/bin/lansyra --version
+          NO_AT_BRIDGE=1 xvfb-run -a dbus-run-session -- /usr/bin/lansyra --smoke-test
+          /usr/bin/lansyra --check-runtime
       - uses: actions/upload-artifact@v7.0.1
         if: always()
         with:
@@ -144,7 +144,7 @@ jobs:
         with:
           name: macos-universal-unsigned
           path: |
-            dist/macos/Linkora-*-macos-universal-unsigned.zip
+            dist/macos/Lansyra-*-macos-universal-unsigned.zip
             dist/macos/BUILDINFO.json
             dist/macos/SHA256SUMS.txt
           if-no-files-found: error

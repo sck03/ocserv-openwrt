@@ -10,7 +10,7 @@ from release_metadata import build_metadata
 
 def main():
     metadata = build_metadata()
-    destination = ROOT / "dist" / f"Linkora-{metadata['release_label']}-source.zip"
+    destination = ROOT / "dist" / f"Lansyra-{metadata['release_label']}-source.zip"
     destination.parent.mkdir(exist_ok=True)
     scripts = (
         "audit-pe.py", "build-client-linux.sh", "build-dependencies.sh", "build.ps1", "build_common.py",
@@ -38,12 +38,12 @@ def main():
     with tempfile.TemporaryDirectory(prefix="source-", dir=destination.parent) as temporary:
         staged = Path(temporary) / destination.name
         with zipfile.ZipFile(staged, "w", zipfile.ZIP_DEFLATED, compresslevel=7) as archive:
-            archive.writestr("Linkora/BUILDINFO.json", json.dumps(
+            archive.writestr("Lansyra/BUILDINFO.json", json.dumps(
                 {**metadata, "version": version(), "commit": os.environ.get("GITHUB_SHA", "local")}, indent=2) + "\n")
             for path in sorted(files):
-                archive.write(path, "Linkora/" + path.relative_to(ROOT).as_posix())
+                archive.write(path, "Lansyra/" + path.relative_to(ROOT).as_posix())
             for path in archives:
-                archive.write(path, "Linkora/.tools/downloads/" + path.name,
+                archive.write(path, "Lansyra/.tools/downloads/" + path.name,
                               compress_type=zipfile.ZIP_STORED)
         staged.replace(destination)
     (destination.parent / "SHA256SUMS-source.txt").write_text(

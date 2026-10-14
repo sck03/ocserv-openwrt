@@ -28,9 +28,10 @@ class CleanupTests(unittest.TestCase):
             path.write_text("fixture", encoding="ascii")
         for name in ("dist/validation-x64/native_model_tests.exe", "dist/validation-x86/native_model_tests.exe",
                      "mobile/ios/LinkoraVPN.xcodeproj/project.pbxproj", "desktop/macos/LinkoraVPN.xcodeproj/project.pbxproj",
-                     "desktop/macos/Linkora.xcodeproj/project.pbxproj", "desktop/macos/App/Info.plist",
+                     "mobile/ios/Linkora.xcodeproj/project.pbxproj", "desktop/macos/Linkora.xcodeproj/project.pbxproj",
+                     "desktop/macos/Lansyra.xcodeproj/project.pbxproj", "desktop/macos/App/Info.plist",
                      "desktop/macos/Tunnel/Info.plist", "desktop/macos/App/AppIcon.icns",
-                     "mobile/ios/Linkora.xcodeproj/project.pbxproj", "mobile/ios/App/Info.plist", "mobile/ios/Tunnel/Info.plist"):
+                     "mobile/ios/Lansyra.xcodeproj/project.pbxproj", "mobile/ios/App/Info.plist", "mobile/ios/Tunnel/Info.plist"):
             path = self.root / name
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text("generated fixture", encoding="ascii")
@@ -61,9 +62,9 @@ class CleanupTests(unittest.TestCase):
         self.assertFalse((self.root / "dist/validation-x64").exists())
         self.assertFalse((self.root / "dist/validation-x86").exists())
         self.assertFalse((self.root / "desktop/macos/App/Info.plist").exists())
-        self.assertFalse((self.root / "mobile/ios/Linkora.xcodeproj").exists())
-        self.assertFalse((self.root / "mobile/ios/LinkoraVPN.xcodeproj").exists())
-        self.assertFalse((self.root / "desktop/macos/LinkoraVPN.xcodeproj").exists())
+        for project in ("Lansyra", "Linkora", "LinkoraVPN"):
+            for platform in ("mobile/ios", "desktop/macos"):
+                self.assertFalse((self.root / platform / (project + ".xcodeproj")).exists())
         for name in (".deps/library.a", "test-results/report.json", "dist/release.zip",
                      "artifacts/backups/config.zip", ".tools/tool.exe", "client/CMakeLists.txt"):
             self.assertTrue((self.root / name).is_file(), name)

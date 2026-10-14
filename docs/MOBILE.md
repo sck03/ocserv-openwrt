@@ -1,6 +1,6 @@
-# Linkora Android / iOS 客户端
+# Lansyra Android / iOS 客户端
 
-Linkora 移动端当前版本为 **Android 0.2.1 / iOS 0.2.2**，使用 **OpenConnect / Cisco AnyConnect 协议**连接本项目的 ocserv。Android / iOS 默认安装标识为 `io.github.sck03.linkora`，按全新安装使用，重新填写服务器、账号和指纹。iOS 与 macOS 共用 `client/apple` 中的地址、数据包与会话代码；桌面使用方法见[桌面说明](DESKTOP.md)。
+Lansyra 移动端当前版本为 **Android 0.2.1 / iOS 0.2.2**，使用 **OpenConnect / Cisco AnyConnect 协议**连接本项目的 ocserv。Android / iOS 默认安装标识为 `io.github.sck03.lansyra`，按全新安装使用，重新填写服务器、账号和指纹。iOS 与 macOS 共用 `client/apple` 中的地址、数据包与会话代码；桌面使用方法见[桌面说明](DESKTOP.md)。
 
 ## GitHub Actions 构建
 
@@ -15,7 +15,7 @@ Android 同时编译 `arm64-v8a`、`armeabi-v7a`、`x86_64` 并打入一个 APK�
 
 ## Android
 
-Android 基于 **OpenTunnel** 固定提交 `0535533dfb7d3a656bfdb880d51f731c109135c1`，保留上游连接功能。启动器、主页、设置、通知、桌面小组件和日志分享统一显示 **Linkora**；界面仍以英文/波斯文为主。
+Android 基于 **OpenTunnel** 固定提交 `0535533dfb7d3a656bfdb880d51f731c109135c1`，保留上游连接功能。启动器、主页、设置、通知、桌面小组件和日志分享统一显示 **Lansyra**；界面仍以英文/波斯文为主。
 
 新建服务器，填写 `https://域名:4443`、用户名、密码，使用 AnyConnect 协议。首次证书确认必须核对管理员提供的公钥指纹。允许系统 VPN 授权后连接。不直接导入 Windows `.vpn` 文件。
 
@@ -76,7 +76,7 @@ bash scripts/build-android.sh debug
 iOS 使用 macOS、Xcode、XcodeGen、CMake、pkg-config 和 autotools：
 
 ```sh
-export VPN_BUNDLE_ID=io.github.sck03.linkora
+export VPN_BUNDLE_ID=io.github.sck03.lansyra
 bash scripts/build-ios.sh unsigned
 ```
 

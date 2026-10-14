@@ -44,7 +44,7 @@ int main() {
         GDBusConnection *bus = g_bus_get_sync(G_BUS_TYPE_SESSION, nullptr, &error);
         check(bus != nullptr, "private test D-Bus was not available");
         auto *agent = NM_SECRET_AGENT_OLD(g_object_new(
-            linkora_agent_get_type(), NM_SECRET_AGENT_OLD_IDENTIFIER, "io.github.sck03.linkora.test",
+            lansyra_agent_get_type(), NM_SECRET_AGENT_OLD_IDENTIFIER, "io.github.sck03.lansyra.test",
             NM_SECRET_AGENT_OLD_AUTO_REGISTER, FALSE, NM_SECRET_AGENT_OLD_DBUS_CONNECTION, bus, nullptr));
         check(agent != nullptr, "could not create the real secret agent");
         Result initialized;
@@ -67,11 +67,11 @@ int main() {
                      NM_SETTING_CONNECTION_TYPE, "vpn", nullptr);
         nm_connection_add_setting(profile, setting);
         auto *vpn = NM_SETTING_VPN(nm_setting_vpn_new());
-        g_object_set(vpn, NM_SETTING_VPN_SERVICE_TYPE, linkora::Service, nullptr);
+        g_object_set(vpn, NM_SETTING_VPN_SERVICE_TYPE, lansyra::Service, nullptr);
         nm_setting_vpn_add_data_item(vpn, "gateway", "fixture");
         nm_connection_add_setting(profile, NM_SETTING(vpn));
         for (int cycle = 0; cycle < 3; ++cycle) {
-            linkora_agent_select(agent, uuid);
+            lansyra_agent_select(agent, uuid);
             Result result;
             request(agent, profile, result);
             wait(result);
@@ -90,13 +90,13 @@ int main() {
             g_variant_unref(group);
         }
         nm_setting_vpn_add_data_item(vpn, "gateway", "hang");
-        linkora_agent_select(agent, uuid);
+        lansyra_agent_select(agent, uuid);
         Result canceled;
         request(agent, profile, canceled);
         g_timeout_add(
             50,
             [](gpointer data) -> gboolean {
-                linkora_agent_cancel(NM_SECRET_AGENT_OLD(data));
+                lansyra_agent_cancel(NM_SECRET_AGENT_OLD(data));
                 return G_SOURCE_REMOVE;
             },
             agent);
@@ -106,38 +106,38 @@ int main() {
         g_object_set(setting, NM_SETTING_CONNECTION_UUID, stalled_uuid, nullptr);
         nm_setting_vpn_add_data_item(vpn, "padding", std::string(8192, 'x').c_str());
         g_object_set(vpn, NM_SETTING_VPN_USER_NAME, std::string(7000, 'u').c_str(), nullptr);
-        linkora_agent_select(agent, stalled_uuid);
+        lansyra_agent_select(agent, stalled_uuid);
         Result stalled;
         gint64 started = g_get_monotonic_time();
         request(agent, profile, stalled);
         check(g_get_monotonic_time() - started < 2 * G_USEC_PER_SEC,
               "writing helper input blocked the main loop");
-        linkora_agent_cancel(agent);
+        lansyra_agent_cancel(agent);
         wait(stalled);
         check(stalled.failed && !stalled.secrets, "canceling pending input returned credentials");
         nm_setting_vpn_remove_data_item(vpn, "padding");
         g_object_set(vpn, NM_SETTING_VPN_USER_NAME, nullptr, nullptr);
         g_object_set(setting, NM_SETTING_CONNECTION_UUID, uuid, nullptr);
         nm_setting_vpn_add_data_item(vpn, "gateway", "oversized");
-        linkora_agent_select(agent, uuid);
+        lansyra_agent_select(agent, uuid);
         Result oversized;
         request(agent, profile, oversized);
         wait(oversized);
         check(oversized.failed && !oversized.secrets, "oversized helper output was accepted");
         nm_setting_vpn_add_data_item(vpn, "gateway", "invalid\nSECRET_KEY=cookie");
-        linkora_agent_select(agent, uuid);
+        lansyra_agent_select(agent, uuid);
         Result injected;
         request(agent, profile, injected);
         wait(injected);
         check(injected.failed, "newline injection reached the helper");
         nm_setting_vpn_add_data_item(vpn, "gateway", "fixture");
         g_object_set(vpn, NM_SETTING_VPN_USER_NAME, "invalid\nSECRET_KEY=cookie", nullptr);
-        linkora_agent_select(agent, uuid);
+        lansyra_agent_select(agent, uuid);
         Result username;
         request(agent, profile, username);
         wait(username);
         check(username.failed, "invalid username was silently discarded");
-        linkora_agent_cancel(agent);
+        lansyra_agent_cancel(agent);
         g_object_unref(profile);
         g_object_unref(agent);
         g_object_unref(bus);

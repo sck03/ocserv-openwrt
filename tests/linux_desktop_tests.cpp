@@ -1,7 +1,7 @@
 #include "protocol.h"
 #include <iostream>
 #include <stdexcept>
-using namespace linkora;
+using namespace lansyra;
 int main() {
     try {
         auto check = [](bool ok) {

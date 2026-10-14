@@ -5,7 +5,7 @@ root="$PWD"
 mode="${1:-unsigned}"
 [[ "$mode" == unsigned || "$mode" == signed ]] || { echo 'Expected unsigned or signed'; exit 2; }
 test ! -e dist/ios || { echo 'Move dist/ios before rebuilding'; exit 2; }
-export VPN_BUNDLE_ID="${VPN_BUNDLE_ID:-io.github.sck03.linkora}"
+export VPN_BUNDLE_ID="${VPN_BUNDLE_ID:-io.github.sck03.lansyra}"
 [[ "$VPN_BUNDLE_ID" =~ ^[A-Za-z0-9]+([.-][A-Za-z0-9]+)+$ ]] || { echo 'Invalid bundle identifier'; exit 2; }
 if [[ "$mode" == signed ]]; then
   : "${IOS_CERTIFICATE_BASE64:?Missing signing certificate}"
@@ -17,19 +17,19 @@ fi
 bash scripts/build-apple-core.sh ios
 xcodegen generate --spec mobile/ios/project.yml
 mkdir -p dist/ios
-archive="$root/build/mobile/ios/Linkora.xcarchive"
-args=(-project mobile/ios/Linkora.xcodeproj -scheme Linkora -configuration Release
+archive="$root/build/mobile/ios/Lansyra.xcarchive"
+args=(-project mobile/ios/Lansyra.xcodeproj -scheme Lansyra -configuration Release
       -sdk iphoneos -destination 'generic/platform=iOS' -archivePath "$archive"
       "VPN_BUNDLE_ID=$VPN_BUNDLE_ID")
 check_names() {
-  local app="$archive/Products/Applications/Linkora.app"
-  test "$(/usr/libexec/PlistBuddy -c 'Print:CFBundleDisplayName' "$app/Info.plist")" = Linkora
-  test "$(/usr/libexec/PlistBuddy -c 'Print:CFBundleDisplayName' "$app/PlugIns/PacketTunnel.appex/Info.plist")" = 'Linkora 隧道'
+  local app="$archive/Products/Applications/Lansyra.app"
+  test "$(/usr/libexec/PlistBuddy -c 'Print:CFBundleDisplayName' "$app/Info.plist")" = '岚序 Lansyra'
+  test "$(/usr/libexec/PlistBuddy -c 'Print:CFBundleDisplayName' "$app/PlugIns/PacketTunnel.appex/Info.plist")" = '岚序 Lansyra 隧道'
 }
 if [[ "$mode" == unsigned ]]; then
   xcodebuild "${args[@]}" CODE_SIGNING_ALLOWED=NO archive
   check_names
-  ditto -c -k --keepParent "$archive" dist/ios/Linkora-ios-unsigned.xcarchive.zip
+  ditto -c -k --keepParent "$archive" dist/ios/Lansyra-ios-unsigned.xcarchive.zip
 else
   signing="$(mktemp -d "${RUNNER_TEMP:-${TMPDIR:-/tmp}}/vpn-signing.XXXXXX")"
   keychain="$signing/build.keychain-db"
@@ -55,7 +55,7 @@ else
   check_names
   xcodebuild -exportArchive -archivePath "$archive" -exportPath "$root/build/mobile/ios/export" \
     -exportOptionsPlist "$signing/ExportOptions.plist"
-  cp build/mobile/ios/export/*.ipa dist/ios/Linkora-ios.ipa
+  cp build/mobile/ios/export/*.ipa dist/ios/Lansyra-ios.ipa
 fi
 cp build/mobile/ios/BUILDINFO.json dist/ios/BUILDINFO.json
 python3 scripts/package-mobile.py ios

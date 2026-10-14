@@ -1,4 +1,4 @@
-name: Linkora
+name: Lansyra
 options:
   deploymentTarget:
     iOS: '15.0'
@@ -10,7 +10,7 @@ settings:
     TARGETED_DEVICE_FAMILY: '1,2'
     CODE_SIGN_STYLE: Manual
 targets:
-  Linkora:
+  Lansyra:
     type: application
     platform: iOS
     sources: [App]
@@ -23,7 +23,9 @@ targets:
     info:
       path: App/Info.plist
       properties:
-        CFBundleDisplayName: Linkora
+        CFBundleDisplayName: 岚序 Lansyra
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         UILaunchScreen: {}
         UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait, UIInterfaceOrientationLandscapeLeft, UIInterfaceOrientationLandscapeRight]
     dependencies:
@@ -44,7 +46,9 @@ targets:
     info:
       path: Tunnel/Info.plist
       properties:
-        CFBundleDisplayName: Linkora 隧道
+        CFBundleDisplayName: 岚序 Lansyra 隧道
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         NSExtension:
           NSExtensionPointIdentifier: com.apple.networkextension.packet-tunnel
           NSExtensionPrincipalClass: PacketTunnelProvider
@@ -52,7 +56,7 @@ targets:
       - sdk: NetworkExtension.framework
       - sdk: Security.framework
 schemes:
-  Linkora:
+  Lansyra:
     build:
       targets:
-        Linkora: all
+        Lansyra: all

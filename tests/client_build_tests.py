@@ -79,14 +79,14 @@ class ImportAuditTests(unittest.TestCase):
 class RuntimePackageTests(unittest.TestCase):
     def validate(self, extra=None, omitted=None):
         stream = io.BytesIO()
-        names = {"Linkora.exe", "wintun.dll", "vpnc-script-win.js", "BUILDINFO.json",
+        names = {"Lansyra.exe", "wintun.dll", "vpnc-script-win.js", "BUILDINFO.json",
                  "THIRD-PARTY-NOTICES.md", "WAN.md", "使用说明.txt", "licenses/Application-GPL-3.0.txt"}
         names.discard(omitted)
         if extra:
             names.add(extra)
         with zipfile.ZipFile(stream, "w") as package:
             for name in names:
-                package.writestr("Linkora/" + name, b"fixture")
+                package.writestr("Lansyra/" + name, b"fixture")
         with zipfile.ZipFile(stream) as package:
             runner.validate_package_members(package)
 
@@ -142,10 +142,10 @@ class SourceBundleTests(unittest.TestCase):
         package = next((self.root / "dist").glob("*-source.zip"))
         with zipfile.ZipFile(package) as source:
             names = source.namelist()
-            self.assertIn("Linkora/client/main.cpp", names)
-            metadata = json.loads(source.read("Linkora/BUILDINFO.json"))
+            self.assertIn("Lansyra/client/main.cpp", names)
+            metadata = json.loads(source.read("Lansyra/BUILDINFO.json"))
             self.assertEqual(metadata["build_time"], "2026-09-29 09:02:03 +08:00")
-            self.assertIn("Linkora/.tools/downloads/fixture-1.0.tar.gz", names)
+            self.assertIn("Lansyra/.tools/downloads/fixture-1.0.tar.gz", names)
             self.assertFalse(any("private.key" in name or "/src/" in name or "/config/" in name for name in names))
         checksum = (self.root / "dist/SHA256SUMS-source.txt").read_text()
         self.assertIn(hashlib.sha256(package.read_bytes()).hexdigest(), checksum)
@@ -176,12 +176,12 @@ class SourceBundleTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         with zipfile.ZipFile(next((self.root / "dist").glob("*-source.zip"))) as source:
             for name in retained:
-                self.assertIn("Linkora/" + name, source.namelist())
+                self.assertIn("Lansyra/" + name, source.namelist())
             for name in unrelated:
-                self.assertNotIn("Linkora/" + name, source.namelist())
+                self.assertNotIn("Lansyra/" + name, source.namelist())
             source.extractall(self.root / "unpacked")
         result = subprocess.run([sys.executable, "tests/build_config_tests.py"],
-                                cwd=self.root / "unpacked/Linkora", capture_output=True, text=True, timeout=30)
+                                cwd=self.root / "unpacked/Lansyra", capture_output=True, text=True, timeout=30)
         self.assertEqual(result.returncode, 0, result.stderr)
 
     def test_archive_paths_cannot_escape_download_directory(self):
@@ -195,8 +195,8 @@ class SourceBundleTests(unittest.TestCase):
         (self.root / "client/private.key").write_text("synthetic untracked backup")
         self.assertEqual(self.bundle().returncode, 0)
         with zipfile.ZipFile(next((self.root / "dist").glob("*-source.zip"))) as source:
-            self.assertIn("Linkora/client/main.cpp", source.namelist())
-            self.assertNotIn("Linkora/client/private.key", source.namelist())
+            self.assertIn("Lansyra/client/main.cpp", source.namelist())
+            self.assertNotIn("Lansyra/client/private.key", source.namelist())
 
 
 if __name__ == "__main__":

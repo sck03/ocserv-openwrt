@@ -17,7 +17,7 @@ def audit(package):
 
     architecture = field("Architecture")
     machine = {"amd64": 62, "arm64": 183}[architecture]
-    assert field("Package") == "linkora"
+    assert field("Package") == "lansyra"
     assert architecture == subprocess.check_output(["dpkg", "--print-architecture"], text=True).strip()
     depends = field("Depends")
     for dependency in ("libc6", "libstdc++6", "libgtk-3-0", "libglib2.0-0", "libnm0", "libsecret-1-0",
@@ -26,28 +26,28 @@ def audit(package):
 
     payload = subprocess.check_output(["dpkg-deb", "--fsys-tarfile", package])
     expected = {
-        "usr/bin/linkora",
-        "usr/share/applications/io.github.sck03.linkora.desktop",
-        "usr/share/icons/hicolor/scalable/apps/io.github.sck03.linkora.svg",
-        "usr/share/doc/linkora/copyright",
-        "usr/share/doc/linkora/DESKTOP.md",
-        "usr/share/doc/linkora/THIRD-PARTY-NOTICES.md",
+        "usr/bin/lansyra",
+        "usr/share/applications/io.github.sck03.lansyra.desktop",
+        "usr/share/icons/hicolor/scalable/apps/io.github.sck03.lansyra.svg",
+        "usr/share/doc/lansyra/copyright",
+        "usr/share/doc/lansyra/DESKTOP.md",
+        "usr/share/doc/lansyra/THIRD-PARTY-NOTICES.md",
     }
     with tarfile.open(fileobj=io.BytesIO(payload)) as contents:
         files = {item.name.removeprefix("./"): item for item in contents if not item.isdir()}
         assert set(files) == expected, f"Unexpected package payload: {set(files) ^ expected}"
         assert all(item.isfile() and item.uid == item.gid == 0 for item in files.values())
         desktop = configparser.ConfigParser(interpolation=None)
-        desktop.read_string(contents.extractfile(files["usr/share/applications/io.github.sck03.linkora.desktop"]).read().decode("utf-8"))
+        desktop.read_string(contents.extractfile(files["usr/share/applications/io.github.sck03.lansyra.desktop"]).read().decode("utf-8"))
         entry = desktop["Desktop Entry"]
-        assert entry["Name"] == "Linkora" and entry["Exec"] == "linkora"
-        assert entry["Icon"] == "io.github.sck03.linkora"
-        binary = files["usr/bin/linkora"]
+        assert entry["Name"] == "岚序 Lansyra" and entry["Exec"] == "lansyra"
+        assert entry["Icon"] == "io.github.sck03.lansyra"
+        binary = files["usr/bin/lansyra"]
         assert binary.mode & 0o111, "Client is not executable"
         with contents.extractfile(binary) as executable:
             data = executable.read()
             header = data[:64]
-        assert b"Name=Linkora\n" in data, "Login startup entry must use the current product name"
+        assert "Name=岚序 Lansyra\n".encode("utf-8") in data, "Login startup entry must use the current product name"
         assert len(header) == 64 and header[:6] == b"\x7fELF\x02\x01", "Expected a real 64-bit ELF client"
         assert int.from_bytes(header[18:20], "little") == machine, "Wrong executable architecture"
         installed_bytes = sum(item.size for item in files.values())
@@ -55,9 +55,9 @@ def audit(package):
 
     with tempfile.TemporaryDirectory(prefix="linux-package-") as work:
         subprocess.run(["dpkg-deb", "--extract", package, work], check=True)
-        executable = Path(work) / "usr/bin/linkora"
+        executable = Path(work) / "usr/bin/lansyra"
         version = subprocess.check_output([executable, "--version"], text=True).strip()
-        assert version == "Linkora " + field("Version")
+        assert version == "Lansyra " + field("Version")
         helper = subprocess.check_output([executable, "--check-runtime"], text=True).strip()
         assert Path(helper).is_absolute() and Path(helper).is_file(), "Missing installed authentication helper"
         libraries = subprocess.check_output(["ldd", executable], text=True)

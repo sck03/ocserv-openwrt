@@ -3,10 +3,10 @@
 #include <gio/gio.h>
 #include <libsecret/secret.h>
 
-using namespace linkora;
-std::string linkora_auth_dialog() {
-#ifdef LINKORA_AUTH_DIALOG
-    return LINKORA_AUTH_DIALOG; // Isolated IPC test fixture only.
+using namespace lansyra;
+std::string lansyra_auth_dialog() {
+#ifdef LANSYRA_AUTH_DIALOG
+    return LANSYRA_AUTH_DIALOG; // Isolated IPC test fixture only.
 #else
     // libnm resolves the installed plugin's helper, including distribution-specific libexec paths.
     auto *plugin = nm_vpn_plugin_info_new_search_file(nullptr, Service);
@@ -20,18 +20,18 @@ std::string linkora_auth_dialog() {
 }
 
 struct Request;
-struct LinkoraAgent {
+struct LansyraAgent {
     NMSecretAgentOld parent;
     char *uuid;
     Request *request;
 };
-struct LinkoraAgentClass {
+struct LansyraAgentClass {
     NMSecretAgentOldClass parent;
 };
-G_DEFINE_TYPE(LinkoraAgent, linkora_agent, NM_TYPE_SECRET_AGENT_OLD)
+G_DEFINE_TYPE(LansyraAgent, lansyra_agent, NM_TYPE_SECRET_AGENT_OLD)
 
 struct Request {
-    LinkoraAgent *agent;
+    LansyraAgent *agent;
     NMConnection *connection;
     NMSecretAgentOldGetSecretsFunc callback;
     gpointer data;
@@ -39,8 +39,8 @@ struct Request {
     GCancellable *cancel = g_cancellable_new();
     AuthReply reply;
     std::string path, input;
-    Request(LinkoraAgent *owner, NMConnection *profile, NMSecretAgentOldGetSecretsFunc done, gpointer context)
-        : agent(reinterpret_cast<LinkoraAgent *>(g_object_ref(owner))),
+    Request(LansyraAgent *owner, NMConnection *profile, NMSecretAgentOldGetSecretsFunc done, gpointer context)
+        : agent(reinterpret_cast<LansyraAgent *>(g_object_ref(owner))),
           connection(NM_CONNECTION(g_object_ref(profile))), callback(done), data(context) {}
     ~Request() {
         g_clear_object(&process);
@@ -114,7 +114,7 @@ void write_ready(GObject *stream, GAsyncResult *result, gpointer data) {
     else
         read_reply(request);
 }
-void cancel_request(LinkoraAgent *agent) {
+void cancel_request(LansyraAgent *agent) {
     if (agent->request) {
         g_cancellable_cancel(agent->request->cancel);
         if (agent->request->process)
@@ -124,12 +124,12 @@ void cancel_request(LinkoraAgent *agent) {
 void get_secrets(NMSecretAgentOld *base, NMConnection *connection, const char *path, const char *setting,
                  const char **, NMSecretAgentGetSecretsFlags flags, NMSecretAgentOldGetSecretsFunc callback,
                  gpointer data) {
-    auto *agent = reinterpret_cast<LinkoraAgent *>(base);
+    auto *agent = reinterpret_cast<LansyraAgent *>(base);
     if (agent->request || !agent->uuid || g_strcmp0(agent->uuid, nm_connection_get_uuid(connection)) ||
         g_strcmp0(setting, NM_SETTING_VPN_SETTING_NAME) ||
         !(flags & NM_SECRET_AGENT_GET_SECRETS_FLAG_ALLOW_INTERACTION)) {
         GError *error = g_error_new_literal(NM_SECRET_AGENT_ERROR, NM_SECRET_AGENT_ERROR_NO_SECRETS,
-                                            "No active Linkora authentication request");
+                                            "No active Lansyra authentication request");
         callback(base, connection, nullptr, error, data);
         g_error_free(error);
         return;
@@ -170,7 +170,7 @@ void get_secrets(NMSecretAgentOld *base, NMConnection *connection, const char *p
         return;
     }
     GError *error = nullptr;
-    const auto dialog = linkora_auth_dialog();
+    const auto dialog = lansyra_auth_dialog();
     if (dialog.empty()) {
         complete(request, false);
         return;
@@ -179,7 +179,7 @@ void get_secrets(NMSecretAgentOld *base, NMConnection *connection, const char *p
                                                                       G_SUBPROCESS_FLAGS_STDOUT_PIPE |
                                                                       G_SUBPROCESS_FLAGS_STDERR_SILENCE),
                                         &error, dialog.c_str(), "--uuid", agent->uuid, "--name",
-                                        "Linkora", "--service", Service, "--allow-interaction", nullptr);
+                                        "岚序 Lansyra", "--service", Service, "--allow-interaction", nullptr);
     // The helper owns authentication forms and the system keyring. Its output is
     // a private protocol channel; never route stdout/stderr into application logs.
     if (!request->process) {
@@ -194,7 +194,7 @@ void get_secrets(NMSecretAgentOld *base, NMConnection *connection, const char *p
                                     request);
 }
 void cancel_secrets(NMSecretAgentOld *base, const char *path, const char *) {
-    auto *agent = reinterpret_cast<LinkoraAgent *>(base);
+    auto *agent = reinterpret_cast<LansyraAgent *>(base);
     if (agent->request && agent->request->path == path)
         cancel_request(agent);
 }
@@ -235,12 +235,12 @@ void delete_secrets(NMSecretAgentOld *agent, NMConnection *connection, const cha
         cleanup, "vpn_uuid", nm_connection_get_uuid(connection), nullptr);
 }
 void finalize(GObject *object) {
-    auto *agent = reinterpret_cast<LinkoraAgent *>(object);
+    auto *agent = reinterpret_cast<LansyraAgent *>(object);
     g_free(agent->uuid);
-    G_OBJECT_CLASS(linkora_agent_parent_class)->finalize(object);
+    G_OBJECT_CLASS(lansyra_agent_parent_class)->finalize(object);
 }
 } // namespace
-static void linkora_agent_class_init(LinkoraAgentClass *klass) {
+static void lansyra_agent_class_init(LansyraAgentClass *klass) {
     auto *agent = NM_SECRET_AGENT_OLD_CLASS(klass);
     agent->get_secrets = get_secrets;
     agent->cancel_get_secrets = cancel_secrets;
@@ -248,22 +248,22 @@ static void linkora_agent_class_init(LinkoraAgentClass *klass) {
     agent->delete_secrets = delete_secrets;
     G_OBJECT_CLASS(klass)->finalize = finalize;
 }
-static void linkora_agent_init(LinkoraAgent *) {}
-NMSecretAgentOld *linkora_agent_new(GError **error) {
+static void lansyra_agent_init(LansyraAgent *) {}
+NMSecretAgentOld *lansyra_agent_new(GError **error) {
     return NM_SECRET_AGENT_OLD(
-        g_initable_new(linkora_agent_get_type(), nullptr, error, NM_SECRET_AGENT_OLD_IDENTIFIER, ProductID,
+        g_initable_new(lansyra_agent_get_type(), nullptr, error, NM_SECRET_AGENT_OLD_IDENTIFIER, ProductID,
                        NM_SECRET_AGENT_OLD_AUTO_REGISTER, TRUE, NM_SECRET_AGENT_OLD_CAPABILITIES,
                        NM_SECRET_AGENT_CAPABILITY_VPN_HINTS, nullptr));
 }
-void linkora_agent_cancel(NMSecretAgentOld *base) {
+void lansyra_agent_cancel(NMSecretAgentOld *base) {
     if (!base)
         return;
-    auto *agent = reinterpret_cast<LinkoraAgent *>(base);
+    auto *agent = reinterpret_cast<LansyraAgent *>(base);
     g_clear_pointer(&agent->uuid, g_free);
     cancel_request(agent);
 }
-void linkora_agent_select(NMSecretAgentOld *base, const char *uuid) {
-    linkora_agent_cancel(base);
+void lansyra_agent_select(NMSecretAgentOld *base, const char *uuid) {
+    lansyra_agent_cancel(base);
     if (base)
-        reinterpret_cast<LinkoraAgent *>(base)->uuid = g_strdup(uuid);
+        reinterpret_cast<LansyraAgent *>(base)->uuid = g_strdup(uuid);
 }

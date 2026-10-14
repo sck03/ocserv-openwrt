@@ -136,7 +136,7 @@ class GuardTests(unittest.TestCase):
         for command in ("ip", "nft"):
             if not shutil.which(command):
                 raise RuntimeError(f"Missing {command}")
-        cls.rules_directory = tempfile.TemporaryDirectory(prefix="linkora-guard-test-")
+        cls.rules_directory = tempfile.TemporaryDirectory(prefix="lansyra-guard-test-")
         cls.addClassCleanup(cls.rules_directory.cleanup)
         rules = GUARD_TEMPLATE.read_text(encoding="utf-8")
         for key, value in {"LAN_DEVICE":"br-lan", "LAN_ADDRESS":"192.168.19.254", "ADMIN_ADDRESS":"192.168.19.2",

@@ -5,7 +5,7 @@ function index()
     if not require("nixio.fs").access("/etc/config/ocserv") then return end
     entry({"admin","vpn"},firstchild(),"VPN",45).dependent=false
     local base={"admin","vpn","ocserv"}
-    local page=entry(base,call("page"),"Linkora",50)
+    local page=entry(base,call("page"),"岚序 Lansyra",50)
     page.dependent=false
     page.acl_depends={"luci-app-ocserv-easy"}
     for _,item in ipairs({{"data",call("data")},{"status",call("status")},{"guard-log",call("guard_log")},{"action",post("action")},{"download",post("download")}}) do

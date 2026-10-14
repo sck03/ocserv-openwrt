@@ -15,12 +15,12 @@ def package():
         'tests/linux_agent_tests.cpp', 'tests/linux_package_tests.py', '.github/workflows/build-desktop.yml',
     ))
     with tempfile.TemporaryDirectory(prefix='source-', dir=out) as work:
-        staged = Path(work) / 'Linkora-linux-source.zip'
+        staged = Path(work) / 'Lansyra-linux-source.zip'
         with zipfile.ZipFile(staged, 'w', zipfile.ZIP_DEFLATED) as archive:
             for path in paths:
-                archive.write(path, 'Linkora/' + path.relative_to(ROOT).as_posix())
+                archive.write(path, 'Lansyra/' + path.relative_to(ROOT).as_posix())
         staged.replace(out / staged.name)
-    write_checksums(out, [out / 'Linkora-linux-source.zip'])
+    write_checksums(out, [out / 'Lansyra-linux-source.zip'])
 
 
 if __name__ == '__main__':

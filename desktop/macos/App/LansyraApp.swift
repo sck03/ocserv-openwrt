@@ -121,7 +121,7 @@ final class DesktopVPN: NSObject, ObservableObject, OSSystemExtensionRequestDele
     private var tunnelID: String { Bundle.main.bundleIdentifier! + ".tunnel" }
     private var directory: URL {
         FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent("Linkora", isDirectory: true)
+            .appendingPathComponent("Lansyra", isDirectory: true)
     }
 
     override init() {
@@ -254,7 +254,7 @@ final class DesktopVPN: NSObject, ObservableObject, OSSystemExtensionRequestDele
             UserDefaults.standard.set(enabled, forKey: "autoConnect")
             UserDefaults.standard.set(enabled ? draft.id : "", forKey: "autoProfile")
             if enabled && SMAppService.mainApp.status == .requiresApproval {
-                detail = "请在系统设置的“登录项”中允许 Linkora。"
+                detail = "请在系统设置的“登录项”中允许 Lansyra。"
             }
         } catch { show(error) }
     }
@@ -308,7 +308,7 @@ final class DesktopVPN: NSObject, ObservableObject, OSSystemExtensionRequestDele
                 config.excludeLocalNetworks = false
                 config.disconnectOnSleep = false
                 active.protocolConfiguration = config
-                active.localizedDescription = "Linkora — " + profile.name
+                active.localizedDescription = "岚序 Lansyra — " + profile.name
                 active.isEnabled = true
                 try await active.saveToPreferences()
                 guard wanted, request == epoch else { return }
@@ -351,7 +351,7 @@ final class DesktopVPN: NSObject, ObservableObject, OSSystemExtensionRequestDele
         errorCode = failure?.code ?? 0
         let categories = [1: "canceled", 2: "network", 3: "timeout", 4: "authentication", 5: "certificate",
                           6: "configuration", 7: "permission", 8: "adapter", 9: "busy", 10: "server", 11: "internal"]
-        errorCategory = failure?.domain == "io.github.sck03.linkora" ? categories[errorCode] ?? "internal" : "system"
+        errorCategory = failure?.domain == "io.github.sck03.lansyra" ? categories[errorCode] ?? "internal" : "system"
         record("failed; category=\(errorCategory); code=\(errorCode)")
         if retryFailed, ["network", "timeout"].contains(errorCategory), attempt <= 3 {
             let seconds = 1 << attempt
@@ -390,7 +390,7 @@ final class DesktopVPN: NSObject, ObservableObject, OSSystemExtensionRequestDele
     func request(_ request: OSSystemExtensionRequest, actionForReplacingExtension existing: OSSystemExtensionProperties,
                  withExtension ext: OSSystemExtensionProperties) -> OSSystemExtensionRequest.ReplacementAction { .replace }
     func requestNeedsUserApproval(_ request: OSSystemExtensionRequest) {
-        detail = "请在系统设置中允许 Linkora 系统扩展。"
+        detail = "请在系统设置中允许 Lansyra 系统扩展。"
     }
     func request(_ request: OSSystemExtensionRequest, didFinishWithResult result: OSSystemExtensionRequest.Result) {
         extensionReady = result == .completed
@@ -430,9 +430,9 @@ final class DesktopVPN: NSObject, ObservableObject, OSSystemExtensionRequestDele
     func exportDiagnostics() {
         let panel = NSSavePanel()
         panel.allowedContentTypes = [.json]
-        panel.nameFieldStringValue = "Linkora-diagnostics.json"
+        panel.nameFieldStringValue = "Lansyra-diagnostics.json"
         guard panel.runModal() == .OK, let url = panel.url else { return }
-        let snapshot: [String: Any] = ["schema": 1, "product": "Linkora", "platform": "macOS",
+        let snapshot: [String: Any] = ["schema": 1, "product": "Lansyra", "platform": "macOS",
             "version": Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "",
             "created_utc": dateFormatter.string(from: Date()), "session_id": sessionID,
             "generation": epoch, "attempt": attempt, "state": status, "error_category": errorCategory,
@@ -476,7 +476,7 @@ struct ConnectionView: View {
             }.frame(width: 185)
             Divider()
             VStack(alignment: .leading, spacing: 16) {
-                Text("Linkora").font(.title2.weight(.semibold))
+                Text("岚序 Lansyra").font(.title2.weight(.semibold))
                 Form {
                     TextField("名称", text: $vpn.draft.name)
                     TextField("HTTPS 服务器", text: $vpn.draft.server)
@@ -507,11 +507,11 @@ struct ConnectionView: View {
     }
 }
 @main
-struct LinkoraApp: App {
+struct LansyraApp: App {
     @StateObject private var vpn = DesktopVPN()
     var body: some Scene {
-        WindowGroup("Linkora") { ConnectionView(vpn: vpn) }.windowResizability(.contentSize)
-        MenuBarExtra("Linkora", systemImage: "network") {
+        WindowGroup("岚序 Lansyra") { ConnectionView(vpn: vpn) }.windowResizability(.contentSize)
+        MenuBarExtra("岚序 Lansyra", systemImage: "network") {
             Text(vpn.status)
             Button("显示窗口") {
                 NSApp.activate(ignoringOtherApps: true)

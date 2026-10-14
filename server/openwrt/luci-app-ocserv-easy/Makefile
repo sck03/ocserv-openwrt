@@ -5,7 +5,7 @@ PKG_VERSION:=0.5.1
 PKG_RELEASE:=1
 PKG_LICENSE:=GPL-3.0-or-later
 
-LUCI_TITLE:=Simple ocserv administration for Linkora
+LUCI_TITLE:=Simple ocserv administration for Lansyra
 LUCI_DEPENDS:=+ocserv +luci-compat +luci-lib-nixio +luci-lib-jsonc
 LUCI_PKGARCH:=all
 # SDK CSSTidy 1.3 drops modern grid, gap and inset declarations.

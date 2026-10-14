@@ -2,7 +2,7 @@ import SwiftUI
 import NetworkExtension
 
 @main
-struct LinkoraApp: App {
+struct LansyraApp: App {
     var body: some Scene { WindowGroup { ConnectionView() } }
 }
 
@@ -83,7 +83,7 @@ final class VPNModel: ObservableObject {
             config.includeAllNetworks = true
             config.excludeLocalNetworks = false
             active.protocolConfiguration = config
-            active.localizedDescription = "Linkora"
+            active.localizedDescription = "岚序 Lansyra"
             active.isEnabled = true
             try await active.saveToPreferences()
             try await active.loadFromPreferences()
@@ -128,7 +128,7 @@ struct ConnectionView: View {
                     }
                 }
                 Section(footer: Text("支持 ocserv 用户名/密码认证和全隧道。首次连接需允许系统添加 VPN 配置。")) { EmptyView() }
-            }.navigationTitle("Linkora")
+            }.navigationTitle("岚序 Lansyra")
         }.navigationViewStyle(.stack)
     }
 }

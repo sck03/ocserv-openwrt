@@ -84,7 +84,7 @@ void errors_and_retries() {
 void startup_registration() {
     // RegOverridePredefKey is process-local. The real user's Run key is never touched.
     struct Registry {
-        std::wstring path = L"Software\\Linkora.Test." + wide(random_id());
+        std::wstring path = L"Software\\Lansyra.Test." + wide(random_id());
         HKEY key = nullptr;
         ~Registry() {
             RegOverridePredefKey(HKEY_CURRENT_USER, nullptr);
@@ -104,7 +104,7 @@ void startup_registration() {
         wchar_t buffer[512]{};
         DWORD size = sizeof(buffer), type = 0;
         auto result = RegGetValueW(registry.key, L"Software\\Microsoft\\Windows\\CurrentVersion\\Run",
-                                   L"Linkora", RRF_RT_REG_SZ, &type, buffer, &size);
+                                   L"Lansyra", RRF_RT_REG_SZ, &type, buffer, &size);
         command = buffer;
         return result;
     };

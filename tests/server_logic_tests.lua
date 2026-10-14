@@ -401,7 +401,7 @@ test("custom extra configuration is preserved and not silently overridden",funct
 end)
 test("downloads include public CA only and reject private-key mixtures",function()
     reset();local profile,name=backend.export("profile","https://vpn.example.com:4443")
-    check(name=="Linkora.vpn" and profile:find("Server=https://vpn.example.com:4443",1,true))
+    check(name=="Lansyra.vpn" and profile:find("Server=https://vpn.example.com:4443",1,true))
     check(not profile:find("Password",1,true) and not profile:find(old_hash,1,true))
     S.files["/etc/ocserv/ca.pem"]=S.files["/etc/ocserv/ca.pem"].."-----BEGIN PRIVATE KEY-----\n"
     expect("ca_unavailable",function()backend.export("ca","")end)
@@ -409,13 +409,13 @@ end)
 test("address profiles work without a CA and normalize a LAN address",function()
     reset();S.files["/etc/ocserv/ca.pem"]=nil
     local profile,name=backend.export("address","192.168.19.253:4443")
-    check(name=="Linkora.vpn" and profile=="[VPN]\nServer=https://192.168.19.253:4443\n")
+    check(name=="Lansyra.vpn" and profile=="[VPN]\nServer=https://192.168.19.253:4443\n")
 end)
 test("pinned profiles support a public hostname or IPv6 without the initial CA",function()
     reset();S.files["/etc/ocserv/ca.pem"]=nil
     for _,url in ipairs({"vpn.example.com:4443","[2001:db8::1]:4443"}) do
         local profile,name=backend.export("pin",url)
-        check(name=="Linkora.vpn" and profile=="[VPN]\nServer=https://"..url.."\nServerPin="..test_pin.."\n")
+        check(name=="Lansyra.vpn" and profile=="[VPN]\nServer=https://"..url.."\nServerPin="..test_pin.."\n")
         check(not profile:find("CABase64",1,true) and not profile:find(old_hash,1,true))
     end
     check(contains_command("certtool --pubkey-info --load-certificate /etc/ocserv/server-cert.pem"))

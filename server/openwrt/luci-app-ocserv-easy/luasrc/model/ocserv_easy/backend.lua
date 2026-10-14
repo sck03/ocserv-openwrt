@@ -327,12 +327,12 @@ function M.export(kind,url)
         if type(url)=="string" and not url:find("://",1,true) then url="https://"..url end
         normalized=logic.url(url)
         logic.require(normalized,"invalid_url")
-        if kind=="address" then return "[VPN]\nServer="..normalized.."\n","Linkora.vpn" end
-        if kind=="pin" then return "[VPN]\nServer="..normalized.."\nServerPin="..server_pin().."\n","Linkora.vpn" end
+        if kind=="address" then return "[VPN]\nServer="..normalized.."\n","Lansyra.vpn" end
+        if kind=="pin" then return "[VPN]\nServer="..normalized.."\nServerPin="..server_pin().."\n","Lansyra.vpn" end
     end
     local ca=read("/etc/ocserv/ca.pem",65536)
     logic.require(ca and ca:find("-----BEGIN CERTIFICATE-----",1,true) and ca:find("-----END CERTIFICATE-----",1,true) and not ca:find("PRIVATE KEY",1,true),"ca_unavailable")
     if kind=="ca" then return ca,"ca.pem" end
-    return "[VPN]\nServer="..normalized.."\nCABase64="..nixio.bin.b64encode(ca).."\n","Linkora.vpn"
+    return "[VPN]\nServer="..normalized.."\nCABase64="..nixio.bin.b64encode(ca).."\n","Lansyra.vpn"
 end
 return M

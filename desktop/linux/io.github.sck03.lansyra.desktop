@@ -1,8 +1,8 @@
 [Desktop Entry]
 Type=Application
-Name=Linkora
+Name=岚序 Lansyra
 Comment=Connect securely to an OpenConnect / ocserv VPN
-Exec=linkora
-Icon=io.github.sck03.linkora
+Exec=lansyra
+Icon=io.github.sck03.lansyra
 Terminal=false
 Categories=Network;

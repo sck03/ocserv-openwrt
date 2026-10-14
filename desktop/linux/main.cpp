@@ -6,7 +6,7 @@
 #include <deque>
 #include <sstream>
 
-using namespace linkora;
+using namespace lansyra;
 namespace {
 const char *category(guint reason) {
     switch (reason) {
@@ -65,7 +65,7 @@ public:
     ~Application() {
         if (retryTimer)
             g_source_remove(retryTimer);
-        linkora_agent_cancel(agent);
+        lansyra_agent_cancel(agent);
         clearActive();
         if (agent)
             g_signal_handlers_disconnect_by_data(agent, this);
@@ -75,10 +75,10 @@ public:
         g_clear_object(&client);
     }
     std::string settingsPath() const {
-        return std::string(g_get_user_config_dir()) + "/linkora/settings.ini";
+        return std::string(g_get_user_config_dir()) + "/lansyra/settings.ini";
     }
     std::string startupPath() const {
-        return std::string(g_get_user_config_dir()) + "/autostart/io.github.sck03.linkora.desktop";
+        return std::string(g_get_user_config_dir()) + "/autostart/io.github.sck03.lansyra.desktop";
     }
     void transition(const char *phase, const char *label, const char *description = "") {
         state = phase;
@@ -145,7 +145,7 @@ public:
         g_key_file_unref(settings);
     }
     bool savePreferences() {
-        std::string directory = std::string(g_get_user_config_dir()) + "/linkora";
+        std::string directory = std::string(g_get_user_config_dir()) + "/lansyra";
         if (g_mkdir_with_parents(directory.c_str(), 0700))
             return false;
         GKeyFile *settings = g_key_file_new();
@@ -170,8 +170,8 @@ public:
         bool ok = savePreferences();
         if (ok && enabled) {
             std::string directory = std::string(g_get_user_config_dir()) + "/autostart";
-            constexpr char entry[] = "[Desktop Entry]\nType=Application\nName=Linkora\n"
-                                     "Exec=/usr/bin/linkora --autoconnect\nTerminal=false\n";
+            constexpr char entry[] = "[Desktop Entry]\nType=Application\nName=岚序 Lansyra\n"
+                                     "Exec=/usr/bin/lansyra --autoconnect\nTerminal=false\n";
             ok = g_mkdir_with_parents(directory.c_str(), 0700) == 0 &&
                  g_file_set_contents_full(startupPath().c_str(), entry, -1, G_FILE_SET_CONTENTS_CONSISTENT,
                                           0600, nullptr);
@@ -245,7 +245,7 @@ public:
     }
     void cancel() {
         request.cancel();
-        linkora_agent_cancel(agent);
+        lansyra_agent_cancel(agent);
         if (retryTimer) {
             g_source_remove(retryTimer);
             retryTimer = 0;
@@ -281,7 +281,7 @@ public:
         }
         error = "none";
         transition("connecting", "正在连接…", "请在系统认证窗口中核对证书并完成登录。");
-        linkora_agent_select(agent, targetID.c_str());
+        lansyra_agent_select(agent, targetID.c_str());
         ++pending;
         struct Activation {
             Application *self;
@@ -353,7 +353,7 @@ public:
         if (source && source != active)
             return;
         clearActive();
-        linkora_agent_cancel(agent);
+        lansyra_agent_cancel(agent);
         if (request.wanted && !closing) {
             unsigned delay = retryFailed ? retry_delay(error, attempt) : 0;
             if (delay) {
@@ -541,12 +541,12 @@ public:
         GtkWidget *dialog =
             gtk_file_chooser_dialog_new("导出诊断信息", GTK_WINDOW(window), GTK_FILE_CHOOSER_ACTION_SAVE,
                                         "取消", GTK_RESPONSE_CANCEL, "保存", GTK_RESPONSE_ACCEPT, nullptr);
-        gtk_file_chooser_set_current_name(GTK_FILE_CHOOSER(dialog), "Linkora-diagnostics.txt");
+        gtk_file_chooser_set_current_name(GTK_FILE_CHOOSER(dialog), "Lansyra-diagnostics.txt");
         gtk_file_chooser_set_do_overwrite_confirmation(GTK_FILE_CHOOSER(dialog), TRUE);
         if (gtk_dialog_run(GTK_DIALOG(dialog)) == GTK_RESPONSE_ACCEPT) {
             char *path = gtk_file_chooser_get_filename(GTK_FILE_CHOOSER(dialog));
             std::ostringstream report;
-            report << "Linkora " LINKORA_VERSION "\nPlatform: Linux\nNetworkManager: "
+            report << "Lansyra " LANSYRA_VERSION "\nPlatform: Linux\nNetworkManager: "
                    << (client ? nm_client_get_version(client) : "unavailable")
                    << "\nSession: " << request.value << "\nGeneration: " << stateGeneration
                    << "\nState: " << state << "\nError: " << error << "\nAttempt: " << attempt << "\n\n";
@@ -561,14 +561,14 @@ public:
     }
     void create() {
         window = gtk_application_window_new(app);
-        gtk_window_set_title(GTK_WINDOW(window), "Linkora");
+        gtk_window_set_title(GTK_WINDOW(window), "岚序 Lansyra");
         gtk_window_set_default_size(GTK_WINDOW(window), 540, 330);
         gtk_window_set_icon_name(GTK_WINDOW(window), ProductID);
         GtkWidget *box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 16);
         gtk_container_set_border_width(GTK_CONTAINER(box), 24);
         gtk_container_add(GTK_CONTAINER(window), box);
         GtkWidget *title = gtk_label_new(nullptr);
-        gtk_label_set_markup(GTK_LABEL(title), "<span size='x-large' weight='bold'>Linkora</span>");
+        gtk_label_set_markup(GTK_LABEL(title), "<span size='x-large' weight='bold'>岚序 Lansyra</span>");
         gtk_box_pack_start(GTK_BOX(box), title, FALSE, FALSE, 0);
         servers = gtk_combo_box_text_new();
         gtk_box_pack_start(GTK_BOX(box), servers, FALSE, FALSE, 0);
@@ -671,8 +671,8 @@ public:
         }
         GError *failure = nullptr;
         client = nm_client_new(nullptr, &failure);
-        if (client && nm_client_get_nm_running(client) && !linkora_auth_dialog().empty())
-            agent = linkora_agent_new(&failure);
+        if (client && nm_client_get_nm_running(client) && !lansyra_auth_dialog().empty())
+            agent = lansyra_agent_new(&failure);
         if (!client || !agent || !nm_client_get_nm_running(client)) {
             error = "configuration";
             transition("failed", "系统 VPN 服务不可用",
@@ -702,11 +702,11 @@ public:
 } // namespace
 int main(int argc, char **argv) {
     if (argc == 2 && !strcmp(argv[1], "--version")) {
-        std::puts("Linkora " LINKORA_VERSION);
+        std::puts("Lansyra " LANSYRA_VERSION);
         return 0;
     }
     if (argc == 2 && !strcmp(argv[1], "--check-runtime")) {
-        const auto dialog = linkora_auth_dialog();
+        const auto dialog = lansyra_auth_dialog();
         if (dialog.empty()) {
             std::fputs("Install network-manager-openconnect-gnome to provide the authentication helper.\n", stderr);
             return 1;

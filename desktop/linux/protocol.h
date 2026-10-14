@@ -9,9 +9,9 @@
 #include <cstdlib>
 #include <strings.h>
 
-namespace linkora {
+namespace lansyra {
 inline constexpr char Service[] = "org.freedesktop.NetworkManager.openconnect";
-inline constexpr char ProductID[] = "io.github.sck03.linkora";
+inline constexpr char ProductID[] = "io.github.sck03.lansyra";
 // Existing NetworkManager profiles keep their ownership marker across renames.
 inline constexpr char Marker[] = "io.github.sck03.linkoravpn.managed";
 inline bool field(std::string_view text) {
@@ -121,4 +121,4 @@ struct Generation {
 inline unsigned retry_delay(const std::string &category, unsigned attempt) {
     return (category == "network" || category == "timeout") && attempt && attempt <= 3 ? 1u << attempt : 0;
 }
-} // namespace linkora
+} // namespace lansyra

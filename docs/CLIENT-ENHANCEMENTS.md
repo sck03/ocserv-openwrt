@@ -1,8 +1,8 @@
-# Linkora 客户端增强建议
+# Lansyra 客户端增强建议
 
 参考 [GlobalProtect-openconnect 3.0.0](https://github.com/yuezk/GlobalProtect-openconnect/tree/8724ed3b373536942660731c7bd529f325c014c4)。Windows 0.7.1 已落实会话归属、脱敏诊断与可选自动连接/重试；macOS、Linux 桌面实现与限制见[桌面说明](DESKTOP.md)。后续企业认证方向仍为功能评估。
 
-Linkora 当前已有多服务器配置、托盘、认证表单、DPAPI 密码保存、日志脱敏、超时重连和有界事件队列。后续增强应在这些能力上完善，保持 Windows 原生界面和现有 ocserv 协议。
+Lansyra 当前已有多服务器配置、托盘、认证表单、DPAPI 密码保存、日志脱敏、超时重连和有界事件队列。后续增强应在这些能力上完善，保持 Windows 原生界面和现有 ocserv 协议。
 
 | 方向 | 可以借鉴的做法 | 服务端条件 | 建议顺序 |
 |---|---|---|---|

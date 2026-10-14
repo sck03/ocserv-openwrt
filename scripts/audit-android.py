@@ -47,8 +47,8 @@ def audit_elf(data, abi):
 def audit_badging(text):
     package = re.search(r"^package: name='([^']+)'", text, re.MULTILINE)
     labels = re.findall(r"^application-label(?:-[^:]+)?:'([^']*)'$", text, re.MULTILINE)
-    if not package or package[1] != "io.github.sck03.linkora" or not labels or any(label != "Linkora" for label in labels):
-        raise ValueError("APK must identify as io.github.sck03.linkora and display Linkora in every locale")
+    if not package or package[1] != "io.github.sck03.lansyra" or not labels or any(label != "岚序 Lansyra" for label in labels):
+        raise ValueError("APK must identify as io.github.sck03.lansyra and display 岚序 Lansyra in every locale")
 
 
 def audit(path, aapt=None):
@@ -61,7 +61,7 @@ def audit(path, aapt=None):
                 audit_elf(apk.read(f"lib/{abi}/libopenconnect.so"), abi)
         if aapt:
             audit_badging(subprocess.check_output([aapt, "dump", "badging", path], encoding="utf-8"))
-            print("Application ID and all localized launcher names verified: Linkora")
+            print("Application ID and all localized launcher names verified: Lansyra")
     print(f"Native architecture and 16-KB alignment verified: {path}")
 
 

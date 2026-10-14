@@ -177,7 +177,7 @@ bool protect_secret(const std::string &value, const std::string &context, std::s
     DATA_BLOB entropy{static_cast<DWORD>(context.size()),
                       reinterpret_cast<BYTE *>(const_cast<char *>(context.data()))};
     DATA_BLOB output{};
-    if (!CryptProtectData(&input, L"Linkora profile", &entropy, nullptr, nullptr,
+    if (!CryptProtectData(&input, L"Lansyra profile", &entropy, nullptr, nullptr,
                           CRYPTPROTECT_UI_FORBIDDEN, &output)) {
         error = system_error(GetLastError());
         return false;
@@ -414,12 +414,12 @@ bool set_login_startup(const std::filesystem::path &directory, bool enabled, std
             if (command.size() >= 260)
                 result = ERROR_FILENAME_EXCED_RANGE;
             else
-                result = RegSetValueExW(key, L"Linkora", 0, REG_SZ,
+                result = RegSetValueExW(key, L"Lansyra", 0, REG_SZ,
                                         reinterpret_cast<const BYTE *>(command.c_str()),
                                         static_cast<DWORD>((command.size() + 1) * sizeof(wchar_t)));
         }
     } else {
-        result = RegDeleteValueW(key, L"Linkora");
+        result = RegDeleteValueW(key, L"Lansyra");
         if (result == ERROR_FILE_NOT_FOUND)
             result = ERROR_SUCCESS;
     }

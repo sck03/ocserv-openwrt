@@ -1,6 +1,6 @@
-# Linkora 中文管理页
+# Lansyra 中文管理页
 
-页面版本：**0.5.1**。路径：**VPN → Linkora**。基于 LuCI 登录和权限检查，适用于 ocserv 1.5.0 及后续版本、OpenWrt 25.12。
+页面版本：**0.5.1**。路径：**VPN → 岚序 Lansyra**。基于 LuCI 登录和权限检查，适用于 ocserv 1.5.0 及后续版本、OpenWrt 25.12。
 
 ## 安装
 

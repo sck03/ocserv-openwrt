@@ -151,7 +151,7 @@ jobs:
         with:
           name: windows-${{ matrix.arch }}
           path: |
-            dist/Linkora-*-windows-${{ matrix.arch }}.zip
+            dist/Lansyra-*-windows-${{ matrix.arch }}.zip
             dist/SHA256SUMS-windows-${{ matrix.arch }}.txt
           if-no-files-found: error
           retention-days: 7
@@ -219,7 +219,7 @@ jobs:
           TARGET_ARCH: ${{ matrix.arch }}
         run: |
           $arch = $env:TARGET_ARCH
-          $packages = @(Get-ChildItem -Path "dist/Linkora-*-windows-$arch.zip")
+          $packages = @(Get-ChildItem -Path "dist/Lansyra-*-windows-$arch.zip")
           if ($packages.Count -ne 1) { throw "Expected one $arch package" }
           $testArguments = @('--build', "build/client/$arch", '--package', $packages[0].FullName,
                              '--output', "test-results/client-$arch")
@@ -262,7 +262,7 @@ jobs:
         with:
           name: corresponding-source
           path: |
-            dist/Linkora-*-source.zip
+            dist/Lansyra-*-source.zip
             dist/SHA256SUMS-source.txt
           if-no-files-found: error
           compression-level: 0
@@ -299,8 +299,8 @@ jobs:
       - name: Collect both architectures and corresponding source
         run: |
           mkdir -p release-assets
-          cp dist/Linkora-*-windows-x64.zip dist/Linkora-*-windows-x86.zip \
-            dist/Linkora-*-source.zip release-assets/
+          cp dist/Lansyra-*-windows-x64.zip dist/Lansyra-*-windows-x86.zip \
+            dist/Lansyra-*-source.zip release-assets/
           cat dist/SHA256SUMS-windows-x64.txt dist/SHA256SUMS-windows-x86.txt \
             dist/SHA256SUMS-source.txt > release-assets/SHA256SUMS.txt
       - name: Publish verified client assets

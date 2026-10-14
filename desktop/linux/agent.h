@@ -6,8 +6,8 @@ extern "C" GQuark nm_secret_agent_error_quark(void);
 #include <nm-secret-agent-old.h>
 #include <string>
 
-std::string linkora_auth_dialog();
-GType linkora_agent_get_type();
-NMSecretAgentOld *linkora_agent_new(GError **error);
-void linkora_agent_select(NMSecretAgentOld *agent, const char *uuid);
-void linkora_agent_cancel(NMSecretAgentOld *agent);
+std::string lansyra_auth_dialog();
+GType lansyra_agent_get_type();
+NMSecretAgentOld *lansyra_agent_new(GError **error);
+void lansyra_agent_select(NMSecretAgentOld *agent, const char *uuid);
+void lansyra_agent_cancel(NMSecretAgentOld *agent);
