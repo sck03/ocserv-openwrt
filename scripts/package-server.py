@@ -35,7 +35,7 @@ def main():
     metadata = build_metadata()
     dist = ROOT / "dist"
     dist.mkdir(exist_ok=True)
-    name = (f"LinkoraVPN-server-ocserv-{ocserv_version}-r{ocserv_release}-openwrt-{entry['version']}-{architecture}-"
+    name = (f"Linkora-server-ocserv-{ocserv_version}-r{ocserv_release}-openwrt-{entry['version']}-{architecture}-"
             f"ui-{ui_version}-r{ui_release}-{metadata['release_label']}")
     with tempfile.TemporaryDirectory(prefix="server-", dir=dist) as temporary:
         output = Path(temporary) / name

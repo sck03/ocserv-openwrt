@@ -11,7 +11,8 @@
 
 namespace linkora {
 inline constexpr char Service[] = "org.freedesktop.NetworkManager.openconnect";
-inline constexpr char ProductID[] = "io.github.sck03.linkoravpn";
+inline constexpr char ProductID[] = "io.github.sck03.linkora";
+// Existing NetworkManager profiles keep their ownership marker across renames.
 inline constexpr char Marker[] = "io.github.sck03.linkoravpn.managed";
 inline bool field(std::string_view text) {
     return text.size() <= 8192 && text.find_first_of("\r\n\0", 0, 3) == std::string_view::npos &&

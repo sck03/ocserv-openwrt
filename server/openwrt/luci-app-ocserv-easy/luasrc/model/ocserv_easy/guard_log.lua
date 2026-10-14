@@ -22,12 +22,20 @@ local function access(event)
         local raw=f and f:read(262145); if f then f:close() end
         local rows=raw and #raw<=262144 and json.parse(raw) or {}
         if type(rows)~="table" then rows={} end
-        local kept,now={},os.time()
-        for _,row in ipairs(type(rows)=="table" and rows or {}) do
-            if type(row)=="table" and type(row.time)=="number" and row.time<=now and row.time>now-ttl then kept[#kept+1]=row end
+        local recent,now={},os.time()
+        local capacity=event and 255 or 256
+        -- Scan from the newest entry and bound temporary storage; repeatedly
+        -- removing the first item makes oversized recovery logs quadratic.
+        for i=#rows,1,-1 do
+            local row=rows[i]
+            if type(row)=="table" and type(row.time)=="number" and row.time<=now and row.time>now-ttl then
+                recent[#recent+1]=row
+                if #recent==capacity then break end
+            end
         end
+        local kept={}
+        for i=#recent,1,-1 do kept[#kept+1]=recent[i] end
         if event then event.time=now; kept[#kept+1]=event end
-        while #kept>256 do table.remove(kept,1) end
         if #kept==0 then
             if raw then assert(fs.remove(path)) end
         elseif event or #kept~=#rows then

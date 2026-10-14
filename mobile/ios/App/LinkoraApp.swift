@@ -2,14 +2,14 @@ import SwiftUI
 import NetworkExtension
 
 @main
-struct LinkoraVPNApp: App {
+struct LinkoraApp: App {
     var body: some Scene { WindowGroup { ConnectionView() } }
 }
 
 @MainActor
 final class VPNModel: ObservableObject {
     @Published var status = "未连接"
-    @Published var busy = false
+    @Published var busy = true
     @Published var connected = false
     @Published var disconnecting = false
     private var manager: NETunnelProviderManager?
@@ -18,10 +18,17 @@ final class VPNModel: ObservableObject {
     init() {
         observer = NotificationCenter.default.addObserver(
             forName: .NEVPNStatusDidChange, object: nil, queue: .main
-        ) { [weak self] _ in Task { @MainActor in self?.refresh() } }
+        ) { [weak self] notification in
+            Task { @MainActor in
+                guard let self, let connection = notification.object as? NEVPNConnection,
+                      connection === self.manager?.connection else { return }
+                self.refresh()
+            }
+        }
         NETunnelProviderManager.loadAllFromPreferences { [weak self] managers, error in
             Task { @MainActor in
                 guard let self = self else { return }
+                self.busy = false
                 self.manager = managers?.first(where: {
                     ($0.protocolConfiguration as? NETunnelProviderProtocol)?.providerBundleIdentifier == self.tunnelID
                 })
@@ -65,6 +72,10 @@ final class VPNModel: ObservableObject {
             let active = managers.first(where: {
                 ($0.protocolConfiguration as? NETunnelProviderProtocol)?.providerBundleIdentifier == tunnelID
             }) ?? NETunnelProviderManager()
+            manager = active
+            guard [.invalid, .disconnected].contains(active.connection.status) else {
+                refresh(); return
+            }
             let config = NETunnelProviderProtocol()
             config.providerBundleIdentifier = tunnelID
             config.serverAddress = url.absoluteString
@@ -72,11 +83,10 @@ final class VPNModel: ObservableObject {
             config.includeAllNetworks = true
             config.excludeLocalNetworks = false
             active.protocolConfiguration = config
-            active.localizedDescription = "Linkora VPN"
+            active.localizedDescription = "Linkora"
             active.isEnabled = true
             try await active.saveToPreferences()
             try await active.loadFromPreferences()
-            manager = active
             // Password is passed for this connection only, never written to preferences.
             try active.connection.startVPNTunnel(options: ["password": password as NSString])
             refresh()
@@ -118,7 +128,7 @@ struct ConnectionView: View {
                     }
                 }
                 Section(footer: Text("支持 ocserv 用户名/密码认证和全隧道。首次连接需允许系统添加 VPN 配置。")) { EmptyView() }
-            }.navigationTitle("Linkora VPN")
+            }.navigationTitle("Linkora")
         }.navigationViewStyle(.stack)
     }
 }

@@ -45,6 +45,14 @@ enum ClientError: LocalizedError {
 private struct ProfileFile: Codable {
     var schema = 1
     var profiles: [VPNProfile]
+
+    static func readData(_ url: URL, limit: Int) throws -> Data {
+        let file = try FileHandle(forReadingFrom: url)
+        defer { try? file.close() }
+        let data = try file.read(upToCount: limit + 1) ?? Data()
+        guard data.count <= limit else { throw ClientError.invalidProfile }
+        return data
+    }
 }
 private enum Credentials {
     static func query(_ id: String) -> [String: Any] {
@@ -109,10 +117,11 @@ final class DesktopVPN: NSObject, ObservableObject, OSSystemExtensionRequestDele
     private var storageReady = false
     private var extensionReady = false
     private var extensionCompletion: CheckedContinuation<Void, Error>?
+    private let dateFormatter = ISO8601DateFormatter()
     private var tunnelID: String { Bundle.main.bundleIdentifier! + ".tunnel" }
     private var directory: URL {
         FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent("LinkoraVPN", isDirectory: true)
+            .appendingPathComponent("Linkora", isDirectory: true)
     }
 
     override init() {
@@ -120,8 +129,7 @@ final class DesktopVPN: NSObject, ObservableObject, OSSystemExtensionRequestDele
         do {
             let url = directory.appendingPathComponent("profiles.json")
             if FileManager.default.fileExists(atPath: url.path) {
-                let data = try Data(contentsOf: url)
-                guard data.count <= 1_048_576 else { throw ClientError.invalidStore }
+                let data = try ProfileFile.readData(url, limit: 1_048_576)
                 let file = try JSONDecoder().decode(ProfileFile.self, from: data)
                 guard file.schema == 1, file.profiles.count <= 128,
                       Set(file.profiles.map(\.id)).count == file.profiles.count else { throw ClientError.invalidStore }
@@ -147,7 +155,7 @@ final class DesktopVPN: NSObject, ObservableObject, OSSystemExtensionRequestDele
     }
     private func record(_ message: String) {
         // Only fixed state/error messages enter diagnostics. Core and authentication output are never logged.
-        events.append(ISO8601DateFormatter().string(from: Date()) + " " + message)
+        events.append(dateFormatter.string(from: Date()) + " " + message)
         if events.count > 256 { events.removeFirst(events.count - 256) }
     }
     private func restore() async {
@@ -246,7 +254,7 @@ final class DesktopVPN: NSObject, ObservableObject, OSSystemExtensionRequestDele
             UserDefaults.standard.set(enabled, forKey: "autoConnect")
             UserDefaults.standard.set(enabled ? draft.id : "", forKey: "autoProfile")
             if enabled && SMAppService.mainApp.status == .requiresApproval {
-                detail = "请在系统设置的“登录项”中允许 Linkora VPN。"
+                detail = "请在系统设置的“登录项”中允许 Linkora。"
             }
         } catch { show(error) }
     }
@@ -300,7 +308,7 @@ final class DesktopVPN: NSObject, ObservableObject, OSSystemExtensionRequestDele
                 config.excludeLocalNetworks = false
                 config.disconnectOnSleep = false
                 active.protocolConfiguration = config
-                active.localizedDescription = "Linkora VPN — " + profile.name
+                active.localizedDescription = "Linkora — " + profile.name
                 active.isEnabled = true
                 try await active.saveToPreferences()
                 guard wanted, request == epoch else { return }
@@ -343,7 +351,7 @@ final class DesktopVPN: NSObject, ObservableObject, OSSystemExtensionRequestDele
         errorCode = failure?.code ?? 0
         let categories = [1: "canceled", 2: "network", 3: "timeout", 4: "authentication", 5: "certificate",
                           6: "configuration", 7: "permission", 8: "adapter", 9: "busy", 10: "server", 11: "internal"]
-        errorCategory = failure?.domain == "io.github.sck03.linkoravpn" ? categories[errorCode] ?? "internal" : "system"
+        errorCategory = failure?.domain == "io.github.sck03.linkora" ? categories[errorCode] ?? "internal" : "system"
         record("failed; category=\(errorCategory); code=\(errorCode)")
         if retryFailed, ["network", "timeout"].contains(errorCategory), attempt <= 3 {
             let seconds = 1 << attempt
@@ -382,7 +390,7 @@ final class DesktopVPN: NSObject, ObservableObject, OSSystemExtensionRequestDele
     func request(_ request: OSSystemExtensionRequest, actionForReplacingExtension existing: OSSystemExtensionProperties,
                  withExtension ext: OSSystemExtensionProperties) -> OSSystemExtensionRequest.ReplacementAction { .replace }
     func requestNeedsUserApproval(_ request: OSSystemExtensionRequest) {
-        detail = "请在系统设置中允许 Linkora VPN 系统扩展。"
+        detail = "请在系统设置中允许 Linkora 系统扩展。"
     }
     func request(_ request: OSSystemExtensionRequest, didFinishWithResult result: OSSystemExtensionRequest.Result) {
         extensionReady = result == .completed
@@ -403,8 +411,8 @@ final class DesktopVPN: NSObject, ObservableObject, OSSystemExtensionRequestDele
         panel.allowedContentTypes = [UTType(filenameExtension: "vpn") ?? .plainText]
         guard panel.runModal() == .OK, let url = panel.url else { return }
         do {
-            let data = try Data(contentsOf: url)
-            guard data.count <= 65536, let text = String(data: data, encoding: .utf8) else { throw ClientError.invalidProfile }
+            let data = try ProfileFile.readData(url, limit: 65536)
+            guard let text = String(data: data, encoding: .utf8) else { throw ClientError.invalidProfile }
             var values: [String: String] = [:]
             var section = false
             for line in text.components(separatedBy: .newlines) {
@@ -422,11 +430,11 @@ final class DesktopVPN: NSObject, ObservableObject, OSSystemExtensionRequestDele
     func exportDiagnostics() {
         let panel = NSSavePanel()
         panel.allowedContentTypes = [.json]
-        panel.nameFieldStringValue = "LinkoraVPN-diagnostics.json"
+        panel.nameFieldStringValue = "Linkora-diagnostics.json"
         guard panel.runModal() == .OK, let url = panel.url else { return }
-        let snapshot: [String: Any] = ["schema": 1, "product": "Linkora VPN", "platform": "macOS",
+        let snapshot: [String: Any] = ["schema": 1, "product": "Linkora", "platform": "macOS",
             "version": Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "",
-            "created_utc": ISO8601DateFormatter().string(from: Date()), "session_id": sessionID,
+            "created_utc": dateFormatter.string(from: Date()), "session_id": sessionID,
             "generation": epoch, "attempt": attempt, "state": status, "error_category": errorCategory,
             "error_code": errorCode, "events": events]
         do { try JSONSerialization.data(withJSONObject: snapshot, options: [.prettyPrinted, .sortedKeys]).write(to: url, options: .atomic) }
@@ -468,7 +476,7 @@ struct ConnectionView: View {
             }.frame(width: 185)
             Divider()
             VStack(alignment: .leading, spacing: 16) {
-                Text("Linkora VPN").font(.title2.weight(.semibold))
+                Text("Linkora").font(.title2.weight(.semibold))
                 Form {
                     TextField("名称", text: $vpn.draft.name)
                     TextField("HTTPS 服务器", text: $vpn.draft.server)
@@ -499,11 +507,11 @@ struct ConnectionView: View {
     }
 }
 @main
-struct LinkoraVPNApp: App {
+struct LinkoraApp: App {
     @StateObject private var vpn = DesktopVPN()
     var body: some Scene {
-        WindowGroup("Linkora VPN") { ConnectionView(vpn: vpn) }.windowResizability(.contentSize)
-        MenuBarExtra("Linkora VPN", systemImage: "network") {
+        WindowGroup("Linkora") { ConnectionView(vpn: vpn) }.windowResizability(.contentSize)
+        MenuBarExtra("Linkora", systemImage: "network") {
             Text(vpn.status)
             Button("显示窗口") {
                 NSApp.activate(ignoringOtherApps: true)

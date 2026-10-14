@@ -325,7 +325,7 @@
         form.addEventListener('submit',function(event){event.preventDefault();download(trust.value,server.value.trim());});
         var ca=button(t('下载 ca.pem','Download ca.pem'),function(){download('ca','');});ca.disabled=!state.ca_available;
         content.appendChild(element('section',{className:'easy-card'},[element('h3',{text:t('分发客户端配置','Distribute client profiles')}),form]));
-        content.appendChild(element('section',{className:'easy-card'},[element('h3',{text:t('单独下载 CA 证书','Download the CA certificate')}),element('p',{className:'easy-muted',text:t('适用于已有服务器地址的Linkora VPN，或其他支持导入 CA 的客户端。','For Linkora VPN with a configured server address, or another client that can import a CA.')}),ca]));
+        content.appendChild(element('section',{className:'easy-card'},[element('h3',{text:t('单独下载 CA 证书','Download the CA certificate')}),element('p',{className:'easy-muted',text:t('适用于已有服务器地址的Linkora，或其他支持导入 CA 的客户端。','For Linkora with a configured server address, or another client that can import a CA.')}),ca]));
         content.appendChild(element('section',{className:'easy-card'},[
             element('h3',{text:t('从外网连接','Connecting over the Internet')}),
             element('p',{text:t('域名需要解析到可达的公网 IP。IPv4 旁路由部署需要在主路由转发 VPN 的 TCP/UDP 端口；IPv6 需要两端都有 IPv6，并在主路由放行 N1 的 VPN 端口。','The hostname must resolve to a reachable public IP. An IPv4 side router needs TCP/UDP forwarding on the main router. IPv6 requires connectivity on both ends and a firewall rule allowing the N1 VPN ports.')}),
@@ -351,7 +351,7 @@
             }),
             mutationButton(state.autostart?t('关闭开机启动','Disable autostart'):t('开机自动启动','Enable autostart'),function(){complete({action:'service',command:state.autostart?'disable':'enable'}).catch(function(e){notice(errorText(e),true);});})
         ]);
-        root.appendChild(element('div',{className:'easy-heading'},[element('div',{},[element('h2',{text:'Linkora VPN'}),element('span',{className:'easy-muted',text:t('管理页 ','UI ')+(state.ui_version || '0.5.0')+' · ocserv '+state.version})]),actions]));
+        root.appendChild(element('div',{className:'easy-heading'},[element('div',{},[element('h2',{text:'Linkora'}),element('span',{className:'easy-muted',text:t('管理页 ','UI ')+(state.ui_version || '0.5.1')+' · ocserv '+state.version})]),actions]));
         messageBox=element('div',{className:'easy-notice',hidden:true});root.appendChild(messageBox);
         statusBox=element('div',{className:'easy-summary'});root.appendChild(statusBox);renderStatus();
         if(!state.supported)notice(state.version==='unknown'?errors.version_unavailable:errors.upgrade_required,true);

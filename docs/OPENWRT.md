@@ -18,7 +18,7 @@
 从 Releases 下载对应架构的 ZIP，完整解压到新目录并上传路由器，以 root 执行：
 
 ```sh
-cd /tmp/linkora-vpn
+cd /tmp/linkora
 sh install.sh
 ```
 

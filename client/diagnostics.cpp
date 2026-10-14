@@ -278,7 +278,7 @@ std::string diagnostic_report(const SessionStatus &status, const Statistics &sta
     // Explicit allowlist: never serialize Profile, Prompt, environment or raw core data.
     nlohmann::json report = {
         {"schema", 1},
-        {"product", "Linkora VPN"},
+        {"product", "Linkora"},
         {"version", Version},
         {"created_utc", timestamp},
         {"architecture", sizeof(void *) == 8 ? "x64" : "x86"},

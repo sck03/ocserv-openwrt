@@ -24,6 +24,8 @@ Actions 使用官方 checkout、cache、setup-node、setup-python、upload-artif
 
 根 CMakeLists.txt 统一维护 Windows 产品名和版本，生成 C++/RC 共用版本头及程序清单，再调用 client/CMakeLists.txt。界面、协议标识、EXE 属性和发行元数据使用同一版本。Release 使用 `-Os`、函数/数据独立节和链接清理，移除未使用代码。
 
+Windows 与 Linux Release 在工具链支持时启用链接时优化；Apple 扩展启用未引用代码裁剪。Android 发布构建沿用 R8 与资源裁剪。打包验证直接检查实际 EXE、DEB、APK 和 Apple 应用的名称；macOS ZIP 版本从已编译应用的 Info.plist 读取。
+
 | 文件 | 职责 |
 |---|---|
 | client/application.*、main.cpp | 主窗口、配置列表、菜单、托盘和生命周期 |
@@ -86,7 +88,7 @@ python -m pip install -r client/tests/requirements.txt
 .\scripts\clean-workspace.ps1 -Apply
 ~~~
 
-默认清理 `build/`、`.ruff_cache/`、项目 Python 字节码、生成的 Apple Xcode 工程/Info.plist/图标，以及旧版遗留的 `dist/validation-x64/`、`dist/validation-x86/` 测试二进制。添加 `-IncludeDependencies` 可清理 `.deps/`；添加 `-IncludeTestResults` 可清理 `test-results/`。发行包、备份、临时虚拟机、工具链和锁定的第三方源码归档保留，不再按某次开发日期或提交号选择文件。
+默认清理 `build/`、`.ruff_cache/`、项目 Python 字节码、当前和旧名称生成的 Apple Xcode 工程/Info.plist/图标，以及旧版遗留的 `dist/validation-x64/`、`dist/validation-x86/` 测试二进制。添加 `-IncludeDependencies` 可清理 `.deps/`；添加 `-IncludeTestResults` 可清理 `test-results/`。发行包、备份、临时虚拟机、工具链和锁定的第三方源码归档保留，不再按某次开发日期或提交号选择文件。
 
 脚本拒绝删除 Git 跟踪的源码、链接到其他目录的路径及运行中进程引用的文件。清理 `.deps` 后，下次按上述构建流程重新生成依赖。默认只显示清单，只有 `-Apply` 才执行删除。
 
@@ -107,8 +109,8 @@ Windows 原生回归（下例使用 `-ReleaseVersion 0.5.0` 的包名；请替�
 
 ~~~powershell
 python tests/cleanup_tests.py
-python scripts/test-client.py --build build/client/x64 --package dist/LinkoraVPN-0.5.0-windows-x64.zip --output test-results/client-x64
-python scripts/test-client.py --build build/client/x86 --package dist/LinkoraVPN-0.5.0-windows-x86.zip --output test-results/client-x86
+python scripts/test-client.py --build build/client/x64 --package dist/Linkora-0.5.0-windows-x64.zip --output test-results/client-x64
+python scripts/test-client.py --build build/client/x86 --package dist/Linkora-0.5.0-windows-x86.zip --output test-results/client-x86
 ~~~
 
 测试子进程的 PATH 仅保留 Windows 系统目录。认证测试运行真实 OpenConnect/GnuTLS 回调和临时回环 HTTPS 服务；界面测试只操作自己的窗口并导出截图。包内实际 EXE 分别以中文、英文启动和退出。基础回归不创建网卡或修改主机路由。
@@ -121,7 +123,7 @@ PE 审计要求正确架构、Windows 10 操作系统标识、系统加载器接
 
 客户端等待 windows-tests 和 source 全部成功后发布；服务端等待其构建校验完成。任务下载同次运行的产物，检查 ZIP 和 SHA256SUMS，先建草稿，全部上传成功后公开为 Pre-release。仅发布任务获得 contents: write，使用自动提供的 GitHub token。
 
-标签为 `client-版本或时间-运行ID-尝试次数` 或 `server-版本或时间-运行ID-尝试次数`，指向实际提交。重跑创建新条目，不覆盖已有附件。Release 标题始终显示北京时间，例如“Linkora VPN Windows 客户端 v0.5.1（构建 2026-09-29 10:20:59 +08:00）”；留空版本号时标题只显示构建时间。原来的“9.1”是运行次数与尝试次数，不是日期。Release 附件长期保留，地址写入工作流 Summary。
+标签为 `client-版本或时间-运行ID-尝试次数` 或 `server-版本或时间-运行ID-尝试次数`，指向实际提交。重跑创建新条目，不覆盖已有附件。Release 标题始终显示北京时间，例如“Linkora Windows 客户端 v0.5.1（构建 2026-09-29 10:20:59 +08:00）”；留空版本号时标题只显示构建时间。原来的“9.1”是运行次数与尝试次数，不是日期。Release 附件长期保留，地址写入工作流 Summary。
 
 客户端附件包含 x64/x86 便携 ZIP、对应源码 ZIP 和校验文件。打包只 strip 本项目 EXE，Wintun 保持原样；附带许可证、使用说明和 BUILDINFO。Windows 源码包仅包含本平台的客户端、构建配方、补丁、回归、工作流和共享文档，保留构建参数回归所需的 SDK 目标表及全部锁定第三方归档。在 Git 工作区中仅收录跟踪文件，排除无关平台代码、未跟踪备份、本机工具和测试数据。打包回归会在解压的源码包中运行构建参数检查，以确认依赖清单完整。客户端与服务端均在临时目录生成 ZIP，完成后替换目标文件，失败不会覆盖之前的完整包。
 

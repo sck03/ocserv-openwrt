@@ -34,7 +34,7 @@ def package(platform):
         *("scripts/" + name for name in scripts),
     ))
     sources.mkdir(parents=True, exist_ok=True)
-    destination = sources / f"LinkoraVPN-{platform}-source.zip"
+    destination = sources / f"Linkora-{platform}-source.zip"
     with tempfile.TemporaryDirectory(prefix="source-", dir=sources) as work:
         staged = Path(work) / destination.name
         with zipfile.ZipFile(staged, "w", zipfile.ZIP_DEFLATED) as bundle:
@@ -51,9 +51,9 @@ def package(platform):
         staged.replace(destination)
     write_checksums(sources, [destination])
     patterns = {
-        "android": ("LinkoraVPN-android-*.apk", "BUILDINFO.json"),
-        "ios": ("LinkoraVPN-ios-unsigned.xcarchive.zip", "LinkoraVPN-ios.ipa", "BUILDINFO.json"),
-        "macos": ("LinkoraVPN-*-macos-universal-*.zip", "BUILDINFO.json"),
+        "android": ("Linkora-android-*.apk", "BUILDINFO.json"),
+        "ios": ("Linkora-ios-unsigned.xcarchive.zip", "Linkora-ios.ipa", "BUILDINFO.json"),
+        "macos": ("Linkora-*-macos-universal-*.zip", "BUILDINFO.json"),
     }[platform]
     out.mkdir(parents=True, exist_ok=True)
     write_checksums(out, [path for pattern in patterns for path in out.glob(pattern) if path.is_file()])

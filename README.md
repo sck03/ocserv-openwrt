@@ -1,14 +1,16 @@
-# Linkora VPN
+# Linkora
 
-Linkora VPN 提供 Windows 10/11 原生客户端 0.7.0、macOS 13+ Universal 和 Linux amd64/arm64 桌面客户端 0.1.0，以及 Android / iOS 移动客户端。配套 ocserv 1.5.0-r6 服务端和中文管理页 0.5.0-r1。Windows 提供 x86/x64 便携包；Linux 支持 Debian 13 / Ubuntu 26.04，macOS 实际连接需要有效的 Apple 系统扩展签名。桌面安装方式见[桌面客户端说明](docs/DESKTOP.md)。服务端支持 **OpenWrt 25.12 / APK** 的六个目标，具体架构见 [OpenWrt 多架构说明](docs/OPENWRT.md)。
+Linkora 提供 Windows 10/11 原生客户端 0.7.1、macOS 13+ Universal 和 Linux amd64/arm64 桌面客户端 0.1.1，以及 Android / iOS 移动客户端。配套 ocserv 1.5.0-r6 服务端和中文管理页 0.5.1-r1。Windows 提供 x86/x64 便携包；Linux 支持 Debian 13 / Ubuntu 26.04，macOS 实际连接需要有效的 Apple 系统扩展签名。桌面安装方式见[桌面客户端说明](docs/DESKTOP.md)。服务端支持 **OpenWrt 25.12 / APK** 的六个目标，具体架构见 [OpenWrt 多架构说明](docs/OPENWRT.md)。
 
-本版按全新安装部署，统一使用新的程序名、移动端安装 ID 和防火墙标识。Windows 使用新目录和新版 `.vpn` 配置；服务端重新添加账号并设置网络。部署前先关闭旧版专用上网开关、停用旧服务，不导入旧版数据目录或防火墙事务备份。
+客户端名称统一为 **Linkora**，Windows 程序为 `Linkora.exe`，Linux 包和命令为 `linkora`，Android / iOS 默认安装 ID 为 `io.github.sck03.linkora`，macOS 为 `io.github.sck03.linkora.macos`。安装前先在旧客户端关闭自动启动、断开连接并退出；移动端和 macOS 使用新安装标识并重新配置，Apple 签名描述文件须匹配新标识。Windows 的 `data/` 格式和密码加密上下文保持兼容，Linux 保留现有 NetworkManager 配置的识别标记。
+
+服务端首次部署仍按下述全新安装步骤操作；本次改名不改变服务端账号格式或防火墙标识。协议名称、系统 VPN 权限提示和 `.vpn` 配置格式保留原义。
 
 Windows 客户端提供服务器配置列表、VPN 信息、独立日志、服务器认证弹窗和托盘，默认中文，可切换英文。静态合并 OpenConnect 9.21、GnuTLS、软件令牌和 XML/压缩库，无需安装 Qt、.NET 或 VC 运行库。完整保留随包的 `wintun.dll` 和 `vpnc-script-win.js`。会话编号与状态代次隔离旧回调，支持网络变化、睡眠恢复、可选登录后连接、有限重试及脱敏诊断导出。
 
 ## 客户端连接
 
-1. 完整解压对应架构的 ZIP，退出旧版，运行 `LinkoraVPN.exe`。
+1. 完整解压对应架构的 ZIP，退出旧版，运行 `Linkora.exe`。
 2. 从 **配置 → 新建配置** 保存服务器，也可直接输入 `192.168.19.253:4443`、`vpn.example.com:4443` 或 `[IPv6地址]:4443`（自动补上 `https://`）。高级配置可设置证书、HOTP/TOTP/STOKEN、系统代理、UDP 和重连。
 3. 点击 **连接**，按需完成 Windows 管理员授权。首次遇到未知证书时，核对地址及完整 `pin-sha256`，点击 **信息准确，记住并连接**。
 4. 按服务器返回的弹窗填写用户名、密码、分组或验证码。**VPN 信息** 显示地址、加密方式和流量，**查看日志** 可检查连接过程。
@@ -25,14 +27,14 @@ Windows 客户端提供服务器配置列表、VPN 信息、独立日志、服�
 
 当前设备：Phicomm N1，ARMv8，OPL_FW4 For N1 v0.0.8，LuCI openwrt-25.12，内核 `6.12.66-flippy-94+`。套装基于官方 25.12.5 SDK 构建，依赖必须来自与实际 OPL 固件匹配的软件源；不携带或替换内核模块。
 
-将服务端 ZIP 完整解压并上传到 N1，例如 `/tmp/linkora-vpn`，通过 SSH 以 root 执行：
+将服务端 ZIP 完整解压并上传到 N1，例如 `/tmp/linkora`，通过 SSH 以 root 执行：
 
 ```sh
-cd /tmp/linkora-vpn
+cd /tmp/linkora
 sh install.sh
 ```
 
-请解压到新目录，避免混入旧 APK。安装脚本校验文件、检查 25.12/APK/TUN、预演依赖安装并备份配置，然后安装 **ocserv、luci-app-ocserv-easy 两个 APK**，移除重复的原版界面和翻译包。全新安装生成证书并配置旁路由的基本 VPN 转发。重新登录 LuCI，进入 **VPN → Linkora VPN**，添加账号、核对服务设置并启动服务。
+请解压到新目录，避免混入旧 APK。安装脚本校验文件、检查 25.12/APK/TUN、预演依赖安装并备份配置，然后安装 **ocserv、luci-app-ocserv-easy 两个 APK**，移除重复的原版界面和翻译包。全新安装生成证书并配置旁路由的基本 VPN 转发。重新登录 LuCI，进入 **VPN → Linkora**，添加账号、核对服务设置并启动服务。
 
 默认端口 `4443`、VPN 网段 `10.77.0.0/24`、每个账号同时一台设备。没有预设账号或密码。初始 DNS 为 `1.1.1.1`，需按实际部署检查连通性。
 

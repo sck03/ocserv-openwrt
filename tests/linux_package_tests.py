@@ -1,5 +1,6 @@
 """Audit the actual DEB payload, linked libraries and headless version command."""
 import argparse
+import configparser
 import io
 import json
 from pathlib import Path
@@ -16,7 +17,7 @@ def audit(package):
 
     architecture = field("Architecture")
     machine = {"amd64": 62, "arm64": 183}[architecture]
-    assert field("Package") == "linkora-vpn"
+    assert field("Package") == "linkora"
     assert architecture == subprocess.check_output(["dpkg", "--print-architecture"], text=True).strip()
     depends = field("Depends")
     for dependency in ("libc6", "libstdc++6", "libgtk-3-0", "libglib2.0-0", "libnm0", "libsecret-1-0",
@@ -25,21 +26,28 @@ def audit(package):
 
     payload = subprocess.check_output(["dpkg-deb", "--fsys-tarfile", package])
     expected = {
-        "usr/bin/linkora-vpn",
-        "usr/share/applications/io.github.sck03.linkoravpn.desktop",
-        "usr/share/icons/hicolor/scalable/apps/io.github.sck03.linkoravpn.svg",
-        "usr/share/doc/linkora-vpn/copyright",
-        "usr/share/doc/linkora-vpn/DESKTOP.md",
-        "usr/share/doc/linkora-vpn/THIRD-PARTY-NOTICES.md",
+        "usr/bin/linkora",
+        "usr/share/applications/io.github.sck03.linkora.desktop",
+        "usr/share/icons/hicolor/scalable/apps/io.github.sck03.linkora.svg",
+        "usr/share/doc/linkora/copyright",
+        "usr/share/doc/linkora/DESKTOP.md",
+        "usr/share/doc/linkora/THIRD-PARTY-NOTICES.md",
     }
     with tarfile.open(fileobj=io.BytesIO(payload)) as contents:
         files = {item.name.removeprefix("./"): item for item in contents if not item.isdir()}
         assert set(files) == expected, f"Unexpected package payload: {set(files) ^ expected}"
         assert all(item.isfile() and item.uid == item.gid == 0 for item in files.values())
-        binary = files["usr/bin/linkora-vpn"]
+        desktop = configparser.ConfigParser(interpolation=None)
+        desktop.read_string(contents.extractfile(files["usr/share/applications/io.github.sck03.linkora.desktop"]).read().decode("utf-8"))
+        entry = desktop["Desktop Entry"]
+        assert entry["Name"] == "Linkora" and entry["Exec"] == "linkora"
+        assert entry["Icon"] == "io.github.sck03.linkora"
+        binary = files["usr/bin/linkora"]
         assert binary.mode & 0o111, "Client is not executable"
         with contents.extractfile(binary) as executable:
-            header = executable.read(64)
+            data = executable.read()
+            header = data[:64]
+        assert b"Name=Linkora\n" in data, "Login startup entry must use the current product name"
         assert len(header) == 64 and header[:6] == b"\x7fELF\x02\x01", "Expected a real 64-bit ELF client"
         assert int.from_bytes(header[18:20], "little") == machine, "Wrong executable architecture"
         installed_bytes = sum(item.size for item in files.values())
@@ -47,9 +55,9 @@ def audit(package):
 
     with tempfile.TemporaryDirectory(prefix="linux-package-") as work:
         subprocess.run(["dpkg-deb", "--extract", package, work], check=True)
-        executable = Path(work) / "usr/bin/linkora-vpn"
+        executable = Path(work) / "usr/bin/linkora"
         version = subprocess.check_output([executable, "--version"], text=True).strip()
-        assert version == "Linkora VPN " + field("Version")
+        assert version == "Linkora " + field("Version")
         helper = subprocess.check_output([executable, "--check-runtime"], text=True).strip()
         assert Path(helper).is_absolute() and Path(helper).is_file(), "Missing installed authentication helper"
         libraries = subprocess.check_output(["ldd", executable], text=True)

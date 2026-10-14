@@ -179,7 +179,7 @@ void get_secrets(NMSecretAgentOld *base, NMConnection *connection, const char *p
                                                                       G_SUBPROCESS_FLAGS_STDOUT_PIPE |
                                                                       G_SUBPROCESS_FLAGS_STDERR_SILENCE),
                                         &error, dialog.c_str(), "--uuid", agent->uuid, "--name",
-                                        "Linkora VPN", "--service", Service, "--allow-interaction", nullptr);
+                                        "Linkora", "--service", Service, "--allow-interaction", nullptr);
     // The helper owns authentication forms and the system keyring. Its output is
     // a private protocol channel; never route stdout/stderr into application logs.
     if (!request->process) {

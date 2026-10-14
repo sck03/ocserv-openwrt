@@ -228,7 +228,7 @@ void LogWindow::language(Language value) {
     language_ = value;
     if (!window_)
         return;
-    SetWindowTextW(window_, tr(value, L"连接日志 — Linkora VPN", L"Connection log — Linkora VPN"));
+    SetWindowTextW(window_, tr(value, L"连接日志 — Linkora", L"Connection log — Linkora"));
     label(LogCopy, tr(value, L"复制", L"Copy"));
     label(LogSelectAll, tr(value, L"全选", L"Select all"));
     label(LogClear, tr(value, L"清空", L"Clear"));
@@ -239,7 +239,7 @@ void LogWindow::language(Language value) {
 void LogWindow::show(HWND owner, Language value) {
     language_ = value;
     if (!window_)
-        create(owner, L"LinkoraVPN.Log", L"", 740, 430, WS_OVERLAPPEDWINDOW, WS_EX_CONTROLPARENT);
+        create(owner, L"Linkora.Log", L"", 740, 430, WS_OVERLAPPEDWINDOW, WS_EX_CONTROLPARENT);
     language(value);
     if (dirty_)
         update_text();

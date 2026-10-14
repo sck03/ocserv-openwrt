@@ -21,7 +21,7 @@ def main():
     dist = ROOT / "dist"
     dist.mkdir(exist_ok=True)
     metadata = build_metadata()
-    name = f"LinkoraVPN-{metadata['release_label']}-windows-{args.arch}"
+    name = f"Linkora-{metadata['release_label']}-windows-{args.arch}"
     build = args.build.resolve()
     validation = ROOT / "test-results" / f"package-windows-{args.arch}"
     validation.mkdir(parents=True, exist_ok=True)
@@ -46,7 +46,7 @@ def main():
         folder.mkdir()
         license_dir = folder / "licenses"
         license_dir.mkdir()
-        for filename in ("LinkoraVPN.exe", "wintun.dll"):
+        for filename in ("Linkora.exe", "wintun.dll"):
             shutil.copyfile(build / filename, folder / filename)
         for filename in ("client/vendor/vpnc-script-win.js", "THIRD-PARTY-NOTICES.md", "docs/WAN.md"):
             shutil.copyfile(ROOT / filename, folder / Path(filename).name)
@@ -61,7 +61,7 @@ def main():
             if not notices:
                 raise RuntimeError("Missing GCC runtime license notices")
             shutil.copyfile(notices[-1], license_dir / "GCC-runtime.txt")
-        exe = folder / "LinkoraVPN.exe"
+        exe = folder / "Linkora.exe"
         subprocess.run([args.strip, "--strip-all", str(exe)], check=True)
         data = exe.read_bytes()
         machine = struct.unpack_from("<H", data, struct.unpack_from("<I", data, 0x3C)[0] + 4)[0]
@@ -73,8 +73,8 @@ def main():
         if sha256(folder / "wintun.dll") != sha256(source_dll):
             raise RuntimeError("The official Wintun DLL was changed or has the wrong architecture")
         (folder / "使用说明.txt").write_text(
-            f"Linkora VPN {version()}\n\n"
-            "1. 完整解压，运行“LinkoraVPN.exe”。64 位 Windows 用 x64，32 位用 x86。\n"
+            f"Linkora {version()}\n\n"
+            "1. 完整解压，运行“Linkora.exe”。64 位 Windows 用 x64，32 位用 x86。\n"
             "2. 在“配置”菜单新建连接，或直接填写实际网关地址，支持端口和用户组路径。\n"
             "3. 点击“连接”，按需完成 Windows 管理员授权，随后按服务器提示填写用户名、密码、分组或验证码。\n"
             "4. 未知证书需核对指纹后确认；指定 CA 或固定指纹不匹配时会拒绝连接。\n"

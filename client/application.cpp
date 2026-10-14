@@ -53,7 +53,7 @@ bool Application::claim_instance() {
         hash *= 1099511628211ULL;
     }
     instance_name_ =
-        L"Local\\LinkoraVPN.App." + std::to_wstring(hash) + (administrator() ? L".admin" : L".user");
+        L"Local\\Linkora.App." + std::to_wstring(hash) + (administrator() ? L".admin" : L".user");
     instance_.reset(CreateMutexW(nullptr, FALSE, instance_name_.c_str()));
     if (!instance_) {
         error(nullptr, system_error(GetLastError()));
@@ -90,7 +90,7 @@ int Application::run(int show, const std::string &connect_profile, bool startup)
         return 0;
     auto_connect_ = startup ? preferences_.auto_connect : connect_profile;
     taskbar_created_ = RegisterWindowMessageW(L"TaskbarCreated");
-    if (!create(nullptr, L"LinkoraVPN.Main", Product, 480, 314,
+    if (!create(nullptr, L"Linkora.Main", Product, 480, 314,
                 WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX, WS_EX_CONTROLPARENT,
                 CreateMenu())) {
         error(nullptr, system_error(GetLastError()));
@@ -191,7 +191,7 @@ void Application::rebuild_menu() {
     menu_item(help, ReportIssue, t(L"报告问题", L"Report an issue"));
     AppendMenuW(help, MF_SEPARATOR, 0, nullptr);
     menu_item(help, License, t(L"许可证信息", L"License information"));
-    menu_item(help, About, t(L"关于 Linkora VPN", L"About Linkora VPN"));
+    menu_item(help, About, t(L"关于 Linkora", L"About Linkora"));
     submenu(menu, file, t(L"文件(&F)", L"&File"));
     submenu(menu, profiles, t(L"配置(&P)", L"&Profiles"));
     submenu(menu, view, t(L"查看(&V)", L"&View"));
@@ -342,7 +342,7 @@ void Application::toggle_auto_connect() {
 }
 void Application::export_diagnostics() {
     auto path = choose_file(window_, true, L"Diagnostics / 诊断信息 (*.json)\0*.json\0\0", L"json",
-                            L"LinkoraVPN-diagnostics.json");
+                            L"Linkora-diagnostics.json");
     if (!path)
         return;
     auto status = status_;

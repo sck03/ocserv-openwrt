@@ -26,13 +26,13 @@ target_link_libraries(client_session PUBLIC
     -Wl,--end-group ncrypt secur32 iphlpapi)
 add_library(client_ui STATIC application.cpp ui.cpp dialogs.cpp)
 target_link_libraries(client_ui PUBLIC client_session)
-add_executable(LinkoraVPN WIN32 main.cpp "${PROJECT_SOURCE_DIR}/resources/app.rc")
+add_executable(Linkora WIN32 main.cpp "${PROJECT_SOURCE_DIR}/resources/app.rc")
 set_source_files_properties("${PROJECT_SOURCE_DIR}/resources/app.rc" PROPERTIES
     OBJECT_DEPENDS "${VPN_GENERATED_DIR}/app.manifest;${PROJECT_SOURCE_DIR}/resources/app.ico")
-target_include_directories(LinkoraVPN PRIVATE "${PROJECT_SOURCE_DIR}/resources")
-target_link_options(LinkoraVPN PRIVATE -municode)
-target_link_libraries(LinkoraVPN PRIVATE client_ui)
-set_target_properties(LinkoraVPN PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}")
+target_include_directories(Linkora PRIVATE "${PROJECT_SOURCE_DIR}/resources")
+target_link_options(Linkora PRIVATE -municode)
+target_link_libraries(Linkora PRIVATE client_ui)
+set_target_properties(Linkora PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}")
 configure_file("${PROJECT_SOURCE_DIR}/.deps/sources/wintun/bin/${WINTUN_ARCH}/wintun.dll"
                "${CMAKE_BINARY_DIR}/wintun.dll" COPYONLY)
 configure_file(vendor/vpnc-script-win.js "${CMAKE_BINARY_DIR}/vpnc-script-win.js" COPYONLY)

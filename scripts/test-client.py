@@ -53,7 +53,7 @@ def smoke_test(executable, directory, environment, language):
             if pid.value == process.pid:
                 name = ctypes.create_unicode_buffer(128)
                 user32.GetClassNameW(handle, name, len(name))
-                if name.value == "LinkoraVPN.Main":
+                if name.value == "Linkora.Main":
                     window = handle
                     return False
             return True
@@ -69,7 +69,7 @@ def smoke_test(executable, directory, environment, language):
                 raise RuntimeError(f"Portable executable did not create its {language} window")
             title = ctypes.create_unicode_buffer(256)
             user32.GetWindowTextW(window, title, len(title))
-            expected = "Linkora VPN"
+            expected = "Linkora"
             if title.value != expected:
                 raise RuntimeError(f"Portable executable has incorrect {language} title: {title.value}")
             user32.PostMessageW(window, 0x0010, 0, 0)  # WM_CLOSE, this test process only.
@@ -83,7 +83,7 @@ def smoke_test(executable, directory, environment, language):
 
 
 def validate_package_members(archive):
-    required = {"LinkoraVPN.exe", "wintun.dll", "vpnc-script-win.js", "BUILDINFO.json",
+    required = {"Linkora.exe", "wintun.dll", "vpnc-script-win.js", "BUILDINFO.json",
                 "THIRD-PARTY-NOTICES.md", "WAN.md", "使用说明.txt"}
     roots, files = set(), set()
     for member in archive.infolist():
@@ -123,7 +123,7 @@ def inspect_package(package, output, environment):
         library.GetFileVersionInfoW.argtypes = [wintypes.LPCWSTR, wintypes.DWORD, wintypes.DWORD, ctypes.c_void_p]
         library.VerQueryValueW.argtypes = [ctypes.c_void_p, wintypes.LPCWSTR,
                                          ctypes.POINTER(ctypes.c_void_p), ctypes.POINTER(wintypes.UINT)]
-        executable = str(folder / "LinkoraVPN.exe")
+        executable = str(folder / "Linkora.exe")
         size = library.GetFileVersionInfoSizeW(executable, None)
         if not size:
             raise RuntimeError("Executable version resource is missing")
@@ -131,7 +131,7 @@ def inspect_package(package, output, environment):
         if not library.GetFileVersionInfoW(executable, 0, size, resource):
             raise ctypes.WinError(ctypes.get_last_error())
         for key, expected in (("FileVersion", version()), ("ProductVersion", version()),
-                              ("ProductName", "Linkora VPN"), ("OriginalFilename", "LinkoraVPN.exe")):
+                              ("ProductName", "Linkora"), ("OriginalFilename", "Linkora.exe")):
             value, length = ctypes.c_void_p(), wintypes.UINT()
             if not library.VerQueryValueW(resource, "\\StringFileInfo\\040904b0\\" + key,
                                           ctypes.byref(value), ctypes.byref(length)):
@@ -143,12 +143,12 @@ def inspect_package(package, output, environment):
         if sha256(folder / "vpnc-script-win.js") != sha256(ROOT / "client/vendor/vpnc-script-win.js"):
             raise RuntimeError("Package has an outdated routing script")
         subprocess.run([sys.executable, str(ROOT / "scripts/audit-pe.py"),
-                        str(folder / "LinkoraVPN.exe"), "--output", str(output / "package-imports.json")],
+                        str(folder / "Linkora.exe"), "--output", str(output / "package-imports.json")],
                        env=environment, check=True, capture_output=True)
         report = json.loads((output / "package-imports.json").read_text(encoding="utf-8"))
         if report["architecture"] != info["architecture"]:
             raise RuntimeError("Package architecture mismatch")
-        info["startup"] = [smoke_test(folder / "LinkoraVPN.exe", directory / language, environment, language)
+        info["startup"] = [smoke_test(folder / "Linkora.exe", directory / language, environment, language)
                            for language in ("zh-CN", "en")]
         return info
 

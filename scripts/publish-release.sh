@@ -9,8 +9,8 @@ fi
 component="$1"
 asset_directory="$2"
 case "$component" in
-  client) title="Linkora VPN Windows 客户端" ;;
-  server) title="Linkora VPN OpenWrt 服务端与中文管理页" ;;
+  client) title="Linkora Windows 客户端" ;;
+  server) title="Linkora OpenWrt 服务端与中文管理页" ;;
   *) echo "Unknown release component: $component" >&2; exit 2 ;;
 esac
 

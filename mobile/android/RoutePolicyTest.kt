@@ -70,4 +70,19 @@ class RoutePolicyTest {
             assertEquals(routes.size, routes.distinct().size)
         }
     }
+
+    @Test fun nestedAndDuplicateNetworksProduceTheSameRoutesInAnyOrder() {
+        val included = listOf("192.0.2.0/24", "192.0.2.128/25", "192.0.2.0/26",
+            "2001:db8::/120", "2001:db8::80/121").map(::route)
+        val excluded = listOf("192.0.2.64/26", "192.0.2.64/27", "192.0.2.65/32",
+            "2001:db8::40/122", "2001:db8::41/128").map(::route)
+        val expected = RoutePolicy.routes(listOf(included[0], included[3]), listOf(excluded[0], excluded[3]))
+        assertEquals(expected, RoutePolicy.routes(included + included, excluded + excluded))
+        assertEquals(expected, RoutePolicy.routes(included.reversed(), excluded.reversed()))
+        for (host in 0..255) {
+            val retained = host !in 64..127
+            assertEquals(retained, covered(expected, "192.0.2.$host"))
+            assertEquals(retained, covered(expected, "2001:db8::${host.toString(16)}"))
+        }
+    }
 }

@@ -139,7 +139,7 @@ int wmain(int argc, wchar_t **argv) {
         Application application(root / L"data");
         std::thread actions([&] {
             try {
-                HWND main = await_window(L"LinkoraVPN.Main");
+                HWND main = await_window(L"Linkora.Main");
                 check(read_window_text(main) == Product, "Main window product name is incorrect");
                 check(get(main, Connect) == L"连接" && !IsWindowEnabled(GetDlgItem(main, Connect)),
                       "Empty gateway cannot connect");
@@ -151,7 +151,7 @@ int wmain(int argc, wchar_t **argv) {
                 check(get(main, Status) == L"未连接", "Wake created an unsolicited connection");
                 snapshot(main, root / L"main-zh.bmp");
                 command(main, NewProfile);
-                HWND profile = await_window(L"LinkoraVPN.Profile");
+                HWND profile = await_window(L"Linkora.Profile");
                 set(profile, ProfileName, L"办公 VPN（测试）");
                 set(profile, ProfileGateway, L"vpn.example.test:4443");
                 controls_fit(profile);
@@ -168,7 +168,7 @@ int wmain(int argc, wchar_t **argv) {
                     },
                     "Retry preference was not enabled");
                 command(main, EditSelected);
-                profile = await_window(L"LinkoraVPN.Profile");
+                profile = await_window(L"Linkora.Profile");
                 check(get(profile, ProfileName) == L"办公 VPN（测试）",
                       "Unicode profile name did not round-trip");
                 check(get(profile, ProfileGateway) == L"https://vpn.example.test:4443",
@@ -191,7 +191,7 @@ int wmain(int argc, wchar_t **argv) {
                           profiles[0].disable_udp,
                       "Advanced settings were not persisted");
                 command(main, EditSelected);
-                profile = await_window(L"LinkoraVPN.Profile");
+                profile = await_window(L"Linkora.Profile");
                 set(profile, ProfileName, L"must-not-save");
                 command(profile, IDCANCEL);
                 wait_for([&] { return !IsWindow(profile); }, "Cancel did not close editor");
@@ -205,7 +205,7 @@ int wmain(int argc, wchar_t **argv) {
                 controls_fit(main);
                 snapshot(main, root / L"vpn-info-zh.bmp");
                 command(main, ShowLog);
-                HWND log = await_window(L"LinkoraVPN.Log");
+                HWND log = await_window(L"Linkora.Log");
                 check(get(log, LogAutoScroll) == L"自动滚动", "Log controls were not translated");
                 check(get(log, ExportDiagnostics) == L"导出诊断",
                       "Diagnostic export is missing from the log window");
@@ -220,7 +220,7 @@ int wmain(int argc, wchar_t **argv) {
                 SendMessageW(main, WM_NOTIFY, Tabs, reinterpret_cast<LPARAM>(&notification));
                 snapshot(main, root / L"main-en.bmp");
                 command(main, EditSelected);
-                profile = await_window(L"LinkoraVPN.Profile");
+                profile = await_window(L"Linkora.Profile");
                 check(read_window_text(profile) == L"Edit profile", "Editor did not switch to English");
                 controls_fit(profile);
                 snapshot(profile, root / L"advanced-profile-en.bmp");
@@ -237,9 +237,9 @@ int wmain(int argc, wchar_t **argv) {
             } catch (const std::exception &exception) {
                 failure = exception.what();
                 // Close only windows owned by the current test thread.
-                if (HWND profile = find_window(L"LinkoraVPN.Profile"))
+                if (HWND profile = find_window(L"Linkora.Profile"))
                     command(profile, IDCANCEL);
-                if (HWND main = find_window(L"LinkoraVPN.Main"))
+                if (HWND main = find_window(L"Linkora.Main"))
                     command(main, Quit);
             }
         });

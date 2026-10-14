@@ -78,6 +78,10 @@ int main(int argc, char **argv) {
         check(store.load(profiles, preferences, error) && profiles.size() == 1 &&
                   profiles[0].password == first.password && profiles[0].name == first.name,
               "portable profile load");
+        check(unprotect_secret(profiles[0].password_blob,
+                               "LinkoraVPN/1/" + first.id + "/password/https://127.0.0.1:4443", decoded) &&
+                  decoded == first.password,
+              "product rename preserves the existing DPAPI context");
         Profile second;
         second.name = L"Second gateway";
         second.gateway = L"vpn.example.com/group";

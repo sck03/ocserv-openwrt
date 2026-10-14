@@ -87,7 +87,7 @@ elif name=='firewall':
 '''
 
 checks = []
-with tempfile.TemporaryDirectory(prefix='linkora-vpn-install-test-') as temporary:
+with tempfile.TemporaryDirectory(prefix='linkora-install-test-') as temporary:
     base = Path(temporary)
 
     def fixture(name, existing=False, architectures='aarch64_generic\naarch64\n'):
@@ -138,7 +138,7 @@ with tempfile.TemporaryDirectory(prefix='linkora-vpn-install-test-') as temporar
     assert firewall['ocserv_vpn.name'] == 'ocvpn' and firewall['ocserv_vpn_nat.src_ip'] == '10.77.0.0/24'
     assert firewall['ocserv_vpn_entry.dest_port'] == '4443'
     assert not (root / 'etc/ocserv/easy-install-pending').exists()
-    assert len(list((root / 'root').glob('linkora-vpn-before-install-*'))) == 1
+    assert len(list((root / 'root').glob('linkora-before-install-*'))) == 1
     checks.append('fresh install prepares VPN forwarding and keeps OpenClash/DNS settings')
     previous = (root / 'etc/config/firewall').read_bytes()
     assert run(root).returncode == 0 and (root / 'etc/config/firewall').read_bytes() == previous

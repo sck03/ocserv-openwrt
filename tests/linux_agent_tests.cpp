@@ -44,7 +44,7 @@ int main() {
         GDBusConnection *bus = g_bus_get_sync(G_BUS_TYPE_SESSION, nullptr, &error);
         check(bus != nullptr, "private test D-Bus was not available");
         auto *agent = NM_SECRET_AGENT_OLD(g_object_new(
-            linkora_agent_get_type(), NM_SECRET_AGENT_OLD_IDENTIFIER, "io.github.sck03.linkoravpn.test",
+            linkora_agent_get_type(), NM_SECRET_AGENT_OLD_IDENTIFIER, "io.github.sck03.linkora.test",
             NM_SECRET_AGENT_OLD_AUTO_REGISTER, FALSE, NM_SECRET_AGENT_OLD_DBUS_CONNECTION, bus, nullptr));
         check(agent != nullptr, "could not create the real secret agent");
         Result initialized;

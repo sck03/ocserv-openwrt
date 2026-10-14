@@ -37,7 +37,7 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int show) {
             LocalFree(arguments);
         valid = valid && !(startup && !connect.empty());
         if (!valid)
-            ui::error(nullptr, L"用法 / Usage: LinkoraVPN.exe [--data-dir <directory>] [--connect "
+            ui::error(nullptr, L"用法 / Usage: Linkora.exe [--data-dir <directory>] [--connect "
                                L"<profile-id>] [--startup]");
         else {
             Application application(std::move(data));

@@ -1,8 +1,8 @@
 [Desktop Entry]
 Type=Application
-Name=Linkora VPN
+Name=Linkora
 Comment=Connect securely to an OpenConnect / ocserv VPN
-Exec=linkora-vpn
-Icon=io.github.sck03.linkoravpn
+Exec=linkora
+Icon=io.github.sck03.linkora
 Terminal=false
 Categories=Network;

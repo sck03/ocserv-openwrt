@@ -36,13 +36,20 @@ internal object RoutePolicy {
         return Block(network, cidr.prefixLength, bits)
     }
 
-    fun routes(included: List<Cidr>, excluded: List<Cidr>): List<Cidr> {
-        val unique = mutableListOf<Block>()
-        for (candidate in included.map(::block).distinct().sortedBy { it.prefix }) {
-            if (unique.none { it.contains(candidate) }) unique.add(candidate)
+    private fun blocks(routes: List<Cidr>): List<Block> {
+        val sorted = routes.map(::block).sortedWith(compareBy({ it.bits }, { it.address }, { it.prefix }))
+        return buildList {
+            // Aligned CIDRs are either disjoint or nested. A retained parent is
+            // still the last block when its duplicate or child is encountered.
+            for (candidate in sorted) {
+                if (lastOrNull()?.contains(candidate) != true) add(candidate)
+            }
         }
-        var remaining: List<Block> = unique
-        for (excludedBlock in excluded.map(::block).distinct()) {
+    }
+
+    fun routes(included: List<Cidr>, excluded: List<Cidr>): List<Cidr> {
+        var remaining = blocks(included)
+        for (excludedBlock in blocks(excluded)) {
             remaining = buildList { for (route in remaining) route.subtract(excludedBlock, this) }
         }
         return remaining.map { it.cidr() }

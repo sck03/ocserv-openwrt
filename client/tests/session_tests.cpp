@@ -310,7 +310,7 @@ int wmain(int argc, wchar_t **argv) {
                             output.erase("probe_bind_error");
                         }
                     }
-                    constexpr char payload[] = "linkora-vpn-loopback-tunnel";
+                    constexpr char payload[] = "linkora-loopback-tunnel";
                     if (probe.socket != INVALID_SOCKET && elapsed - probe_sent_at >= 250) {
                         sockaddr_in peer{};
                         peer.sin_family = AF_INET;
@@ -355,7 +355,7 @@ int wmain(int argc, wchar_t **argv) {
         output["held_prompt_canceled"] = held_prompt && held_prompt->done && !held_prompt->accepted;
         output["diagnostics"] = Json::parse(diagnostic_report(final_status, final_statistics, log, 0));
         Handle lease(
-            CreateMutexW(nullptr, FALSE, (L"Local\\LinkoraVPN.Session." + wide(profile.id)).c_str()));
+            CreateMutexW(nullptr, FALSE, (L"Local\\Linkora.Session." + wide(profile.id)).c_str()));
         DWORD acquired = lease ? WaitForSingleObject(lease.get(), 0) : WAIT_FAILED;
         output["lease_released"] = acquired == WAIT_OBJECT_0;
         if (acquired == WAIT_OBJECT_0 || acquired == WAIT_ABANDONED)
@@ -367,7 +367,7 @@ int wmain(int argc, wchar_t **argv) {
             }
             output["udp_probe"] = probe_answered;
             output["probe_after_reconnect"] = probe_after_reconnect;
-            auto name = L"LinkoraVPN-" + wide(profile.id.substr(0, 12));
+            auto name = L"Linkora-" + wide(profile.id.substr(0, 12));
             for (unsigned attempt = 0; attempt < 100 && adapter_present(name); ++attempt)
                 Sleep(100);
             output["adapter_removed"] = !adapter_present(name);

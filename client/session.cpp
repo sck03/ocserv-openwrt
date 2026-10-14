@@ -24,7 +24,7 @@ std::string system_proxy(const std::wstring &url) {
         return {};
     std::wstring selected = config.lpszProxy ? config.lpszProxy : L"";
     if (config.fAutoDetect || config.lpszAutoConfigUrl) {
-        HINTERNET session = WinHttpOpen(L"LinkoraVPN", WINHTTP_ACCESS_TYPE_NO_PROXY, nullptr, nullptr, 0);
+        HINTERNET session = WinHttpOpen(L"Linkora", WINHTTP_ACCESS_TYPE_NO_PROXY, nullptr, nullptr, 0);
         if (session) {
             WinHttpSetTimeouts(session, 5000, 5000, 5000, 5000);
             WINHTTP_AUTOPROXY_OPTIONS options{};
@@ -580,7 +580,7 @@ void Session::setup_tun_callback(void *context) {
         auto script = self->profile_.script.empty() ? executable_directory() / L"vpnc-script-win.js"
                                                     : std::filesystem::path(self->profile_.script);
         std::string interface_name = self->profile_.interface_name.empty()
-                                         ? "LinkoraVPN-" + self->profile_.id.substr(0, 12)
+                                         ? "Linkora-" + self->profile_.id.substr(0, 12)
                                          : utf8(self->profile_.interface_name);
         int result =
             openconnect_setup_tun_device(self->vpn_, utf8(script.wstring()).c_str(), interface_name.c_str());
@@ -654,7 +654,7 @@ bool Session::prepare_script_log() {
     auto id = random_id();
     if (id.empty())
         return false;
-    script_log_ = std::filesystem::path(temporary) / (L"LinkoraVPN-" + wide(id) + L".log");
+    script_log_ = std::filesystem::path(temporary) / (L"Linkora-" + wide(id) + L".log");
     if (!write_atomic(script_log_, "", error_))
         return false;
     DWORD needed = GetEnvironmentVariableW(L"VPN_SCRIPT_LOG", nullptr, 0);
@@ -748,7 +748,7 @@ void Session::run() {
         return;
     }
     Handle session_lock(
-        CreateMutexW(nullptr, FALSE, (L"Local\\LinkoraVPN.Session." + wide(profile_.id)).c_str()));
+        CreateMutexW(nullptr, FALSE, (L"Local\\Linkora.Session." + wide(profile_.id)).c_str()));
     DWORD acquired = session_lock ? WaitForSingleObject(session_lock.get(), 0) : WAIT_FAILED;
     if (acquired != WAIT_OBJECT_0 && acquired != WAIT_ABANDONED) {
         fail(acquired == WAIT_TIMEOUT ? ErrorCategory::Busy : ErrorCategory::Internal,
@@ -842,7 +842,7 @@ bool Session::run_attempt() {
             return fail(ErrorCategory::Adapter);
     }
     state(State::Connecting);
-    const std::string user_agent = std::string("LinkoraVPN/") + Version;
+    const std::string user_agent = std::string("Linkora/") + Version;
     vpn_ = openconnect_vpninfo_new(user_agent.c_str(), certificate_callback, nullptr, authentication_callback,
                                    progress_callback, this);
     if (!vpn_) {

@@ -67,6 +67,14 @@ class AndroidTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             android_prepare.section("end before start", "start", "end", "new")
 
+    def test_apk_identity_checks_every_localized_name(self):
+        badging = "package: name='io.github.sck03.linkora' versionCode='20'\napplication-label:'Linkora'\n"
+        android_audit.audit_badging(badging + "application-label-zh-CN:'Linkora'\n")
+        for invalid in ("", badging.replace("sck03.linkora", "sck03.other"),
+                        badging + "application-label-en:'Legacy Client'\n"):
+            with self.subTest(invalid=invalid), self.assertRaises(ValueError):
+                android_audit.audit_badging(invalid)
+
 
 class SourceTests(unittest.TestCase):
     def test_manifest_has_fixed_https_sources(self):
@@ -161,7 +169,7 @@ class PackagingTests(unittest.TestCase):
         self.out = self.root / "dist/ios"
         self.out.mkdir(parents=True)
         self.source_out = self.root / "dist/ios-source"
-        self.source_package = self.source_out / "LinkoraVPN-ios-source.zip"
+        self.source_package = self.source_out / "Linkora-ios-source.zip"
         self.archive = self.root / ".tools/mobile-downloads/source.tar.gz"
         self.archive.parent.mkdir(parents=True)
         self.archive.write_bytes(b"upstream archive")
@@ -210,7 +218,7 @@ class PackagingTests(unittest.TestCase):
         info.parent.mkdir(parents=True)
         info.write_text(json.dumps(self.entries))
         packaging.package("macos")
-        with zipfile.ZipFile(self.root / "dist/macos-source/LinkoraVPN-macos-source.zip") as bundle:
+        with zipfile.ZipFile(self.root / "dist/macos-source/Linkora-macos-source.zip") as bundle:
             names = set(bundle.namelist())
         self.assertIn("project/resources/app.ico", names)
         self.assertIn("project/client/apple/PacketTunnelProvider.m", names)
@@ -219,11 +227,11 @@ class PackagingTests(unittest.TestCase):
         self.assertNotIn("project/mobile/ios/app.swift", names)
 
     def test_runtime_checksums_exclude_test_reports_and_source_archives(self):
-        for name in ("LinkoraVPN-ios.ipa", "BUILDINFO.json", "validation.log", "corresponding-source.zip"):
+        for name in ("Linkora-ios.ipa", "BUILDINFO.json", "validation.log", "corresponding-source.zip"):
             (self.out / name).write_bytes(b"fixture output")
         packaging.package("ios")
         names = {line.split("  ", 1)[1] for line in (self.out / "SHA256SUMS.txt").read_text().splitlines()}
-        self.assertEqual(names, {"LinkoraVPN-ios.ipa", "BUILDINFO.json"})
+        self.assertEqual(names, {"Linkora-ios.ipa", "BUILDINFO.json"})
         self.assertTrue(self.source_package.is_file())
 
     def test_source_keeps_mobile_build_inputs_without_unrelated_scripts(self):
@@ -259,16 +267,16 @@ class SigningTests(unittest.TestCase):
             "ApplicationIdentifierPrefix": ["PREFIX1234"], "TeamIdentifier": ["TEAM123456"],
             "ExpirationDate": datetime.datetime.now() + datetime.timedelta(days=30),
             "UUID": "01234567-89AB-CDEF-0123-456789ABCDEF", "ProvisionedDevices": ["device"],
-            "Entitlements": {"application-identifier": "PREFIX1234.io.github.sck03.linkoravpn",
+            "Entitlements": {"application-identifier": "PREFIX1234.io.github.sck03.linkora",
                              "com.apple.developer.networking.networkextension": ["packet-tunnel-provider"],
                              "get-task-allow": False},
         }
 
     def test_accepts_matching_distribution_profile(self):
-        self.assertEqual(signing.validate_profile(self.profile, "io.github.sck03.linkoravpn", "TEAM123456"), self.profile["UUID"])
+        self.assertEqual(signing.validate_profile(self.profile, "io.github.sck03.linkora", "TEAM123456"), self.profile["UUID"])
 
     def test_rejects_wrong_app_or_team(self):
-        for bundle, team in (("io.github.sck03.linkoravpn.tunnel", "TEAM123456"), ("io.github.sck03.linkoravpn", "WRONG")):
+        for bundle, team in (("io.github.sck03.linkora.tunnel", "TEAM123456"), ("io.github.sck03.linkora", "WRONG")):
             with self.assertRaises(ValueError):
                 signing.validate_profile(self.profile, bundle, team)
 
@@ -288,7 +296,7 @@ class SigningTests(unittest.TestCase):
         invalid.append(p)
         for profile in invalid:
             with self.assertRaises(ValueError):
-                signing.validate_profile(profile, "io.github.sck03.linkoravpn", "TEAM123456")
+                signing.validate_profile(profile, "io.github.sck03.linkora", "TEAM123456")
 
 
 if __name__ == "__main__":

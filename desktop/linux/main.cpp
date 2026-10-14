@@ -75,10 +75,10 @@ public:
         g_clear_object(&client);
     }
     std::string settingsPath() const {
-        return std::string(g_get_user_config_dir()) + "/linkora-vpn/settings.ini";
+        return std::string(g_get_user_config_dir()) + "/linkora/settings.ini";
     }
     std::string startupPath() const {
-        return std::string(g_get_user_config_dir()) + "/autostart/io.github.sck03.linkoravpn.desktop";
+        return std::string(g_get_user_config_dir()) + "/autostart/io.github.sck03.linkora.desktop";
     }
     void transition(const char *phase, const char *label, const char *description = "") {
         state = phase;
@@ -97,15 +97,16 @@ public:
     }
     void update() {
         bool busy = request.wanted || active || pending;
+        const bool hasProfile = selected() != nullptr;
         bool available =
             client && nm_client_get_nm_running(client) && agent && nm_secret_agent_old_get_registered(agent);
         gtk_button_set_label(GTK_BUTTON(connectButton), busy ? "断开 / 取消" : "连接");
-        gtk_widget_set_sensitive(connectButton, !closing && (busy || (available && selected())));
+        gtk_widget_set_sensitive(connectButton, !closing && (busy || (available && hasProfile)));
         for (auto *widget : {servers, newButton, editButton, deleteButton, login, retryCheck})
             gtk_widget_set_sensitive(widget, !busy && !closing && (available || smoke));
-        gtk_widget_set_sensitive(editButton, !busy && !closing && selected());
-        gtk_widget_set_sensitive(deleteButton, !busy && !closing && selected());
-        gtk_widget_set_sensitive(login, !busy && !closing && (selected() || !autoID.empty()));
+        gtk_widget_set_sensitive(editButton, !busy && !closing && hasProfile);
+        gtk_widget_set_sensitive(deleteButton, !busy && !closing && hasProfile);
+        gtk_widget_set_sensitive(login, !busy && !closing && (hasProfile || !autoID.empty()));
         std::string loginLabel = "登录后自动连接所选服务器";
         if (client && !autoID.empty()) {
             if (auto *profile = nm_client_get_connection_by_uuid(client, autoID.c_str()))
@@ -144,7 +145,7 @@ public:
         g_key_file_unref(settings);
     }
     bool savePreferences() {
-        std::string directory = std::string(g_get_user_config_dir()) + "/linkora-vpn";
+        std::string directory = std::string(g_get_user_config_dir()) + "/linkora";
         if (g_mkdir_with_parents(directory.c_str(), 0700))
             return false;
         GKeyFile *settings = g_key_file_new();
@@ -169,8 +170,8 @@ public:
         bool ok = savePreferences();
         if (ok && enabled) {
             std::string directory = std::string(g_get_user_config_dir()) + "/autostart";
-            constexpr char entry[] = "[Desktop Entry]\nType=Application\nName=Linkora "
-                                     "VPN\nExec=/usr/bin/linkora-vpn --autoconnect\nTerminal=false\n";
+            constexpr char entry[] = "[Desktop Entry]\nType=Application\nName=Linkora\n"
+                                     "Exec=/usr/bin/linkora --autoconnect\nTerminal=false\n";
             ok = g_mkdir_with_parents(directory.c_str(), 0700) == 0 &&
                  g_file_set_contents_full(startupPath().c_str(), entry, -1, G_FILE_SET_CONTENTS_CONSISTENT,
                                           0600, nullptr);
@@ -540,12 +541,12 @@ public:
         GtkWidget *dialog =
             gtk_file_chooser_dialog_new("导出诊断信息", GTK_WINDOW(window), GTK_FILE_CHOOSER_ACTION_SAVE,
                                         "取消", GTK_RESPONSE_CANCEL, "保存", GTK_RESPONSE_ACCEPT, nullptr);
-        gtk_file_chooser_set_current_name(GTK_FILE_CHOOSER(dialog), "LinkoraVPN-diagnostics.txt");
+        gtk_file_chooser_set_current_name(GTK_FILE_CHOOSER(dialog), "Linkora-diagnostics.txt");
         gtk_file_chooser_set_do_overwrite_confirmation(GTK_FILE_CHOOSER(dialog), TRUE);
         if (gtk_dialog_run(GTK_DIALOG(dialog)) == GTK_RESPONSE_ACCEPT) {
             char *path = gtk_file_chooser_get_filename(GTK_FILE_CHOOSER(dialog));
             std::ostringstream report;
-            report << "Linkora VPN " LINKORA_VERSION "\nPlatform: Linux\nNetworkManager: "
+            report << "Linkora " LINKORA_VERSION "\nPlatform: Linux\nNetworkManager: "
                    << (client ? nm_client_get_version(client) : "unavailable")
                    << "\nSession: " << request.value << "\nGeneration: " << stateGeneration
                    << "\nState: " << state << "\nError: " << error << "\nAttempt: " << attempt << "\n\n";
@@ -560,14 +561,14 @@ public:
     }
     void create() {
         window = gtk_application_window_new(app);
-        gtk_window_set_title(GTK_WINDOW(window), "Linkora VPN");
+        gtk_window_set_title(GTK_WINDOW(window), "Linkora");
         gtk_window_set_default_size(GTK_WINDOW(window), 540, 330);
         gtk_window_set_icon_name(GTK_WINDOW(window), ProductID);
         GtkWidget *box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 16);
         gtk_container_set_border_width(GTK_CONTAINER(box), 24);
         gtk_container_add(GTK_CONTAINER(window), box);
         GtkWidget *title = gtk_label_new(nullptr);
-        gtk_label_set_markup(GTK_LABEL(title), "<span size='x-large' weight='bold'>Linkora VPN</span>");
+        gtk_label_set_markup(GTK_LABEL(title), "<span size='x-large' weight='bold'>Linkora</span>");
         gtk_box_pack_start(GTK_BOX(box), title, FALSE, FALSE, 0);
         servers = gtk_combo_box_text_new();
         gtk_box_pack_start(GTK_BOX(box), servers, FALSE, FALSE, 0);
@@ -701,7 +702,7 @@ public:
 } // namespace
 int main(int argc, char **argv) {
     if (argc == 2 && !strcmp(argv[1], "--version")) {
-        std::puts("Linkora VPN " LINKORA_VERSION);
+        std::puts("Linkora " LINKORA_VERSION);
         return 0;
     }
     if (argc == 2 && !strcmp(argv[1], "--check-runtime")) {

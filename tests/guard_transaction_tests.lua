@@ -353,6 +353,18 @@ test("logs are capped and raw command secrets are never retained",function()
     check(log.diagnostic("secret-password subscription=https://secret.invalid Address already in use")=="address already in use")
     check(log.diagnostic("password=do-not-store")==nil)
 end)
+test("oversized logs retain the newest valid entries in chronological order",function()
+    reset(); local rows={}
+    for i=1,1024 do rows[#rows+1]={time=S.now,step="apply",code=tostring(i)} end
+    rows[#rows+1]={time=S.now+1,code="future"}
+    rows[#rows+1]={time=S.now-86400,code="expired"}
+    rows[#rows+1]={code="invalid"}
+    S.files["/var/run/ocserv-easy/guard-log.json"]=encode(rows)
+    local entries=log.read().entries
+    check(#entries==256 and entries[1].code=="769" and entries[256].code=="1024")
+    log.add("restore","latest"); entries=log.read().entries
+    check(#entries==256 and entries[1].code=="770" and entries[256].code=="latest")
+end)
 test("log write failure cannot prevent configuration recovery",function()
     reset(); enable(); S.fail_write="/var/run/ocserv-easy/guard-log.json"; disable(); check(not guard.active())
 end)

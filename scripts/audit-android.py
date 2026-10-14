@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
-"""Reject wrong-architecture or non-16-KB-aligned Android native libraries/APKs."""
+"""Verify Android native libraries and the installed APK's application identity."""
 import argparse
 from pathlib import Path
+import re
 import struct
+import subprocess
 import zipfile
 
 MACHINES = {"armeabi-v7a": (1, 40), "arm64-v8a": (2, 183), "x86_64": (2, 62)}
@@ -42,7 +44,14 @@ def audit_elf(data, abi):
         raise ValueError(f"{abi}: missing load segments")
 
 
-def audit(path):
+def audit_badging(text):
+    package = re.search(r"^package: name='([^']+)'", text, re.MULTILINE)
+    labels = re.findall(r"^application-label(?:-[^:]+)?:'([^']*)'$", text, re.MULTILINE)
+    if not package or package[1] != "io.github.sck03.linkora" or not labels or any(label != "Linkora" for label in labels):
+        raise ValueError("APK must identify as io.github.sck03.linkora and display Linkora in every locale")
+
+
+def audit(path, aapt=None):
     if path.is_dir():
         for abi in MACHINES:
             audit_elf((path / abi / "libopenconnect.so").read_bytes(), abi)
@@ -50,10 +59,15 @@ def audit(path):
         with zipfile.ZipFile(path) as apk:
             for abi in MACHINES:
                 audit_elf(apk.read(f"lib/{abi}/libopenconnect.so"), abi)
+        if aapt:
+            audit_badging(subprocess.check_output([aapt, "dump", "badging", path], encoding="utf-8"))
+            print("Application ID and all localized launcher names verified: Linkora")
     print(f"Native architecture and 16-KB alignment verified: {path}")
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("path", type=Path)
-    audit(parser.parse_args().path)
+    parser.add_argument("--aapt", type=Path, help="Android SDK aapt executable for APK identity checks")
+    args = parser.parse_args()
+    audit(args.path, args.aapt)

@@ -15,6 +15,7 @@ bool identifier(const std::string &value) {
 std::string context(const Profile &p, const char *kind) {
     std::wstring normalized, origin;
     normalize_gateway(p.gateway, normalized, &origin);
+    // Persisted DPAPI entropy must remain stable across product renames.
     return "LinkoraVPN/1/" + p.id + "/" + kind + "/" + utf8(origin);
 }
 std::wstring text(const Json &value, const char *key, size_t maximum = 32768) {
@@ -168,6 +169,7 @@ ProfileStore::ProfileStore(std::filesystem::path directory)
         hash ^= static_cast<uint64_t>(std::towlower(c));
         hash *= 1099511628211ULL;
     }
+    // Coordinate access with earlier clients that share this data directory.
     mutex_name_ = L"Local\\LinkoraVPN.ProfileStore." + std::to_wstring(hash);
 }
 bool ProfileStore::load(std::vector<Profile> &profiles, Preferences &preferences, std::wstring &error) const {

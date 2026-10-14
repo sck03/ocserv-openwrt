@@ -41,7 +41,7 @@
 @end
 
 static NSError *VPNError(NSInteger category, NSString *message) {
-    return [NSError errorWithDomain:@"io.github.sck03.linkoravpn"
+    return [NSError errorWithDomain:@"io.github.sck03.linkora"
                                code:category
                            userInfo:@{NSLocalizedDescriptionKey : message}];
 }
@@ -178,7 +178,7 @@ static void Reconnected(void *data) {
             callback();
         return;
     }
-    self.packets = dispatch_queue_create("io.github.sck03.linkoravpn.packets", DISPATCH_QUEUE_SERIAL);
+    self.packets = dispatch_queue_create("io.github.sck03.linkora.packets", DISPATCH_QUEUE_SERIAL);
     dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
       @autoreleasepool {
           [self runServer:server.absoluteString completion:completionHandler];
@@ -193,7 +193,7 @@ static void Reconnected(void *data) {
     int sslResult = openconnect_init_ssl();
     @synchronized(self) {
         if (!self.stopping && !sslResult)
-            self.vpn = openconnect_vpninfo_new("LinkoraVPN-Apple", ValidateCertificate, NULL, Authenticate,
+            self.vpn = openconnect_vpninfo_new("Linkora-Apple", ValidateCertificate, NULL, Authenticate,
                                                Progress, (__bridge void *)self);
         if (self.vpn)
             self.commandFD = openconnect_setup_cmd_pipe(self.vpn);

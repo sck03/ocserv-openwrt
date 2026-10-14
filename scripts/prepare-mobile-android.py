@@ -20,27 +20,27 @@ def section(text, start, end, replacement):
 def prepare(app, root):
     gradle = app / "app/build.gradle.kts"
     value = once(gradle.read_text(encoding="utf-8"), 'applicationId = "dev.opentunnel.vpn"',
-                 'applicationId = "io.github.sck03.linkoravpn"')
-    value = once(value, '        versionCode = 16', '        versionCode = 19')
-    value = section(value, '        versionName =', '\n\n        ndk {', '        versionName = "0.2.0"')
+                 'applicationId = "io.github.sck03.linkora"')
+    value = once(value, '        versionCode = 16', '        versionCode = 20')
+    value = section(value, '        versionName =', '\n\n        ndk {', '        versionName = "0.2.1"')
     gradle.write_text(value, encoding="utf-8")
     resources = app / "app/src/main/res"
     for resource in resources.glob("values*/strings.xml"):
         value = resource.read_text(encoding="utf-8")
         if 'name="app_name"' in value:
             value = once(value, '<string name="app_name">OpenTunnel</string>',
-                         '<string name="app_name">Linkora VPN</string>')
-            resource.write_text(value.replace("OpenTunnel", "Linkora VPN"), encoding="utf-8")
+                         '<string name="app_name">Linkora</string>')
+            resource.write_text(value.replace("OpenTunnel", "Linkora"), encoding="utf-8")
     widget = resources / "layout/widget_opentunnel_4x1.xml"
     widget.write_text(once(widget.read_text(encoding="utf-8"), 'android:text="OpenTunnel"',
                            'android:text="@string/app_name"'), encoding="utf-8")
     # These visible names bypass Android string resources in the pinned upstream.
     source = app / "app/src/main/java/dev/opentunnel/vpn"
     for file, replacements in {
-        "util/Strings.kt": [('"OpenTunnel"', '"Linkora VPN"')],
-        "ui/screens/HomeScreen.kt": [('text = "OpenTunnel"', 'text = "Linkora VPN"')],
-        "ui/screens/SettingsScreen.kt": [('append("OpenTunnel ', 'append("Linkora VPN ')],
-        "ui/screens/LogScreen.kt": [('OpenTunnel log', 'Linkora VPN log')],
+        "util/Strings.kt": [('"OpenTunnel"', '"Linkora"')],
+        "ui/screens/HomeScreen.kt": [('text = "OpenTunnel"', 'text = "Linkora"')],
+        "ui/screens/SettingsScreen.kt": [('append("OpenTunnel ', 'append("Linkora ')],
+        "ui/screens/LogScreen.kt": [('OpenTunnel log', 'Linkora log')],
     }.items():
         path = source / file
         value = path.read_text(encoding="utf-8")
@@ -61,6 +61,7 @@ def prepare(app, root):
     native.write_text(value, encoding="utf-8")
     runner = app / "app/src/main/java/dev/opentunnel/vpn/core/TunnelRunner.kt"
     value = runner.read_text(encoding="utf-8")
+    value = once(value, 'import android.os.Build\n', '')
     value = section(value, '        val rawUrl = normaliseServer(profile.server)',
                     '        VpnBus.setStage(ConnectionStage.AUTHENTICATING)', '''        val url = normaliseServer(profile.server)
         VpnBus.info("Connecting to $url")
