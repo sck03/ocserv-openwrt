@@ -1,30 +1,30 @@
 # 验证记录
 
-本页记录当前支持平台的验证证据与实机边界。此前的构建、资源优化与设备验证记录保留在[历史版本](https://github.com/sck03/ocserv-openwrt/blob/d7de421/docs/VALIDATION.md)，不作为新系统基线的验收结果。
+本页记录岚序（Lansyra）全新安装版本的验证证据与实机边界。以前的打包和系统升级记录见[历史版本](https://github.com/sck03/ocserv-openwrt/blob/ba903fe/docs/VALIDATION.md)。
 
-## 2026-10-13 打包精简与系统升级
+## 2026-10-14 名称统一、全新安装与代码优化
 
-应用与构建脚本提交为 [`82cf893`](https://github.com/sck03/ocserv-openwrt/commit/82cf893)。Linux 桌面基线为 Debian 13 / Ubuntu 26.04 LTS，均支持 amd64、arm64；Windows 交叉编译、Android 与 OpenWrt 构建宿主升级为 Ubuntu 26.04。
+Windows、桌面与服务端代码提交为 [`9837c6c`](https://github.com/sck03/ocserv-openwrt/commit/9837c6c)。Android / iOS 在 [`7ec83b8`](https://github.com/sck03/ocserv-openwrt/commit/7ec83b8) 验证；已核对其应用、共享 Apple 核心、构建脚本和工作流在后续提交中没有变化。
 
-| 平台 | 当前提交的 GitHub 验证 |
+| 平台 | GitHub 验证 |
 |---|---|
-| Windows | [运行 38365497877](https://github.com/sck03/ocserv-openwrt/actions/runs/38365497877)：x86/x64 编译、PE 审计、便携包启动与原生回归通过；x64 七项真实 Wintun 隧道回归通过 |
-| macOS / Linux | [运行 38365509968](https://github.com/sck03/ocserv-openwrt/actions/runs/38365509968)：macOS Universal 编译通过；Linux 两种架构的编译、IPC/协议、DEB 审计及 Debian 13 / Ubuntu 26.04 四组安装与启动检查全部通过 |
-| iOS | [运行 38365523521](https://github.com/sck03/ocserv-openwrt/actions/runs/38365523521)：地址、指纹、凭据、数据包校验及应用/扩展 unsigned 归档通过 |
-| Android | [运行 38365516121](https://github.com/sck03/ocserv-openwrt/actions/runs/38365516121)：三个架构核心、JUnit、debug APK、签名与 16 KB 对齐检查通过 |
-| OpenWrt | [运行 38365504421](https://github.com/sck03/ocserv-openwrt/actions/runs/38365504421)：功能回归与六架构 APK 编译、ELF 审计和打包全部通过 |
+| Windows | [运行 38514906562](https://github.com/sck03/ocserv-openwrt/actions/runs/38514906562)：x86/x64 编译、PE 审计、便携包启动与原生回归通过；x64 七项真实 Wintun 隧道回归通过 |
+| macOS / Linux | [运行 38514908870](https://github.com/sck03/ocserv-openwrt/actions/runs/38514908870)：macOS Universal 编译通过；Linux 两种架构的编译、IPC/协议、DEB 审计及 Debian 13 / Ubuntu 26.04 四组安装与启动检查全部通过 |
+| iOS | [运行 38513614174](https://github.com/sck03/ocserv-openwrt/actions/runs/38513614174)：地址、指纹、凭据、数据包校验及应用/扩展 unsigned 归档通过 |
+| Android | [运行 38513611697](https://github.com/sck03/ocserv-openwrt/actions/runs/38513611697)：三个架构核心、JUnit、debug APK、签名与 16 KB 对齐检查通过 |
+| OpenWrt | [运行 38514911188](https://github.com/sck03/ocserv-openwrt/actions/runs/38514911188)：功能回归与六架构 APK 编译、ELF 审计和打包全部通过 |
 
-Windows 的 `windows-x64`、`windows-x86` Actions 附件由原来的 77,969,313 / 73,695,380 字节降至 3,006,734 / 3,096,229 字节。测试程序直接从构建目录传给独立 Windows 回归任务，不再复制到 `dist/validation-*` 或应用附件中。便携包增加运行文件和许可证清单检查，拒绝测试程序、源码 ZIP、旧配置与本机数据。
+界面和系统应用名称统一为“岚序 Lansyra”，程序、安装包及应用标识使用 Lansyra。Windows 便携包的中英文启动窗口、EXE 产品信息，Android APK 的全部本地化启动器名称，以及 Apple 应用和扩展的 Info.plist 均已检查。macOS 实际版本为 `0.1.1 (2)`，iOS 为 `0.2.2 (5)`，修复了包内版本停留在默认 `1.0` 的问题。
 
-macOS、Android、iOS 应用附件分别为 5,094,201、36,729,919、3,411,976 字节；对应源码作为独立附件保留。Linux DEB 分别为 37,708 / 36,182 字节，实际 ELF 为 61,464 / 69,600 字节。Linux 使用系统 GTK、libnm、libsecret 与 OpenConnect 插件，这些组件由 APT 安装；小体积不代表缺少应用代码，也不等于首次安装的总下载量或运行内存。
+全新安装使用新的密码加密上下文、NetworkManager 配置标记和防火墙标识；移除旧包替换声明、旧安装推断和相关兼容测试。服务端统一使用 `preflight.sh`，文档不再指导复用旧客户端数据、凭据或防火墙事务。
 
-Linux 改用 CPack / `dpkg-shlibdeps` 生成依赖和安装大小，从独立临时目录打包并裁剪符号。安装包检查确认只包含客户端、桌面入口、图标、说明和许可证。认证助手改为通过运行时 libnm 插件信息定位，修复将构建机路径用于其他发行版的问题；`--check-runtime` 在四组新系统安装测试中均找到实际助手。测试同时检查 ELF 架构、动态库加载、`--version` 和图形启动，不依赖预装的开发库。
+Android 对包含和排除路由排序、去重并消除被覆盖的子网，减少重复计算；服务端日志从尾部筛选最多 256 条有效记录，避免反复移动整个数组。macOS 限制配置读取大小并复用日期格式器；iOS 等待系统配置加载，避免重复创建或改写活跃连接。Linux 减少界面刷新时的重复配置查询，并启用支持的链接时优化。
 
-服务端保留 ELF、启动脚本、管理模块及 CSS 审计，依赖报告和页面资源哈希单独上传。安装 ZIP 不再包含 `validation/ui` 或重复页面副本；源码配方只从 Git 跟踪文件收集，拒绝混入未跟踪的旧文件。APK 与上游压缩源码直接存入 ZIP，避免重复压缩。移动/Apple 对应源码仅收录所需构建与回归脚本。
+实际应用包大小：Windows x64 / x86 ZIP 为 3,010,509 / 3,097,541 字节；Linux amd64 / arm64 DEB 为 37,448 / 35,936 字节；macOS ZIP 为 5,093,690 字节，Android debug APK 为 36,727,976 字节，iOS unsigned 归档为 3,410,398 字节。Linux 的 GTK、NetworkManager 和 OpenConnect 依赖由 APT 提供，DEB 大小不等于首次安装总量。源码与测试结果继续独立打包。
 
-已核对客户端及六架构服务端共 13 个实际附件的 SHA-256、ZIP CRC、配套校验清单和内容；Android APK 包含预期的三个 ABI，客户端应用附件不包含测试目录或源码包。Windows 每种架构通过连接 60、配置/DPAPI 47、界面 29、WSH 6、资源 8 组及回环认证 35 项；x64 另通过真实隧道 7 项。服务端报告确认逻辑 51、事务 36、证书 11、安装 24、密码文件 9、浏览器 15 组和轮询 5 组通过。
+已核对七个客户端和六个服务端实际附件的 GitHub SHA-256、ZIP CRC 和配套校验清单。每个服务端 ZIP 的 17 个内部文件全部通过 SHA-256 校验，包含两个 APK 及当前 `install.sh`、`preflight.sh`，不包含验证目录。Windows 每种架构通过连接 60、配置/DPAPI 47、界面 29、WSH 6、资源 8 组及回环认证 35 项；x64 另通过真实隧道 7 项。服务端逻辑 51、事务与日志 37、证书 11、安装 24、密码文件 9、浏览器 15 组和轮询 5 组通过。
 
-本地打包回归通过 Windows 13、移动端 18、服务端 7 项，清理脚本 4 项；实际生成的 Windows 源码 ZIP 解压后，构建参数 11、客户端打包 13、发布元数据 6 项通过。Python Ruff F、语法、工作流 YAML 与 JScript 24 项检查通过。清理脚本覆盖旧测试二进制、生成的 Apple 工程/Info.plist/图标及构建缓存；本轮清理旧测试记录、临时下载和缓存约 221 MiB，并卸载临时安装的检查工具。当前验证摘要保存在 `artifacts/validation/package-hygiene/`，过时记录通过历史链接保留。
+本地打包回归通过 Windows 13、移动端 19、服务端 7 项，清理脚本 4 项；Python / Shell / YAML 语法和 JScript 24 项检查通过。已删除约 188 MiB 旧安装包和中间验证文件、58 MiB 生成缓存、16 MiB 回归临时文件，并卸载本轮临时测试依赖。当前验证摘要保存在 `artifacts/validation/lansyra/`，已校验的当前安装包位于 `dist/`；历史数据不进入安装包。
 
 ## 验证方法与范围
 

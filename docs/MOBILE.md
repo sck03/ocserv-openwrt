@@ -84,13 +84,8 @@ bash scripts/build-ios.sh unsigned
 
 ## 验证范围
 
-2026-10-10 的 `ad551b6` 已通过完整构建：[Android 0.1.2 debug](https://github.com/sck03/ocserv-openwrt/actions/runs/38024503479)和 [iOS 0.1.1 unsigned](https://github.com/sck03/ocserv-openwrt/actions/runs/38024505852)。Android 包含地址、MTU、IPv4/IPv6 排除路由、仅 IPv4 隧道和证书策略单元测试；iOS 包含共用地址校验的 20 项用例及应用/扩展编译。完整结果见 [验证记录](VALIDATION.md)。
+2026-10-14 的 `7ec83b8` 已通过完整构建：[Android 0.2.1 debug](https://github.com/sck03/ocserv-openwrt/actions/runs/38513611697)和 [iOS 0.2.2 unsigned](https://github.com/sck03/ocserv-openwrt/actions/runs/38513614174)。启动器、应用和扩展使用“岚序 Lansyra”；Android 的全部本地化名称和实际应用 ID、Apple 包内版本均已核对。后续全新安装整理未改变移动端应用或构建脚本，完整结果见 [验证记录](VALIDATION.md)。
 
 `python3 tests/mobile_build_tests.py` 在 Windows/Linux/macOS 检查下载完整性、缓存篡改、解包路径、ELF 架构/页对齐和 Apple 描述文件校验。Android 工作流另外执行上游及本地策略单元测试、APK 架构/16 KB 对齐和签名验证；iOS 工作流运行 `tests/mobile_protocol_tests.c` 和 `tests/ios_connection_tests.m`，再编译并归档两个 target。
-
-2026-09-29 已完成 GitHub 全流程构建验证：
-
-- [Android debug 构建成功](https://github.com/sck03/ocserv-openwrt/actions/runs/36556596555)，提交 `60d0d2e`：三个架构的 VPN 核心、上游及新增证书策略单元测试、APK 签名与 16 KB 对齐检查通过。下载的 artifact 及其内部 `SHA256SUMS.txt` 已再次校验。这是历史构建记录，最新修订的验证见 [验证记录](VALIDATION.md)。
-- [iOS unsigned 构建成功](https://github.com/sck03/ocserv-openwrt/actions/runs/36558263182)，提交 `b469017`：Xcode 16.4 / iPhoneOS 18.5 SDK，最低目标 iOS 15；C 数据包校验测试、arm64 静态库检查、应用和 Packet Tunnel 扩展编译及 archive 打包通过。构建使用 OpenConnect 自带的 `strchrnul` 兼容实现，避免依赖 iOS 18.4 新增函数。
 
 尚未进行手机实机验收，也未使用真实发布密钥验证 Android release 或 iOS Ad Hoc 签名导出。实机仍须确认：证书错误时拒绝认证、正确连接、DNS/IPv4/IPv6 路由、Wi-Fi/蜂窝切换、锁屏、断开恢复、错误密码和签名安装。编译及脚本检查不等同于已验证的手机连接结果。
