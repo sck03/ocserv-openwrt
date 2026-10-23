@@ -20,6 +20,14 @@ grep -Fqx -- "$device_arch" APK-ARCHITECTURES || {
 fresh=0
 pending=/etc/ocserv/easy-install-pending
 if [ -f "$pending" ] || { ! apk info -e ocserv >/dev/null 2>&1 && [ ! -e /etc/config/ocserv ]; }; then fresh=1; fi
+service_was_running=0
+service_restored=0
+if [ "$fresh" = 0 ] && /etc/init.d/ocserv status >/dev/null 2>&1; then
+    service_was_running=1
+    echo '检测到现有 Lansyra 服务；将原地升级并保留账号、证书和网络配置。'
+else
+    echo '未检测到已完成的 Lansyra 安装；将执行首次网络初始化。'
+fi
 set -- ./*.apk
 [ "$#" -eq 2 ] || { echo '修复版套装应只包含 ocserv 和 luci-app-ocserv-easy 两个 APK。请解压到新目录，不要混入旧包。'; exit 1; }
 for package do [ -f "$package" ] || { echo "缺少安装包：$package"; exit 1; }; done
@@ -32,7 +40,20 @@ if [ "$fresh" = 1 ]; then
 fi
 
 plan=$(mktemp /tmp/lansyra-apk-plan.XXXXXX)
-trap 'rm -f "$plan"' EXIT HUP INT TERM
+cleanup() {
+    status=$?
+    if [ "$service_was_running" = 1 ] && [ "$service_restored" = 0 ]; then
+        if /etc/init.d/ocserv start >/dev/null 2>&1; then
+            echo '升级中途退出，已尝试恢复原 ocserv 服务。'
+        else
+            echo '升级中途退出，恢复 ocserv 服务失败；请检查 logread -e ocserv。' >&2
+        fi
+    fi
+    rm -f "$plan"
+    trap - EXIT HUP INT TERM
+    exit "$status"
+}
+trap cleanup EXIT HUP INT TERM
 apk update
 apk add --simulate --allow-untrusted "$@" >"$plan" 2>&1 || { cat "$plan"; exit 1; }
 if grep -Ei '(installing|upgrading|downgrading|replacing).*(kernel|kmod-)' "$plan" >/dev/null; then
@@ -50,7 +71,11 @@ if [ "$fresh" = 1 ]; then
     mkdir -p /etc/ocserv
     printf '%s\n' 'Fresh installation awaiting VPN network setup' > "$pending"
 fi
-apk add --allow-untrusted "$@"
+if [ "$service_was_running" = 1 ]; then
+    echo '正在暂时停止 ocserv 以替换运行文件。'
+    /etc/init.d/ocserv stop
+fi
+apk add --upgrade --allow-untrusted "$@"
 # The maintained page now depends on ocserv directly. Retire the upstream
 # duplicate editors only after both replacement packages installed successfully.
 legacy=''
@@ -112,6 +137,11 @@ UCI
         exit 1
     fi
     rm -f "$pending"
+fi
+if [ "$service_was_running" = 1 ]; then
+    echo '正在恢复原有 ocserv 服务。'
+    /etc/init.d/ocserv start
+    service_restored=1
 fi
 /etc/init.d/rpcd restart
 # Invalidate both older Lua and current ucode dispatcher caches.

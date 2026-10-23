@@ -2,6 +2,24 @@
 
 本页记录岚序（Lansyra）全新安装版本的验证证据与实机边界。以前的打包和系统升级记录见[历史版本](https://github.com/sck03/ocserv-openwrt/blob/ba903fe/docs/VALIDATION.md)。
 
+## 2026-10-23 证书初始化、固件架构和客户端导出设置
+
+应用与服务端修复提交为 [`428f538`](https://github.com/sck03/ocserv-openwrt/commit/428f538)。服务端更新为 ocserv 1.5.0-r7、管理页 0.5.2-r1，本次自动选择官方 OpenWrt 25.12.6 SDK。N1 使用 `aarch64_generic` 套装；安装检查优先读取固件的 `/etc/apk/arch`，不会根据 Cortex-A53 CPU 名称推断软件包架构。
+
+| 平台 | GitHub 验证 |
+|---|---|
+| OpenWrt | [运行 39916569037](https://github.com/sck03/ocserv-openwrt/actions/runs/39916569037)：六架构 APK 编译、ELF 审计、源码和安装套装打包全部通过 |
+| Windows | [运行 39916573461](https://github.com/sck03/ocserv-openwrt/actions/runs/39916573461)：x86/x64 编译、精简便携包检查、原生运行回归全部通过 |
+| Android | [运行 39916577363](https://github.com/sck03/ocserv-openwrt/actions/runs/39916577363)：指纹长度预检查、JUnit、三个架构核心、debug APK 和 16 KB 对齐检查通过 |
+| iOS | [运行 39916584974](https://github.com/sck03/ocserv-openwrt/actions/runs/39916584974)：校验测试及应用/扩展 unsigned 编译通过 |
+| macOS / Linux | [运行 39916581308](https://github.com/sck03/ocserv-openwrt/actions/runs/39916581308)：macOS 首次下载遭遇 DNS 解析失败，重跑后 Universal 编译通过；Linux 两架构及四组 Debian/Ubuntu 安装检查通过 |
+
+服务端 Lua 逻辑 55、事务与日志 37、真实证书 14、安装事务 28、密码文件 9、浏览器 18、轮询 5 组检查通过。证书回归覆盖 OpenWrt 库读取未设置变量、局域网 IP/主机名验证、重复初始化、生成失败后的临时文件清理与重试；安装回归覆盖 APK 通用别名与 `/etc/apk/arch` 覆盖值不一致的情况。页面回归确认客户端地址和证书验证方式可保存，缺少证书时不会自动退回无固定指纹的配置。
+
+本地实际 GnuTLS/OpenSSL、Lua、浏览器和便携包打包检查通过；POSIX 私钥权限及完整安装事务由 Linux CI 验证。已下载 N1 的 `aarch64_generic` 修复包，核对 GitHub artifact SHA-256、套装外部校验、ZIP CRC 和全部 17 个内部文件 SHA-256。摘要与原始回归附件保存在 `artifacts/validation/2026-10-23/`，N1 套装位于 `dist/`。
+
+Windows 包移除重复的完整 WAN 文档，保留短说明、构建元数据和发行许可证；服务端移除未使用的 `enable` 默认项和空白账号占位。工作流后续提交 [`c0c0a81`](https://github.com/sck03/ocserv-openwrt/commit/c0c0a81) 优先复用运行器已有 Chrome，避免重复下载浏览器与字体依赖；Chrome 路径已通过本地页面和轮询检查，缺少 Chrome 时保留 Chromium 安装回退。
+
 ## 2026-10-14 名称统一、全新安装与代码优化
 
 Windows、桌面与服务端代码提交为 [`9837c6c`](https://github.com/sck03/ocserv-openwrt/commit/9837c6c)。Android / iOS 在 [`7ec83b8`](https://github.com/sck03/ocserv-openwrt/commit/7ec83b8) 验证；已核对其应用、共享 Apple 核心、构建脚本和工作流在后续提交中没有变化。

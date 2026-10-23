@@ -82,6 +82,14 @@ elif name=='fw4':
     if fail('fail_fw4'): sys.exit(1)
 elif name=='ocserv' and args==['initcerts']:
     if fail('fail_cert'): sys.exit(1)
+elif name=='ocserv' and args==['status']:
+    sys.exit(0 if (root/'running').exists() else 1)
+elif name=='ocserv' and args==['stop']:
+    if fail('fail_stop'): sys.exit(1)
+    (root/'running').unlink(missing_ok=True)
+elif name=='ocserv' and args==['start']:
+    if fail('fail_start'): sys.exit(1)
+    (root/'running').touch()
 elif name=='firewall':
     if fail('fail_reload'): sys.exit(1)
 '''
@@ -109,6 +117,7 @@ with tempfile.TemporaryDirectory(prefix='lansyra-install-test-') as temporary:
         if existing:
             (root / 'installed').write_text(json.dumps(['ocserv','luci-app-ocserv','luci-app-ocserv-easy','luci-i18n-ocserv-zh-cn']))
             (root / 'etc/config/ocserv').write_text('existing account hashes and custom settings\n')
+            (root / 'running').touch()
         script = (ROOT / 'server/tools/install.sh').read_text(encoding='utf-8')
         script = re.sub(r'/(etc|root|tmp|usr)/', lambda match: str(root / match[1]) + '/', script)
         (root / 'bundle/install.sh').write_text(script, encoding='utf-8')
@@ -151,6 +160,10 @@ with tempfile.TemporaryDirectory(prefix='lansyra-install-test-') as temporary:
     assert previous == {name: (root / 'etc/config' / name).read_bytes() for name in previous}
     checks.append('upgrades preserve existing account and network configuration')
     assert set(json.loads((root/'installed').read_text()))=={'ocserv','luci-app-ocserv-easy'}
+    assert (root/'running').exists()
+    commands=(root/'commands').read_text()
+    assert 'ocserv status' in commands and 'ocserv stop' in commands and 'ocserv start' in commands
+    checks.append('in-place upgrades stop and restore a previously running VPN service')
     checks.append('upgrade retires duplicate upstream pages after installing the replacement')
 
     root=fixture('aarch64')
@@ -222,6 +235,12 @@ with tempfile.TemporaryDirectory(prefix='lansyra-install-test-') as temporary:
         assert not (root / 'etc/ocserv/easy-install-pending').exists(), fault
         assert 'ocserv_vpn' in json.loads((root / 'etc/config/firewall').read_text()), fault
         checks.append(fault + ': failure preserves network and a retry finishes fresh setup')
+
+    root = fixture('upgrade_failure', existing=True)
+    (root / 'fail_apk').touch()
+    result = run(root)
+    assert result.returncode != 0 and (root / 'running').exists()
+    checks.append('an interrupted in-place upgrade restores the previously running service')
 
     for name, options in [('kernel', {'INSTALL_KERNEL': '1'}), ('pending', {'INSTALL_PENDING': '1'}), ('wrong_arch', {'INSTALL_ARCH': 'x86_64'}), ('wrong_release', {'INSTALL_RELEASE':'24.10.5'})]:
         root = fixture(name)
