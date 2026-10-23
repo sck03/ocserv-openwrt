@@ -101,7 +101,7 @@ end
 function M.data(admin)
     local s=snapshot(); local state=M.status()
     state.version=version()
-    state.ui_version="0.5.1"
+    state.ui_version="0.5.2"
     state.supported=logic.supported_version(state.version)
     state.capabilities=capabilities()
     state.revision=s.revision
@@ -110,7 +110,13 @@ function M.data(admin)
     state.auth=s.config.auth or "plain"
     state.settings_supported=state.auth=="plain" and s.config.proxy_arp~="1"
     state.autostart=run({"/etc/init.d/ocserv","enabled"},3)==0
-    state.ca_available=(read("/etc/ocserv/ca.pem",65536) or ""):find("BEGIN CERTIFICATE",1,true)~=nil
+    local ca=read("/etc/ocserv/ca.pem",65536) or ""
+    local certificate=read(s.config.server_cert or "/etc/ocserv/server-cert.pem",65536) or ""
+    local key=fs.stat(s.config.server_key or "/etc/ocserv/server-key.pem")
+    state.ca_available=ca:find("-----BEGIN CERTIFICATE-----",1,true)~=nil and not ca:find("PRIVATE KEY",1,true)
+    state.certificates_ready=certificate:find("-----BEGIN CERTIFICATE-----",1,true)~=nil and key~=nil and (key.size or 0)>0
+    state.installation_pending=fs.access("/etc/ocserv/easy-install-pending")==true
+    state.client_profile={cert_mode=s.config.easy_cert_mode or "pin"}
     state.guard=guard.status(admin)
     return state
 end
@@ -176,12 +182,19 @@ local function transaction(s,was_running,operation)
     if not restored then logic.fail("rollback_failed") end
     error(result,0)
 end
+local function wait_running(expected,code)
+    -- procd may return before the daemon writes its pidfile.
+    for _=1,30 do if running()==expected then return end nixio.poll({},100) end
+    logic.fail(code)
+end
+local function initcerts()
+    -- First-time RSA generation on routers can exceed a normal service timeout.
+    logic.require(run({"/etc/init.d/ocserv","initcerts"},90)==0,"certificate_init_failed")
+end
 local function restart(mark)
     mark()
     logic.require(run({"/etc/init.d/ocserv","restart"},15)==0,"restart_failed")
-    -- procd may return before the daemon writes its pidfile.
-    for _=1,20 do if running() then return end nixio.poll({},100) end
-    logic.fail("restart_failed")
+    wait_running(true,"restart_failed")
 end
 local function change_user(s,request)
     logic.require((s.config.auth or "plain")=="plain","plain_auth_required")
@@ -239,6 +252,7 @@ local function apply_settings(s,request)
     local was_running=running()
     if was_running then logic.require(request.allow_restart==true,"restart_confirmation_required") end
     local test_config=work.."/check.conf"; local test_passwd=work.."/check.passwd"
+    initcerts()
     atomic(test_passwd,logic.passwd(s.users))
     atomic(test_config,(candidate:gsub("/var/etc/ocpasswd",test_passwd)))
     local code=run({"/usr/sbin/ocserv","--test-config","--config",test_config},8)
@@ -277,6 +291,17 @@ function M.action(request,admin)
         logic.require(not changes or not next(changes.ocserv or changes),"pending_changes")
         if request.action=="save_user" or request.action=="delete_user" then return change_user(s,request) end
         if request.action=="guard" then return guard.begin(request.command,admin,request.token) end
+        if request.action=="initcerts" then initcerts(); return {effect="certificates_initialized"} end
+        if request.action=="client_profile" then
+            local server,cert_mode=logic.validate_client_profile(request.server,request.cert_mode)
+            if server==(s.config.easy_public_url or "") and cert_mode==(s.config.easy_cert_mode or "pin") then return {effect="unchanged"} end
+            return transaction(s,running(),function()
+                logic.require(s.cursor:set("ocserv","config","easy_public_url",server),"write_failed")
+                logic.require(s.cursor:set("ocserv","config","easy_cert_mode",cert_mode),"write_failed")
+                commit(s)
+                return {effect="profile_settings_saved"}
+            end)
+        end
         if request.action=="settings" then
             logic.require(not guard.active(),"guard_settings_locked")
             return apply_settings(s,request)
@@ -291,7 +316,10 @@ function M.action(request,admin)
             local command=request.command
             logic.require(command=="start" or command=="stop" or command=="restart" or command=="enable" or command=="disable","bad_action")
             if running() and (command=="stop" or command=="restart") then logic.require(request.allow_restart==true,"restart_confirmation_required") end
+            if command=="start" or command=="restart" then initcerts() end
             logic.require(run({"/etc/init.d/ocserv",command},15)==0,"service_failed")
+            if command=="start" or command=="restart" then wait_running(true,"service_failed")
+            elseif command=="stop" then wait_running(false,"service_failed") end
             return {effect="service_changed"}
         end
         logic.fail("bad_action")

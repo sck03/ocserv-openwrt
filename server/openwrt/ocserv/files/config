@@ -4,15 +4,12 @@ config ocserv 'config'
 	option dpd '60'
 	option max_clients '32'
 	option max_same '1'
-	option enable '0'
 	option zone 'ocvpn'
 	option ipaddr '10.77.0.0'
 	option netmask '255.255.255.0'
 	option proxy_arp '0'
 	option udp '1'
 	option compression '0'
-
-config ocservusers
 
 config dns
 	option ip '1.1.1.1'

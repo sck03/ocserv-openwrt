@@ -13,7 +13,9 @@
 
 这是 SDK 编译目标支持，不代表所有型号均已实机验收。其他 target、OpenWrt 24.10/IPK 和其他 ABI 不在当前发行范围内。同为 ARM64 也应选择对应的软件包架构，不能只看 CPU 位数。
 
-在设备运行 `ubus call system board` 和 `apk --print-arch`，核对固件版本、target 和软件包架构。N1/OPL 的 `aarch64` 别名仅允许使用 `aarch64_generic` 套装。依赖必须来自当前固件的软件源，设备必须已有 `/dev/net/tun`；套装不携带内核模块。
+在设备运行 `ubus call system board`、`cat /etc/apk/arch` 和 `apk --print-arch`，核对固件版本、target 和软件包架构。安装器优先使用 `/etc/apk/arch`，不存在时才回退到 `apk --print-arch`；后者在部分 OPL 固件上只报告较笼统的 `aarch64` 别名。依赖必须来自当前固件的软件源，设备必须已有 `/dev/net/tun`；套装不携带内核模块。
+
+N1 使用 Cortex-A53 CPU，但用户这套 OPL/Flippy 固件的软件包架构是 **`aarch64_generic`**，应下载 `openwrt-25.12-aarch64_generic`。这里的 `aarch64_cortex-a53` 套装由 **mediatek/filogic SDK** 构建，不是所有 A53 设备的通用安装包。通用 ARM64 编译的程序可以在 N1 的 A53 CPU 上运行；不要修改 `/etc/apk/arch` 或强制安装来绕过固件的包架构选择。
 
 从 Releases 下载对应架构的 ZIP，完整解压到新目录并上传路由器，以 root 执行：
 

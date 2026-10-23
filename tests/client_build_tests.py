@@ -80,7 +80,7 @@ class RuntimePackageTests(unittest.TestCase):
     def validate(self, extra=None, omitted=None):
         stream = io.BytesIO()
         names = {"Lansyra.exe", "wintun.dll", "vpnc-script-win.js", "BUILDINFO.json",
-                 "THIRD-PARTY-NOTICES.md", "WAN.md", "使用说明.txt", "licenses/Application-GPL-3.0.txt"}
+                 "THIRD-PARTY-NOTICES.md", "使用说明.txt", "licenses/Application-GPL-3.0.txt"}
         names.discard(omitted)
         if extra:
             names.add(extra)
@@ -95,7 +95,7 @@ class RuntimePackageTests(unittest.TestCase):
 
     def test_test_binaries_sources_and_local_data_are_rejected(self):
         for name in ("validation/native_session_tests.exe", "native_model_tests.exe", "corresponding-source.zip",
-                     "data/profiles.json", "test-results/report.json", "obsolete.ini"):
+                     "data/profiles.json", "test-results/report.json", "obsolete.ini", "WAN.md"):
             with self.subTest(name=name), self.assertRaises(RuntimeError):
                 self.validate(extra=name)
 

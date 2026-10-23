@@ -75,4 +75,11 @@ ReconnectSeconds=300
 
 x64 用于 64 位 Windows，x86 用于 32 位 Windows。完整保留同架构的 wintun.dll、vpnc-script-win.js 和 licenses/，无需预装 Qt、.NET 或编译器运行库。
 
+| 便携包内容 | 用途 |
+|---|---|
+| `Lansyra.exe`、`wintun.dll`、`vpnc-script-win.js` | 运行和配置隧道所需，必须保留且架构一致 |
+| `licenses/`、`THIRD-PARTY-NOTICES.md` | 发行许可证及第三方声明，保留并随再分发提供 |
+| `BUILDINFO.json` | 构建版本、依赖版本和校验追溯，不参与运行，建议保留便于诊断 |
+| `使用说明.txt` | 简短连接说明，不参与运行；公网长文改为在线链接 |
+
 当前基线为 Windows 10/11，移除旧系统清单与 Win7 API 审计规则。真实 VPN 转发、驱动和睡眠恢复仍需在目标设备验收，详见 [验证记录](VALIDATION.md)。macOS 和 Linux 见[桌面客户端说明](DESKTOP.md)。

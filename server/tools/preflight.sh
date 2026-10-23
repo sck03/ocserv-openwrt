@@ -1,6 +1,17 @@
 #!/bin/sh
 # Read-only compatibility report. Never prints credentials or private keys.
 set -eu
+package_architecture() {
+    # APK can report its generic build architecture (aarch64) while OpenWrt
+    # selects packages through the more specific /etc/apk/arch override.
+    if [ -s /etc/apk/arch ]; then architecture=$(cat /etc/apk/arch)
+    else architecture=$(apk --print-arch); fi
+    case "$architecture" in
+        ''|*[!A-Za-z0-9_-]*) printf '%s\n' 'ERROR: invalid APK package architecture; check /etc/apk/arch.' >&2; return 1;;
+    esac
+    printf '%s\n' "$architecture"
+}
+if [ "${1:-}" = --architecture ]; then package_architecture; exit; fi
 printf '%s\n' 'Lansyra / ocserv installation preflight'
 ubus call system board
 printf 'Kernel: %s\n' "$(uname -r)"
@@ -8,7 +19,8 @@ release=$(ubus call system board | jsonfilter -e '@.release.version')
 case "$release" in 25.12|25.12.*|25.12-SNAPSHOT) ;; *) printf '%s\n' 'ERROR: this bundle requires OpenWrt 25.12.' >&2; exit 1;; esac
 if command -v apk >/dev/null 2>&1; then
     printf '%s\n' 'Package format: APK (OpenWrt 25.12)'
-    apk --print-arch
+    printf 'Firmware package architecture: '
+    package_architecture
     for package in ocserv musl libgnutls libev libncurses libreadline libprotobuf-c luci-app-ocserv-easy luci-compat; do
         apk info -v "$package" 2>/dev/null || true
     done

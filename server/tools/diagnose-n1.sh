@@ -5,6 +5,8 @@ printf '%s\n' 'Device / firmware:'
 ubus call system board
 printf '\n%s\n' 'Package architecture:'
 if command -v apk >/dev/null 2>&1; then
+    [ ! -s /etc/apk/arch ] || { printf 'Firmware /etc/apk/arch: '; cat /etc/apk/arch; printf '\n'; }
+    printf 'APK build architecture: '
     apk --print-arch
     apk info -v ocserv luci-app-ocserv-easy luci-compat luci-lib-nixio musl libgnutls libev kmod-tun 2>/dev/null
 fi

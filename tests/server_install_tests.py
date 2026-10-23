@@ -90,9 +90,9 @@ checks = []
 with tempfile.TemporaryDirectory(prefix='lansyra-install-test-') as temporary:
     base = Path(temporary)
 
-    def fixture(name, existing=False, architectures='aarch64_generic\naarch64\n'):
+    def fixture(name, existing=False, architectures='aarch64_generic\naarch64\n', package_arch=None):
         root = base / name
-        for folder in ('bin', 'bundle', 'etc/config', 'etc/init.d', 'etc/ocserv', 'usr/libexec', 'root', 'tmp'):
+        for folder in ('bin', 'bundle', 'etc/config', 'etc/init.d', 'etc/ocserv', 'etc/apk', 'usr/libexec', 'root', 'tmp'):
             (root / folder).mkdir(parents=True)
         for command in ('apk', 'uci', 'fw4', 'id', 'ubus', 'jsonfilter', 'df'):
             path = root / 'bin' / command
@@ -105,6 +105,7 @@ with tempfile.TemporaryDirectory(prefix='lansyra-install-test-') as temporary:
         (root / 'etc/config/firewall').write_text(json.dumps({'lan': 'zone', 'lan.name': 'lan'}))
         (root / 'etc/config/openclash').write_text('existing subscription and rules\n')
         (root / 'etc/config/dhcp').write_text('existing dns settings\n')
+        if package_arch is not None:(root/'etc/apk/arch').write_text(package_arch+'\n')
         if existing:
             (root / 'installed').write_text(json.dumps(['ocserv','luci-app-ocserv','luci-app-ocserv-easy','luci-i18n-ocserv-zh-cn']))
             (root / 'etc/config/ocserv').write_text('existing account hashes and custom settings\n')
@@ -156,6 +157,27 @@ with tempfile.TemporaryDirectory(prefix='lansyra-install-test-') as temporary:
     result=run(root,INSTALL_ARCH='aarch64')
     assert result.returncode==0,result.stdout+result.stderr
     checks.append('OPL APK architecture aarch64 is accepted')
+
+    root=fixture('firmware_generic',package_arch='aarch64_generic')
+    result=run(root,INSTALL_ARCH='aarch64')
+    assert result.returncode==0,result.stdout+result.stderr
+    assert 'Firmware package architecture: aarch64_generic' in result.stdout
+    checks.append('the firmware aarch64_generic override takes precedence over the APK aarch64 build alias')
+
+    root=fixture('wrong_a53',architectures='aarch64_cortex-a53\n',package_arch='aarch64_generic')
+    result=run(root,INSTALL_ARCH='aarch64')
+    assert result.returncode!=0 and not (root/'installed').exists()
+    assert 'openwrt-25.12-aarch64_generic' in result.stdout
+    checks.append('an N1 with generic firmware rejects the A53 bundle and names the correct download')
+
+    root=fixture('firmware_a53',architectures='aarch64_cortex-a53\n',package_arch='aarch64_cortex-a53')
+    result=run(root,INSTALL_ARCH='aarch64')
+    assert result.returncode==0,result.stdout+result.stderr
+    checks.append('firmware explicitly configured for aarch64_cortex-a53 accepts its matching bundle')
+
+    root=fixture('invalid_arch',package_arch='aarch64 generic')
+    assert run(root).returncode!=0 and not (root/'installed').exists()
+    checks.append('an invalid architecture override fails before package or network changes')
 
     for architecture in ('x86_64', 'aarch64_cortex-a53', 'arm_cortex-a15_neon-vfpv4', 'mipsel_24kc', 'mips_24kc'):
         root = fixture(architecture, architectures=architecture + '\n')

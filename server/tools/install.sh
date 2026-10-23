@@ -8,9 +8,13 @@ cd "$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)"
 sha256sum -c SHA256SUMS
 sh ./preflight.sh
 [ -s APK-ARCHITECTURES ] || { echo '缺少套装架构清单，请重新下载完整 ZIP。'; exit 1; }
-device_arch=$(apk --print-arch)
+device_arch=$(sh ./preflight.sh --architecture)
 grep -Fqx -- "$device_arch" APK-ARCHITECTURES || {
-    echo "套装与设备架构不匹配：$device_arch。请下载对应架构的 ZIP。"; exit 1;
+    recommended_arch=$device_arch
+    [ "$recommended_arch" != aarch64 ] || recommended_arch=aarch64_generic
+    echo "套装与固件软件包架构不匹配：$device_arch。请选择 openwrt-25.12-$recommended_arch 的 ZIP。"
+    echo '架构以 /etc/apk/arch 为准，不能仅按 Cortex-A53 等 CPU 型号选择。'
+    exit 1
 }
 
 fresh=0
@@ -57,7 +61,11 @@ if [ -n "$legacy" ]; then
     # Deliberate word splitting of fixed package names, never user input.
     apk del $legacy
 fi
-/etc/init.d/ocserv initcerts
+echo '正在初始化 ocserv 服务端证书；局域网部署会生成本地证书。'
+if ! /etc/init.d/ocserv initcerts; then
+    echo '证书初始化失败，安装尚未完成。修正后重新运行 install.sh；可用 logread -e ocserv 查看原因。'
+    exit 1
+fi
 /etc/init.d/ocserv-easy-guard enable
 
 if [ "$fresh" = 1 ]; then
@@ -109,6 +117,6 @@ fi
 # Invalidate both older Lua and current ucode dispatcher caches.
 rm -f /tmp/luci-indexcache* /tmp/luci-modulecache/*
 echo "安装完成。安装前备份：$backup"
-echo '请重新登录 LuCI → VPN → 岚序 Lansyra（管理页 0.5.1）。'
+echo '请重新登录 LuCI → VPN → 岚序 Lansyra（管理页 0.5.2）。'
 echo '全新安装：添加账号，检查服务设置，然后点击「启动服务」。'
 echo '默认端口 4443，VPN 地址池 10.77.0.0/24；专用 OpenClash 开关默认关闭。'

@@ -84,7 +84,7 @@ def smoke_test(executable, directory, environment, language):
 
 def validate_package_members(archive):
     required = {"Lansyra.exe", "wintun.dll", "vpnc-script-win.js", "BUILDINFO.json",
-                "THIRD-PARTY-NOTICES.md", "WAN.md", "使用说明.txt"}
+                "THIRD-PARTY-NOTICES.md", "使用说明.txt"}
     roots, files = set(), set()
     for member in archive.infolist():
         if member.is_dir():

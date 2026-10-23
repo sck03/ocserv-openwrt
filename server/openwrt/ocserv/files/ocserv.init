@@ -5,7 +5,7 @@ USE_PROCD=1
 EXTRA_COMMANDS="initcerts"
 EXTRA_HELP="        initcerts  Generate missing server certificates without starting VPN"
 
-. $IPKG_INSTROOT/lib/functions/network.sh
+. "${IPKG_INSTROOT:-}/lib/functions/network.sh"
 
 setup_config() {
 	local enable_ipv6="" authsuffix=""
@@ -153,9 +153,13 @@ setup_dns() {
 }
 
 initcerts() (
-	set -eu
+	# OpenWrt's UCI/network helpers read optional, unset variables.  They are
+	# not nounset-safe; do not enable `set -u` around config_load/network_get_*.
+	# Check writes explicitly: start_service calls us in an OR-list, where the
+	# shell disables errexit even inside this subshell.
+	set +u
 	umask 077
-	config_load ocserv
+	config_load ocserv || exit 1
 	config_get certificate config server_cert "/etc/ocserv/server-cert.pem"
 	config_get private_key config server_key "/etc/ocserv/server-key.pem"
 	if [ "$certificate" != /etc/ocserv/server-cert.pem ] || [ "$private_key" != /etc/ocserv/server-key.pem ]; then
@@ -164,12 +168,11 @@ initcerts() (
 		logger -t ocserv 'The configured server certificate or private key is missing or empty'
 		exit 1
 	fi
-	[ -x /usr/bin/certtool ] || { logger -t ocserv 'certtool is missing'; exit 1; }
-	mkdir -p /etc/ocserv/pki
-	chmod 700 /etc/ocserv/pki
+	command -v certtool >/dev/null 2>&1 || { logger -t ocserv 'certtool is missing'; exit 1; }
+	mkdir -p /etc/ocserv/pki && chmod 700 /etc/ocserv/pki || exit 1
 	if [ -s /etc/ocserv/server-key.pem ] && [ -s /etc/ocserv/server-cert.pem ]; then
-		chmod 600 /etc/ocserv/server-key.pem
-		[ ! -f /etc/ocserv/ca-key.pem ] || chmod 600 /etc/ocserv/ca-key.pem
+		chmod 600 /etc/ocserv/server-key.pem || exit 1
+		[ ! -f /etc/ocserv/ca-key.pem ] || chmod 600 /etc/ocserv/ca-key.pem || exit 1
 		exit 0
 	fi
 	if [ -s /etc/ocserv/ca.pem ] && [ ! -s /etc/ocserv/ca-key.pem ]; then
@@ -181,27 +184,35 @@ initcerts() (
 	[ -n "$hostname" ] || hostname=OpenWrt
 	lan_address=''
 	network_get_ipaddr lan_address lan || true
+	workspace=$(mktemp -d /etc/ocserv/pki/init.XXXXXX) || exit 1
+	trap 'rm -rf -- "$workspace"' EXIT
+	generate() {
+		certtool "$@" >/dev/null 2>&1 || {
+			logger -t ocserv 'Certificate generation failed; check certtool, free space and system time'
+			exit 1
+		}
+	}
 	if [ ! -s /etc/ocserv/ca-key.pem ]; then
-		certtool --bits 3072 --generate-privkey --outfile /etc/ocserv/pki/ca-key.new >/dev/null 2>&1
-		mv /etc/ocserv/pki/ca-key.new /etc/ocserv/ca-key.pem
+		generate --bits 3072 --generate-privkey --outfile "$workspace/ca-key.pem"
+		mv "$workspace/ca-key.pem" /etc/ocserv/ca-key.pem || exit 1
 	fi
 	if [ ! -s /etc/ocserv/ca.pem ]; then
-		printf 'cn="%s CA"\nexpiration_days=3650\nca\ncert_signing_key\ncrl_signing_key\n' "$hostname" >/etc/ocserv/pki/ca.tmpl
-		certtool --template /etc/ocserv/pki/ca.tmpl --generate-self-signed \
-			--load-privkey /etc/ocserv/ca-key.pem --outfile /etc/ocserv/pki/ca.new >/dev/null 2>&1
-		mv /etc/ocserv/pki/ca.new /etc/ocserv/ca.pem
+		printf 'cn="%s CA"\nexpiration_days=3650\nca\ncert_signing_key\ncrl_signing_key\n' "$hostname" >"$workspace/ca.tmpl" || exit 1
+		generate --template "$workspace/ca.tmpl" --generate-self-signed \
+			--load-privkey /etc/ocserv/ca-key.pem --outfile "$workspace/ca.pem"
+		mv "$workspace/ca.pem" /etc/ocserv/ca.pem || exit 1
 	fi
 	if [ ! -s /etc/ocserv/server-key.pem ]; then
-		certtool --bits 3072 --generate-privkey --outfile /etc/ocserv/pki/server-key.new >/dev/null 2>&1
-		mv /etc/ocserv/pki/server-key.new /etc/ocserv/server-key.pem
+		generate --bits 3072 --generate-privkey --outfile "$workspace/server-key.pem"
+		mv "$workspace/server-key.pem" /etc/ocserv/server-key.pem || exit 1
 	fi
 	if [ ! -s /etc/ocserv/server-cert.pem ]; then
-		printf 'cn="%s"\ndns_name="%s"\nexpiration_days=825\nsigning_key\nencryption_key\ntls_www_server\n' "$hostname" "$hostname" >/etc/ocserv/pki/server.tmpl
-		case "$lan_address" in ''|*[!0-9.]*) ;; *) printf 'ip_address="%s"\n' "$lan_address" >>/etc/ocserv/pki/server.tmpl;; esac
-		certtool --template /etc/ocserv/pki/server.tmpl --generate-certificate \
+		printf 'cn="%s"\ndns_name="%s"\nexpiration_days=825\nsigning_key\nencryption_key\ntls_www_server\n' "$hostname" "$hostname" >"$workspace/server.tmpl" || exit 1
+		case "$lan_address" in ''|*[!0-9.]*) ;; *) printf 'ip_address="%s"\n' "$lan_address" >>"$workspace/server.tmpl" || exit 1;; esac
+		generate --template "$workspace/server.tmpl" --generate-certificate \
 			--load-privkey /etc/ocserv/server-key.pem --load-ca-certificate /etc/ocserv/ca.pem \
-			--load-ca-privkey /etc/ocserv/ca-key.pem --outfile /etc/ocserv/pki/server-cert.new >/dev/null 2>&1
-		mv /etc/ocserv/pki/server-cert.new /etc/ocserv/server-cert.pem
+			--load-ca-privkey /etc/ocserv/ca-key.pem --outfile "$workspace/server-cert.pem"
+		mv "$workspace/server-cert.pem" /etc/ocserv/server-cert.pem || exit 1
 	fi
 	chmod 600 /etc/ocserv/ca-key.pem /etc/ocserv/server-key.pem
 )

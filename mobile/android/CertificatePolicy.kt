@@ -6,7 +6,7 @@ import java.util.Base64
 /** Only complete, canonical SHA-256 public-key pins are accepted. */
 internal object CertificatePolicy {
     fun isFullPin(pin: String): Boolean {
-        if (!pin.startsWith("pin-sha256:")) return false
+        if (pin.length != 55 || !pin.startsWith("pin-sha256:")) return false
         return runCatching {
             val encoded = pin.removePrefix("pin-sha256:")
             val bytes = Base64.getDecoder().decode(encoded)

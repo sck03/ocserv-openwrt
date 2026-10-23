@@ -205,6 +205,15 @@ M.defaults = { port="4443", udp_port="", max_clients="8", max_same="2", dpd="120
     cisco_compat="1", predictable_ips="1", ipaddr="192.168.100.0", netmask="255.255.255.0", ip6addr="", default_domain="", easy_public_url="" }
 local numbers={port={1,65535},max_clients={1,4096},max_same={1,64},dpd={10,3600}}
 local flags={udp=true,compression=true,cisco_compat=true,predictable_ips=true}
+local certificate_modes={pin=true,address=true,profile=true}
+function M.validate_client_profile(server,cert_mode)
+    M.require(M.text(server,512),"invalid_url")
+    if not server:find("://",1,true) then server="https://"..server end
+    server=M.url(server)
+    M.require(server,"invalid_url")
+    M.require(certificate_modes[cert_mode],"invalid_cert_mode")
+    return server,cert_mode
+end
 function M.settings(config, dns, routes)
     local s={dns={},routes={}}
     for key,value in pairs(M.defaults) do s[key] = config[key] or value end

@@ -83,6 +83,8 @@
         route_needs_ipv6:t('下发 IPv6 路由前，需要先设置 IPv6 地址池。','Configure an IPv6 address pool before advertising IPv6 routes.'),
         invalid_ipv6_pool:t('IPv6 地址池应使用地址/前缀格式，前缀范围为 16–112。','Use an IPv6 address/prefix with a prefix length of 16–112.'),
         invalid_url:t('请输入完整的 HTTPS 地址，例如 https://vpn.example.com:4443。','Enter a complete HTTPS address, such as https://vpn.example.com:4443.'),
+        invalid_cert_mode:t('证书验证方式无效，请重新选择。','Choose a valid certificate verification method.'),
+        certificate_init_failed:t('证书初始化失败，请查看系统 ocserv 日志；检查 certtool、剩余空间及自定义证书路径。','Certificate initialization failed. Check the ocserv system log, certtool, free space and custom certificate paths.'),
         invalid_domain:t('默认域名格式无效。','The default domain is invalid.'),
         invalid_port:t('端口范围为 1–65535。','Ports must be between 1 and 65535.'),
         invalid_client_limit:t('同账号在线数不能大于总在线数。','The per-account limit cannot exceed the total connection limit.'),
@@ -121,6 +123,8 @@
     }
     var effects={saved:t('已保存，下次启动服务时生效。','Saved for the next service start.'),updated_live:t('账号已生效，其他在线用户保持连接。','Account updated. Other users remain connected.'),terminated:t('账号已更新，该账号的旧登录已失效。','Account updated and its previous sessions revoked.'),restarted:t('配置已应用，VPN 服务已重新启动。','Configuration applied and VPN service restarted.'),disconnected:t('已断开该连接。账号仍可重新登录。','Connection disconnected. The account can sign in again.'),service_changed:t('服务操作已执行，状态将自动刷新。','Service operation submitted. Status will refresh automatically.')};
     effects.address_saved=t('连接地址已保存，当前 VPN 连接保持不变。','Connection address saved. Current VPN connections are unchanged.');
+    effects.profile_settings_saved=t('客户端地址和证书验证方式已保存。','Client address and certificate verification preference saved.');
+    effects.certificates_initialized=t('服务端证书已就绪，可以下载客户端连接配置。','The server certificate is ready. You can download client profiles.');
     effects.unchanged=t('内容没有变化，无需重复保存。','Nothing changed; no update was needed.');
     effects.guard_queued=t('正在配置，仅需稍候。页面会自动检查管理连接；无法连接时会自动恢复。','Applying settings. This page checks connectivity automatically and restores settings if it cannot reconnect.');
     effects.guard_restoring=t('正在关闭并恢复启用前的设置…','Disabling and restoring the previous settings…');
@@ -311,17 +315,29 @@
     function renderExport() {
         var server=element('input',{value:state.settings.easy_public_url || (state.guard && state.guard.lan ? state.guard.lan+':'+state.settings.port : ''),type:'text',required:true,maxLength:512,placeholder:'192.168.19.253:4443'});
         var trust=element('select',{},[
-            element('option',{value:'pin',text:t('固定服务器指纹（推荐）','Pin the server public key (recommended)')}),
+            element('option',{value:'pin',text:t('固定服务器指纹（推荐）','Pin the server public key (recommended)'),disabled:!state.certificates_ready}),
             element('option',{value:'address',text:t('首次连接时确认证书','Confirm certificate on first connection')}),
             element('option',{value:'profile',text:t('附带公共 CA 证书','Include the public CA certificate'),disabled:!state.ca_available})
         ]);
+        trust.value=(state.client_profile || {}).cert_mode || 'pin';
         var profile=element('button',{type:'submit',className:'cbi-button cbi-button-apply',text:t('下载 .vpn 连接配置','Download .vpn profile')});
+        var save=mutationButton(t('保存客户端设置','Save client settings'),function(){
+            if(!form.reportValidity())return;
+            complete({action:'client_profile',server:server.value.trim(),cert_mode:trust.value}).catch(function(error){notice(errorText(error),true);});
+        });
+        function updateDownload(){profile.disabled=trust.value==='pin'?!state.certificates_ready:trust.value==='profile'?!state.ca_available:false;}
+        trust.addEventListener('change',updateDownload);updateDownload();
         var form=element('form',{},[
             field(t('客户端实际连接的服务器地址','Server address used by clients'),server,t('例如 vpn.example.com:4443 或 [2001:db8::1]:4443。外网请填写实际公网地址和外部端口。','For example vpn.example.com:4443 or [2001:db8::1]:4443. Remote clients need the actual public address and external port.')),
             field(t('证书验证方式','Certificate verification'),trust),
-            element('p',{text:t('固定指纹会校验服务器公钥，适用于自签证书、域名和 IPv6。更换公钥后需重新分发配置。选择 CA 时，证书必须包含填写的域名或 IP。','Pinning verifies the server public key and supports self-signed certificates, hostnames and IPv6. Redistribute profiles after changing the key. CA verification requires a certificate covering the entered hostname or IP.')}),
-            element('p',{className:'easy-muted',text:t('请从可信的管理连接下载并分发配置。导入后填写各自的账号密码；配置不包含账号、密码或私钥。','Download and distribute profiles through a trusted management connection. Users enter their own credentials after import; profiles contain no usernames, passwords or private keys.')}),profile
+            element('p',{text:t('固定指纹会校验服务器公钥，适用于局域网自签证书、域名和 IPv6。更换公钥后需重新分发配置。选择 CA 时，证书必须包含填写的域名或 IP。保存后刷新页面仍保留所选方式；下载的配置使用当前选择。','Pinning verifies the server public key and supports self-signed LAN certificates, hostnames and IPv6. Redistribute profiles after changing the key. CA verification requires a certificate covering the entered hostname or IP. Saving retains the selection after refresh; downloads use the current selection.')}),
+            element('p',{className:'easy-muted',text:t('请从可信的管理连接下载并分发配置。导入后填写各自的账号密码；配置不包含账号、密码或私钥。','Download and distribute profiles through a trusted management connection. Users enter their own credentials after import; profiles contain no usernames, passwords or private keys.')}),
+            element('div',{className:'easy-buttons'},[save,profile])
         ]);
+        if(!state.certificates_ready)content.appendChild(element('section',{className:'easy-card'},[
+            element('p',{className:'easy-notice error',text:t('服务端证书尚未就绪。局域网也需要 TLS 证书；可自动生成本地证书，无需域名。','The server certificate is not ready. LAN connections also require TLS certificates. A local certificate can be generated without a hostname.')}),
+            mutationButton(t('生成缺失证书','Generate missing certificates'),function(){complete({action:'initcerts'}).catch(function(error){notice(errorText(error),true);});},'cbi-button-apply')
+        ]));
         form.addEventListener('submit',function(event){event.preventDefault();download(trust.value,server.value.trim());});
         var ca=button(t('下载 ca.pem','Download ca.pem'),function(){download('ca','');});ca.disabled=!state.ca_available;
         content.appendChild(element('section',{className:'easy-card'},[element('h3',{text:t('分发客户端配置','Distribute client profiles')}),form]));
@@ -351,9 +367,10 @@
             }),
             mutationButton(state.autostart?t('关闭开机启动','Disable autostart'):t('开机自动启动','Enable autostart'),function(){complete({action:'service',command:state.autostart?'disable':'enable'}).catch(function(e){notice(errorText(e),true);});})
         ]);
-        root.appendChild(element('div',{className:'easy-heading'},[element('div',{},[element('h2',{text:'岚序 Lansyra'}),element('span',{className:'easy-muted',text:t('管理页 ','UI ')+(state.ui_version || '0.5.1')+' · ocserv '+state.version})]),actions]));
+        root.appendChild(element('div',{className:'easy-heading'},[element('div',{},[element('h2',{text:'岚序 Lansyra'}),element('span',{className:'easy-muted',text:t('管理页 ','UI ')+(state.ui_version || '0.5.2')+' · ocserv '+state.version})]),actions]));
         messageBox=element('div',{className:'easy-notice',hidden:true});root.appendChild(messageBox);
         statusBox=element('div',{className:'easy-summary'});root.appendChild(statusBox);renderStatus();
+        if(state.installation_pending)root.appendChild(element('p',{className:'easy-notice error',text:t('安装尚未完成。请在完整服务端套装目录重新运行 sh install.sh，完成证书和 VPN 网络初始化。','Installation is incomplete. Run sh install.sh again from the complete server bundle to finish certificate and VPN network initialization.')}));
         if(!state.supported)notice(state.version==='unknown'?errors.version_unavailable:errors.upgrade_required,true);
         else if(!options.writable)notice(errors.forbidden);
         var tabs=element('div',{className:'easy-tabs',role:'tablist'});

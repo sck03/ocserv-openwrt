@@ -48,7 +48,7 @@ def main():
         license_dir.mkdir()
         for filename in ("Lansyra.exe", "wintun.dll"):
             shutil.copyfile(build / filename, folder / filename)
-        for filename in ("client/vendor/vpnc-script-win.js", "THIRD-PARTY-NOTICES.md", "docs/WAN.md"):
+        for filename in ("client/vendor/vpnc-script-win.js", "THIRD-PARTY-NOTICES.md"):
             shutil.copyfile(ROOT / filename, folder / Path(filename).name)
         for source, destination in licenses.items():
             shutil.copyfile(ROOT / source, license_dir / destination)
@@ -78,12 +78,14 @@ def main():
             "2. 在“配置”菜单新建连接，或直接填写实际网关地址，支持端口和用户组路径。\n"
             "3. 点击“连接”，按需完成 Windows 管理员授权，随后按服务器提示填写用户名、密码、分组或验证码。\n"
             "4. 未知证书需核对指纹后确认；指定 CA 或固定指纹不匹配时会拒绝连接。\n"
-            "   支持域名及 [IPv6]:端口。公网入口、端口转发和运营商内网说明见同包 WAN.md。\n"
+            "   局域网可直接使用 IP:端口，无需域名；服务端仍需 TLS 证书，可自动生成本地证书。\n"
+            "   公网部署说明：https://github.com/sck03/ocserv-openwrt/blob/main/docs/WAN.md\n"
             "5. 高级配置中的“记住密码”使用当前 Windows 用户的 DPAPI 加密。验证码不会作为密码保存。\n"
             "6. “VPN 信息”显示地址和流量，“查看日志”可复制诊断日志；设置菜单可切换中文/English及托盘行为。\n\n"
             "导入/导出 .vpn 可共享地址、连接选项和公有证书，不包含密码、令牌或私钥。\n"
             "配置保存在程序旁的 data 目录。复制到其他 Windows 用户后需要重新输入加密凭据。\n"
-            "请完整保留 wintun.dll、vpnc-script-win.js 和 licenses，不要混用不同架构的文件。\n"
+            "运行需要同架构的 wintun.dll 和 vpnc-script-win.js。licenses/ 和 THIRD-PARTY-NOTICES.md 是发行许可资料。\n"
+            "BUILDINFO.json 用于版本、组件和校验追溯，不参与程序运行，建议保留用于诊断。\n"
             "支持 Windows 10/11；可在设置中启用登录后自动连接和有限网络重试，在日志窗口导出脱敏诊断。\n\n"
             "Create a profile or enter your gateway, connect and answer the server's authentication prompts. Verify unknown certificate fingerprints before approval.\n"
             "Settings selects Chinese/English and tray behavior. VPN Info shows addresses and traffic; View Log provides diagnostics.\n"

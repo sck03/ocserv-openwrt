@@ -12,8 +12,6 @@ import subprocess
 import tempfile
 
 ROOT=Path(__file__).resolve().parents[1]
-if os.name=='nt':
-    raise SystemExit('Run this certificate test on Linux with certtool and openssl.')
 for tool in ('certtool','openssl','sh'):
     if not shutil.which(tool):raise SystemExit('Missing test dependency: '+tool)
 source=(ROOT/'server/openwrt/ocserv/files/ocserv.init').read_text(encoding='utf-8')
@@ -21,11 +19,13 @@ function=re.search(r'(?ms)^initcerts\(\) \(\n.*?^\)\n',source).group(0)
 checks=[]
 with tempfile.TemporaryDirectory(prefix='lansyra-cert-test-') as temporary:
     base=Path(temporary)
-    def initialize(folder, certificate=None, private_key=None):
+    def initialize(folder, certificate=None, private_key=None, *, conditional=False, fail_generation=False):
         script=base/'initialize.sh'
         text='''#!/bin/sh
 uci() { printf '%s\\n' OPLForN1; }
-config_load() { :; }
+# OpenWrt config_load reads IPKG_INSTROOT without a default; other helpers
+# also read optional variables. Neither is required in a running router.
+config_load() { [ -n "$IPKG_INSTROOT" ] && return 0; : "$CONFIG_SECTIONS"; }
 config_get() {
     case "$1" in
         certificate) certificate=${TEST_CERTIFICATE:-$4};;
@@ -34,19 +34,26 @@ config_get() {
 }
 network_get_ipaddr() { lan_address=192.168.19.253; }
 logger() { :; }
-'''+function.replace('/etc/ocserv',str(folder))+'\n'
-        text+='TEST_CERTIFICATE='+shlex.quote(str(certificate or ''))+'\n'
-        text+='TEST_PRIVATE_KEY='+shlex.quote(str(private_key or ''))+'\ninitcerts\n'
-        script.write_text(text,encoding='utf-8')
-        return subprocess.run(['sh',str(script)],capture_output=True,text=True,timeout=120)
+'''+function.replace('/etc/ocserv',folder.as_posix())+'\n'
+        text+='TEST_CERTIFICATE='+shlex.quote(certificate.as_posix() if certificate else '')+'\n'
+        text+='TEST_PRIVATE_KEY='+shlex.quote(private_key.as_posix() if private_key else '')+'\n'
+        if fail_generation:text+='certtool() { return 1; }\n'
+        text+='if initcerts; then exit 0; else exit 1; fi\n' if conditional else 'initcerts\n'
+        script.write_text(text,encoding='utf-8',newline='\n')
+        environment=os.environ.copy()
+        for key in ('IPKG_INSTROOT','CONFIG_SECTIONS'):environment.pop(key,None)
+        return subprocess.run(['sh',str(script)],env=environment,capture_output=True,text=True,timeout=120)
     folder=base/'ocserv'
     result=initialize(folder)
     assert result.returncode==0,result.stderr
-    checks.append('fresh initialization generates CA and server key/certificate pairs')
-    for name in ('ca-key.pem','server-key.pem'):
-        assert stat.S_IMODE((folder/name).stat().st_mode)==0o600
-    assert stat.S_IMODE((folder/'pki').stat().st_mode)==0o700
-    checks.append('private keys and working templates have restrictive permissions')
+    checks.append('fresh initialization tolerates OpenWrt helpers reading unset optional variables and generates certificate pairs')
+    if os.name!='nt':
+        for name in ('ca-key.pem','server-key.pem'):
+            assert stat.S_IMODE((folder/name).stat().st_mode)==0o600
+        assert stat.S_IMODE((folder/'pki').stat().st_mode)==0o700
+        checks.append('private keys and working templates have restrictive POSIX permissions')
+    assert not list((folder/'pki').iterdir())
+    checks.append('certificate templates and temporary generation files are removed after success')
     subprocess.run(['openssl','verify','-CAfile',str(folder/'ca.pem'),'-verify_ip','192.168.19.253',str(folder/'server-cert.pem')],check=True,capture_output=True)
     subprocess.run(['openssl','verify','-CAfile',str(folder/'ca.pem'),'-verify_hostname','OPLForN1',str(folder/'server-cert.pem')],check=True,capture_output=True)
     checks.append('the generated certificate verifies for the N1 LAN IP and hostname')
@@ -83,7 +90,13 @@ logger() { :; }
     assert hashlib.sha256((folder/'server-cert.pem').read_bytes()).hexdigest()==digests['server-cert.pem']
     assert hashlib.sha256((folder/'server-key.pem').read_bytes()).hexdigest()==digests['server-key.pem']
     checks.append('external certificate initialization leaves the supplied key pair unchanged')
+    failed=base/'failed'
+    assert initialize(failed,conditional=True,fail_generation=True).returncode!=0
+    assert not list(failed.glob('*.pem')) and not list((failed/'pki').iterdir())
+    checks.append('generation errors propagate from start_service conditional calls and remove temporary files')
+    assert initialize(failed,conditional=True).returncode==0
+    checks.append('a failed first generation can be retried from the same start_service path')
 output=ROOT/'test-results/server-certificates.json'
 output.parent.mkdir(exist_ok=True)
-output.write_text(json.dumps({'passed':len(checks),'checks':checks,'boundary':'Real GnuTLS certtool/OpenSSL; temporary Linux filesystem, not the N1.'},indent=2)+'\n',encoding='utf-8')
+output.write_text(json.dumps({'passed':len(checks),'checks':checks,'boundary':'Real GnuTLS certtool/OpenSSL on '+os.name+'; temporary filesystem, not the N1. POSIX permissions are checked on Linux.'},indent=2)+'\n',encoding='utf-8')
 print(json.dumps({'passed':len(checks),'report':str(output)}))

@@ -196,6 +196,8 @@ local function reset()
     S.files["/var/etc/ocpasswd"]=logic.passwd(original)
     S.files["/var/etc/ocserv.conf"]='auth = "plain[passwd=/var/etc/ocpasswd]"\n'
     S.files["/etc/ocserv/ca.pem"]="-----BEGIN CERTIFICATE-----\nTEST PUBLIC CA\n-----END CERTIFICATE-----\n"
+    S.files["/etc/ocserv/server-cert.pem"]="-----BEGIN CERTIFICATE-----\nTEST SERVER\n-----END CERTIFICATE-----\n"
+    S.files["/etc/ocserv/server-key.pem"]="TEST PRIVATE KEY"
     set_running(true)
 end
 local original_io_open=io.open
@@ -208,7 +210,7 @@ local function mode(value)
     return tonumber(value,8)
 end
 local fs={
-    stat=function(path)return S.dirs[path] or S.files[path] and {} end,
+    stat=function(path)return S.dirs[path] or S.files[path] and {size=#S.files[path]} end,
     access=function(path)return S.dirs[path]~=nil or S.files[path]~=nil end,
     readlink=function(path)if S.running and path=="/proc/101/exe"then return "/usr/sbin/ocserv"end end,
     mkdir=function(path,value)S.dirs[path]={mode=mode(value)};return true end,
@@ -267,12 +269,13 @@ local function run(argv)
     if command:find("occtl terminate user",1,true)then return S.fail_terminate and 1 or 0,""end
     if command:find("occtl disconnect id",1,true)then return 0,"disconnected"end
     if command=="/etc/init.d/ocserv enabled"then return 0,""end
+    if command=="/etc/init.d/ocserv initcerts"then return S.fail_certificates and 1 or 0,""end
     if command=="/etc/init.d/ocserv restart"then
         if S.fail_restart then S.fail_restart=nil;set_running(false);return 1,""end
         set_running(true);return 0,""
     end
     if command=="/etc/init.d/ocserv stop"then set_running(false);return 0,""end
-    if command=="/etc/init.d/ocserv start"then set_running(true);return 0,""end
+    if command=="/etc/init.d/ocserv start"then if not S.fail_start then set_running(true)end;return 0,""end
     return 0,""
 end
 package.loaded["nixio"]=nixio;package.loaded["nixio.fs"]=fs
@@ -380,6 +383,42 @@ test("unchanged service settings avoid restarts and flash writes",function()
     local result=request({action="settings",settings=backend.data().settings})
     check(result.effect=="unchanged" and S.files["/etc/config/ocserv"]==raw)
     check(S.files["/etc/ocserv/easy-backup/ocserv.uci"]==nil and not contains_command("restart"))
+end)
+test("client settings persist normalized LAN addresses and verification mode without changing the VPN",function()
+    reset();local before=clone(S.db)
+    local result=request({action="client_profile",server="192.168.19.254:4443",cert_mode="profile"})
+    check(result.effect=="profile_settings_saved" and S.running)
+    local data=backend.data()
+    check(data.settings.easy_public_url=="https://192.168.19.254:4443" and data.client_profile.cert_mode=="profile")
+    check(not contains_command("restart") and not contains_command("--test-config"))
+    for i=2,#before do check(serialize({before[i]})==serialize({S.db[i]})) end
+    local raw=S.files["/etc/config/ocserv"]
+    check(request({action="client_profile",server="https://192.168.19.254:4443",cert_mode="profile"}).effect=="unchanged")
+    check(S.files["/etc/config/ocserv"]==raw)
+    expect("invalid_cert_mode",function()request({action="client_profile",server="vpn.example.com",cert_mode="none"})end)
+    expect("invalid_url",function()request({action="client_profile",server="http://vpn.example.com",cert_mode="pin"})end)
+end)
+test("certificate readiness permits external server certificates without a bootstrap CA",function()
+    reset();check(backend.data().certificates_ready and backend.data().ca_available)
+    S.files["/etc/ocserv/ca.pem"]=nil
+    check(backend.data().certificates_ready and not backend.data().ca_available)
+    S.files["/etc/ocserv/server-key.pem"]=""
+    check(not backend.data().certificates_ready)
+    S.files["/etc/ocserv/easy-install-pending"]="incomplete"
+    check(backend.data().installation_pending)
+end)
+test("failed certificate initialization blocks starts and settings commits",function()
+    reset();set_running(false);S.fail_certificates=true
+    local raw=S.files["/etc/config/ocserv"]
+    expect("certificate_init_failed",function()request({action="service",command="start"})end)
+    expect("certificate_init_failed",function()request({action="settings",settings=fixture_settings()})end)
+    check(not contains_command("/etc/init.d/ocserv start") and S.files["/etc/config/ocserv"]==raw)
+end)
+test("service startup success requires the daemon to be running",function()
+    reset();set_running(false);S.fail_start=true
+    expect("service_failed",function()request({action="service",command="start"})end)
+    S.fail_start=false
+    check(request({action="service",command="start"}).effect=="service_changed" and S.running)
 end)
 test("failed restart restores old configuration and service",function()
     reset();local raw=S.files["/etc/config/ocserv"];S.fail_restart=true
