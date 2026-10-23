@@ -18,7 +18,11 @@
 
 本地实际 GnuTLS/OpenSSL、Lua、浏览器和便携包打包检查通过；POSIX 私钥权限及完整安装事务由 Linux CI 验证。已下载 N1 的 `aarch64_generic` 修复包，核对 GitHub artifact SHA-256、套装外部校验、ZIP CRC 和全部 17 个内部文件 SHA-256。摘要与原始回归附件保存在 `artifacts/validation/2026-10-23/`，N1 套装位于 `dist/`。
 
-Windows 包移除重复的完整 WAN 文档，保留短说明、构建元数据和发行许可证；服务端移除未使用的 `enable` 默认项和空白账号占位。工作流后续提交 [`c0c0a81`](https://github.com/sck03/ocserv-openwrt/commit/c0c0a81) 优先复用运行器已有 Chrome，避免重复下载浏览器与字体依赖；Chrome 路径已通过本地页面和轮询检查，缺少 Chrome 时保留 Chromium 安装回退。
+Windows 包移除重复的完整 WAN 文档，保留短说明、构建元数据和发行许可证；服务端移除未使用的 `enable` 默认项和空白账号占位。工作流后续提交 [`c0c0a81`](https://github.com/sck03/ocserv-openwrt/commit/c0c0a81) 优先复用运行器已有 Chrome，避免重复下载浏览器与字体依赖，缺少 Chrome 时保留 Chromium 安装回退。[验证运行 39935782663](https://github.com/sck03/ocserv-openwrt/actions/runs/39935782663) 中网页环境准备和测试步骤从首次运行的 364 秒减少至 18 秒；下载网络与运行器性能仍会波动。
+
+安装器后续修复 [`cd28d26`](https://github.com/sck03/ocserv-openwrt/commit/cd28d26) 已在上述 Linux 验证运行中通过 **32 项安装事务检查**。同名服务端原地升级保留配置、证书、运行和开机启动状态；APK 更新前先停服务，更新后确认实际状态，失败时尝试恢复当前已安装服务的运行状态，不声称回滚 APK。预演与实际安装使用一致的 `--upgrade`，预检失败不会重启已有服务。新增 `validate_only` 模式仅验证脚本、服务事务、证书及页面，跳过编译和发布。
+
+本地 `Lansyra-N1-aarch64_generic-ocserv-1.5.0-r7-ui-0.5.2-upgrade-cd28d26.zip` 在原始 CI 套装基础上更新安装工具及说明，两个 APK 与成功构建的原件逐字节一致。`BUILDINFO.json` 分别记录应用提交和安装器提交；已重新生成并验证完整清单及 ZIP CRC，SHA-256 为 `8af5284542fcae03427388686be7028afb6db83a03e60592e02054319565f435`。这份本地套装保留原来的官方 SDK/依赖信息，不代替 OPL 真机验收。
 
 ## 2026-10-14 名称统一、全新安装与代码优化
 
