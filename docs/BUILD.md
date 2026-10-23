@@ -133,6 +133,8 @@ Actions 的 Windows 应用附件只上传便携 ZIP 和校验文件。原生测�
 
 ## OpenWrt 多架构服务端
 
+仅修改安装工具或管理页逻辑并运行回归时，可勾选工作流的 `validate_only`；这会执行完整验证，跳过六架构编译和发布，且不生成新的安装包。生成发行套装时保持默认关闭。
+
 使用匹配固件的 OpenWrt 25.12.x / APK SDK。目标清单统一维护在 `server/openwrt/targets.json`，GitHub Actions 自动从该清单生成六目标矩阵。以下以 x86/64 为例；省略 `--target` 时仍使用 armsr/armv8：
 
 ~~~sh

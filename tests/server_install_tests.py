@@ -34,6 +34,7 @@ elif name=='apk':
         packages=json.loads((root/'installed').read_text()) if (root/'installed').exists() else []
         sys.exit(0 if args[2] in packages else 1)
     elif args and args[0]=='add':
+        assert '--upgrade' in args
         if '--simulate' in args:
             print('(1/2) Installing '+('kmod-tun (6.12)' if os.environ.get('INSTALL_KERNEL') else 'ocserv (1.5.0-r3)'))
         else:
@@ -42,6 +43,7 @@ elif name=='apk':
             (root/'installed').write_text(json.dumps(sorted(set(packages+['ocserv','luci-app-ocserv-easy']))))
             config=root/'etc/config/ocserv'
             if not config.exists(): config.write_text('fresh ocserv configuration\n')
+            if os.environ.get('INSTALL_POSTSTART'):(root/'running').touch()
     elif args and args[0]=='del':
         assert 'ocserv' not in args[1:] and 'luci-app-ocserv-easy' not in args[1:]
         packages=json.loads((root/'installed').read_text())
@@ -90,6 +92,12 @@ elif name=='ocserv' and args==['stop']:
 elif name=='ocserv' and args==['start']:
     if fail('fail_start'): sys.exit(1)
     (root/'running').touch()
+elif name=='ocserv' and args==['enabled']:
+    sys.exit(0 if (root/'autostart').exists() else 1)
+elif name=='ocserv' and args==['enable']:
+    (root/'autostart').touch()
+elif name=='ocserv' and args==['disable']:
+    (root/'autostart').unlink(missing_ok=True)
 elif name=='firewall':
     if fail('fail_reload'): sys.exit(1)
 '''
@@ -118,6 +126,7 @@ with tempfile.TemporaryDirectory(prefix='lansyra-install-test-') as temporary:
             (root / 'installed').write_text(json.dumps(['ocserv','luci-app-ocserv','luci-app-ocserv-easy','luci-i18n-ocserv-zh-cn']))
             (root / 'etc/config/ocserv').write_text('existing account hashes and custom settings\n')
             (root / 'running').touch()
+            (root / 'autostart').touch()
         script = (ROOT / 'server/tools/install.sh').read_text(encoding='utf-8')
         script = re.sub(r'/(etc|root|tmp|usr)/', lambda match: str(root / match[1]) + '/', script)
         (root / 'bundle/install.sh').write_text(script, encoding='utf-8')
@@ -161,10 +170,20 @@ with tempfile.TemporaryDirectory(prefix='lansyra-install-test-') as temporary:
     checks.append('upgrades preserve existing account and network configuration')
     assert set(json.loads((root/'installed').read_text()))=={'ocserv','luci-app-ocserv-easy'}
     assert (root/'running').exists()
+    assert (root/'autostart').exists()
     commands=(root/'commands').read_text()
     assert 'ocserv status' in commands and 'ocserv stop' in commands and 'ocserv start' in commands
     checks.append('in-place upgrades stop and restore a previously running VPN service')
     checks.append('upgrade retires duplicate upstream pages after installing the replacement')
+
+    root=fixture('stopped_upgrade',existing=True)
+    (root/'running').unlink()
+    (root/'autostart').unlink()
+    result=run(root,INSTALL_POSTSTART='1')
+    assert result.returncode==0,result.stdout+result.stderr
+    assert not (root/'running').exists() and not (root/'autostart').exists()
+    assert '将执行首次网络初始化' not in result.stdout
+    checks.append('an in-place upgrade preserves stopped and autostart-disabled states despite package hooks')
 
     root=fixture('aarch64')
     result=run(root,INSTALL_ARCH='aarch64')
@@ -241,6 +260,13 @@ with tempfile.TemporaryDirectory(prefix='lansyra-install-test-') as temporary:
     result = run(root)
     assert result.returncode != 0 and (root / 'running').exists()
     checks.append('an interrupted in-place upgrade restores the previously running service')
+
+    root = fixture('upgrade_preflight_failure', existing=True)
+    result = run(root, INSTALL_KERNEL='1')
+    assert result.returncode != 0 and (root / 'running').exists()
+    commands=(root/'commands').read_text()
+    assert 'ocserv stop' not in commands and 'ocserv start' not in commands
+    checks.append('a preflight failure leaves an already running service untouched')
 
     for name, options in [('kernel', {'INSTALL_KERNEL': '1'}), ('pending', {'INSTALL_PENDING': '1'}), ('wrong_arch', {'INSTALL_ARCH': 'x86_64'}), ('wrong_release', {'INSTALL_RELEASE':'24.10.5'})]:
         root = fixture(name)

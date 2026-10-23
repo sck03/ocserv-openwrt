@@ -27,6 +27,10 @@ on:
         description: 全部检查通过后发布到 Releases（仅 main）
         type: boolean
         default: true
+      validate_only:
+        description: 仅运行回归检查，跳过六架构编译和发布
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -144,6 +148,7 @@ jobs:
   server:
     name: OpenWrt 25.12 / ${{ matrix.target }} / APK
     needs: validate
+    if: ${{ !inputs.validate_only }}
     runs-on: ubuntu-26.04
     timeout-minutes: 120
     strategy:
@@ -208,7 +213,7 @@ jobs:
   release:
     name: 发布服务端到 Releases
     needs: [validate, server]
-    if: ${{ inputs.publish_release && github.ref == 'refs/heads/main' }}
+    if: ${{ inputs.publish_release && !inputs.validate_only && github.ref == 'refs/heads/main' }}
     runs-on: ubuntu-26.04
     timeout-minutes: 15
     env:

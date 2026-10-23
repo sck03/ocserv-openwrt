@@ -21,10 +21,13 @@ fresh=0
 pending=/etc/ocserv/easy-install-pending
 if [ -f "$pending" ] || { ! apk info -e ocserv >/dev/null 2>&1 && [ ! -e /etc/config/ocserv ]; }; then fresh=1; fi
 service_was_running=0
+service_stopped=0
 service_restored=0
-if [ "$fresh" = 0 ] && /etc/init.d/ocserv status >/dev/null 2>&1; then
-    service_was_running=1
+service_boot=disable
+if [ "$fresh" = 0 ]; then
     echo '检测到现有 Lansyra 服务；将原地升级并保留账号、证书和网络配置。'
+    if /etc/init.d/ocserv status >/dev/null 2>&1; then service_was_running=1; fi
+    if /etc/init.d/ocserv enabled >/dev/null 2>&1; then service_boot=enable; fi
 else
     echo '未检测到已完成的 Lansyra 安装；将执行首次网络初始化。'
 fi
@@ -40,11 +43,20 @@ if [ "$fresh" = 1 ]; then
 fi
 
 plan=$(mktemp /tmp/lansyra-apk-plan.XXXXXX)
+wait_service() {
+    for attempt in 1 2 3 4 5 6 7 8 9 10; do
+        actual=0
+        if /etc/init.d/ocserv status >/dev/null 2>&1; then actual=1; fi
+        [ "$actual" = "$1" ] && return 0
+        sleep 1
+    done
+    return 1
+}
 cleanup() {
     status=$?
-    if [ "$service_was_running" = 1 ] && [ "$service_restored" = 0 ]; then
-        if /etc/init.d/ocserv start >/dev/null 2>&1; then
-            echo '升级中途退出，已尝试恢复原 ocserv 服务。'
+    if [ "$service_stopped" = 1 ] && [ "$service_restored" = 0 ]; then
+        if /etc/init.d/ocserv start >/dev/null 2>&1 && wait_service 1; then
+            echo '升级中途退出，已尝试恢复当前安装的 ocserv 服务；APK 版本未回滚。'
         else
             echo '升级中途退出，恢复 ocserv 服务失败；请检查 logread -e ocserv。' >&2
         fi
@@ -53,9 +65,12 @@ cleanup() {
     trap - EXIT HUP INT TERM
     exit "$status"
 }
-trap cleanup EXIT HUP INT TERM
+trap cleanup EXIT
+trap 'exit 129' HUP
+trap 'exit 130' INT
+trap 'exit 143' TERM
 apk update
-apk add --simulate --allow-untrusted "$@" >"$plan" 2>&1 || { cat "$plan"; exit 1; }
+apk add --simulate --upgrade --allow-untrusted "$@" >"$plan" 2>&1 || { cat "$plan"; exit 1; }
 if grep -Ei '(installing|upgrading|downgrading|replacing).*(kernel|kmod-)' "$plan" >/dev/null; then
     cat "$plan"
     echo '安装计划涉及内核模块，已停止。请检查当前固件的软件源。'
@@ -73,9 +88,18 @@ if [ "$fresh" = 1 ]; then
 fi
 if [ "$service_was_running" = 1 ]; then
     echo '正在暂时停止 ocserv 以替换运行文件。'
+    service_stopped=1
     /etc/init.d/ocserv stop
+    wait_service 0 || { echo 'ocserv 未停止，已中止升级。' >&2; exit 1; }
 fi
 apk add --upgrade --allow-untrusted "$@"
+if [ "$fresh" = 0 ]; then /etc/init.d/ocserv "$service_boot"; fi
+# Package post-install hooks may start an enabled service. Keep a previously
+# stopped service stopped, including on the first installation.
+if [ "$service_was_running" = 0 ] && /etc/init.d/ocserv status >/dev/null 2>&1; then
+    /etc/init.d/ocserv stop
+    wait_service 0 || { echo '无法恢复 ocserv 停止状态。' >&2; exit 1; }
+fi
 # The maintained page now depends on ocserv directly. Retire the upstream
 # duplicate editors only after both replacement packages installed successfully.
 legacy=''
@@ -141,6 +165,7 @@ fi
 if [ "$service_was_running" = 1 ]; then
     echo '正在恢复原有 ocserv 服务。'
     /etc/init.d/ocserv start
+    wait_service 1 || { echo 'ocserv 未启动，请检查 logread -e ocserv。' >&2; exit 1; }
     service_restored=1
 fi
 /etc/init.d/rpcd restart
