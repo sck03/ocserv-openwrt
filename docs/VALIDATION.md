@@ -6,7 +6,22 @@
 
 本次版本为 Windows 0.7.2、Linux/macOS 0.1.2、Android 0.2.2、iOS 0.2.3、管理页 0.5.3-r1。修复配置总量上限、日志级别切换、脚本取消、Apple 重试与错误展示、Linux 断开失败、Android 会话归属与配置保护，以及服务端防火墙事务和首次安装中断恢复。模块和数据契约见 [ARCHITECTURE.md](ARCHITECTURE.md)。
 
-本地已执行服务端逻辑 62 项、控制器权限 6 项、守护事务 37 项、配置生成 4 项、命令边界 9 项，以及真实 Chrome 管理页 18 项、轮询 6 项；浏览器无脚本错误。Windows x64 使用文档中的 MSVCRT 工具链完整编译，连接模型 60 项、配置/DPAPI 62 项、界面 29 项、真实 WSH 7 项、资源 9 项及回环 TLS 认证 35 项通过。脚本取消回归确认子进程被结束；资源回归的句柄保持 134，内存约增加 96 KiB。该计数只代表本次测试进程，不能推断整机长期占用。构建参数、发布元数据、客户端/移动端/服务端打包回归亦通过。平台 CI 结果在本节补充记录；当前未连接真实 N1 或手机。
+本地已执行服务端逻辑 62 项、控制器权限 6 项、守护事务 37 项、配置生成 4 项、命令边界 9 项，以及真实 Chrome 管理页 18 项、轮询 6 项；浏览器无脚本错误。Windows x64 使用文档中的 MSVCRT 工具链完整编译，连接模型 60 项、配置/DPAPI 64 项、界面 29 项、真实 WSH 7 项、资源 9 项及回环 TLS 认证 35 项通过。脚本取消回归确认子进程被结束；资源回归的句柄保持 134，内存约增加 96 KiB。该计数只代表本次测试进程，不能推断整机长期占用。构建参数、发布元数据、客户端/移动端/服务端打包回归亦通过。当前未连接真实 N1 或手机。
+
+主要应用代码提交为 [`6112121`](https://github.com/sck03/ocserv-openwrt/commit/6112121)。服务端安装测试首次运行发现模拟器没有识别新的独立 UCI 暂存目录，修正提交为 [`6fdf0a6`](https://github.com/sck03/ocserv-openwrt/commit/6fdf0a6)，应用运行代码未变。Windows 后续提交 [`a95dbf2`](https://github.com/sck03/ocserv-openwrt/commit/a95dbf2) 统一长中文路径及网关的 UTF-16 校验与 UTF-8 读取预算，并拒绝规范化后超限的网关，新增两项配置回归。
+
+| 平台 | 本次成功验证 |
+|---|---|
+| Windows x86 / x64 | [运行 40103114903](https://github.com/sck03/ocserv-openwrt/actions/runs/40103114903)：提交 a95dbf2 的两架构编译、PE 审计、便携包中英文启动、配置/DPAPI 64 项及界面/脚本/资源/回环认证全部通过；x64 额外通过 8 项真实 Wintun 隧道检查，包括活动连接中提高日志级别 |
+| macOS / Linux | [运行 40099858504](https://github.com/sck03/ocserv-openwrt/actions/runs/40099858504)：macOS Universal unsigned、Linux 双架构构建与认证 IPC、四组 Debian/Ubuntu 安装和启动检查全部通过 |
+| Android | [运行 40099860914](https://github.com/sck03/ocserv-openwrt/actions/runs/40099860914)：上游及新增会话/存储/脱敏策略 JUnit、三个 ABI 核心、debug APK、16 KB 对齐和签名检查通过 |
+| iOS | [运行 40099863090](https://github.com/sck03/ocserv-openwrt/actions/runs/40099863090)：地址、凭据、数据包校验及应用/扩展 unsigned 编译归档通过，保留 iOS 15 部署目标并为最后断开错误 API 设置系统版本边界 |
+| 服务端回归 | [运行 40100077842](https://github.com/sck03/ocserv-openwrt/actions/runs/40100077842)：逻辑 62、权限 6、事务 37、真实证书 14、安装恢复 35、密码文件 9、浏览器 18、轮询 6 项及 Linux 网络命名空间防火墙 20 项检查通过 |
+| OpenWrt 六架构实包 | [运行 40101264796](https://github.com/sck03/ocserv-openwrt/actions/runs/40101264796)：armsr/armv8、ramips/mt7621、x86/64、mediatek/filogic、ipq806x/generic、ath79/generic 的 ocserv 1.5.0-r7、管理页 0.5.3-r1 APK 编译、ELF 审计、对应源码及安装套装打包全部通过，包含 N1 使用的 aarch64_generic |
+
+最终 CI 中 Windows x64 的资源回归私有内存未增长、句柄保持 118；x86 私有内存增加 80 KiB、句柄保持 135。两者均处理 60 万事件并完成 1,000 次清空。已校验 SHA-256 和 ZIP CRC 的原始 JSON/日志摘要保存在本地 `artifacts/validation/2026-10-24-maintenance/`，Windows 最终结果位于其中的 `windows-a95dbf2/`，服务端六架构审计位于 `server-six-architecture/`。本地 0.7.2 x64 便携包已按 Unicode 修复重新生成，通过实际中英文启动与导入审计。两轮项目清理脚本累计移除约 425 MiB 生成物，保留发行包、备份、锁定源码、工具链和验证记录。本轮额外安装的临时 Python 测试工具目录因自动执行审查返回 `blocked by policy` 暂时保留，未进入 Git 或发行包。
+
+本轮关闭自动发布，Android 使用 debug、Apple 使用 unsigned。上述验证不代替实际 N1/Flippy/OpenClash、手机后台耗电、Apple 签名扩展授权或数日转发验收。
 
 ## 2026-10-24 配置联动与资源边界修复
 
