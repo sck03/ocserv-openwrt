@@ -173,8 +173,11 @@ end)
 -- of them. External UCI, nixio, occtl and procd are the mocked interfaces.
 local S
 local function serialize(db)
-    local lines={}
-    for _,row in ipairs(db) do
+    local lines,rows={},{}
+    if #db>0 then for _,row in ipairs(db) do rows[#rows+1]=row end
+    else for _,row in pairs(db) do rows[#rows+1]=row end end
+    table.sort(rows,function(a,b)return tostring(a[".name"])<tostring(b[".name"])end)
+    for _,row in ipairs(rows) do
         lines[#lines+1]=row[".name"]..":"..row[".type"]
         local keys={};for key in pairs(row) do if key:sub(1,1)~="." then keys[#keys+1]=key end end
         table.sort(keys);for _,key in ipairs(keys) do lines[#lines+1]=key.."="..tostring(row[key]) end
@@ -190,7 +193,14 @@ local function reset()
     S={files={},dirs={},history={},commands={},version="1.5.0",counter=0,online={},sessions={}}
     S.db={cfg,{[".name"]="employee",[".type"]="ocservusers",name="employee01",group="*",password=old_hash},
         {[".name"]="dns1",[".type"]="dns",ip="10.77.0.1"}}
+    S.firewall={
+        ocserv_vpn={ [".name"]="ocserv_vpn", [".type"]="zone", name="ocvpn", device={"vpns+"}, input="ACCEPT", output="ACCEPT", forward="REJECT", mtu_fix="1" },
+        ocserv_vpn_to_lan={ [".name"]="ocserv_vpn_to_lan", [".type"]="forwarding", src="ocvpn", dest="lan" },
+        ocserv_vpn_nat={ [".name"]="ocserv_vpn_nat", [".type"]="nat", name="ocserv VPN source NAT", src="lan", src_ip="10.77.0.0/24", proto="all", family="ipv4", target="MASQUERADE" },
+        ocserv_vpn_entry={ [".name"]="ocserv_vpn_entry", [".type"]="rule", name="Allow ocserv from LAN", src="lan", proto="tcp udp", dest_port="4443", target="ACCEPT" }
+    }
     S.files["/etc/config/ocserv"]=serialize(S.db);S.history[S.files["/etc/config/ocserv"]]=clone(S.db)
+    S.files["/etc/config/firewall"]=serialize(S.firewall);S.history[S.files["/etc/config/firewall"]]=clone(S.firewall)
     S.files["/etc/ocserv/ocserv.conf.template"]=TEST_TEMPLATE
     S.files["/etc/ocserv/ocserv.conf.local"]=""
     S.files["/var/etc/ocpasswd"]=logic.passwd(original)
@@ -235,20 +245,23 @@ nixio.open=function(path,flags,permissions)
 end
 local function cursor()
     local db=clone(S.db)
+    local fw=clone(S.firewall)
     local function find(id)for _,row in ipairs(db)do if row[".name"]==id then return row end end end
+    local function find_fw(id) return fw[id] end
     return {
         load=function()return true end,unload=function()end,
-        get=function(_,package,id,key)local row=find(id);return row and row[key or ".type"]end,
-        get_all=function(_,package,id)return clone(find(id))end,
+        get=function(_,package,id,key)local row=package=="firewall" and find_fw(id) or find(id);return row and row[key or ".type"]end,
+        get_all=function(_,package,id)return clone(package=="firewall" and find_fw(id) or find(id))end,
         get_first=function()return "lan"end,
         foreach=function(_,package,kind,fn)if package=="ocserv"then for _,row in ipairs(db)do if row[".type"]==kind then fn(clone(row))end end end end,
-        changes=function()return S.pending and {ocserv={"pending"}} or {}end,
-        add=function(_,package,kind)local id="added"..tostring(#db+1);db[#db+1]={[".name"]=id,[".type"]=kind};return id end,
-        set=function(_,package,id,key,value)local row=find(id);if not row then return nil end;row[key]=value;return true end,
-        delete=function(_,package,id)for i,row in ipairs(db)do if row[".name"]==id then table.remove(db,i);return true end end end,
-        revert=function()db=clone(S.db);return true end,
-        commit=function()
+        changes=function(package)return S.pending and {[package]={"pending"}} or {}end,
+        add=function(_,package,kind)local id="added"..tostring(#db+1);if package=="firewall" then id="added-fw"..tostring(#db+1);fw[id]={[".name"]=id,[".type"]=kind};return id end;db[#db+1]={[".name"]=id,[".type"]=kind};return id end,
+        set=function(_,package,id,key,value)local row=package=="firewall" and find_fw(id) or find(id);if not row then if package=="firewall" and key==".type" then fw[id]={[".name"]=id,[".type"]=value};return true end;return nil end;row[key]=value;return true end,
+        delete=function(_,package,id)if package=="firewall" then fw[id]=nil;return true end;for i,row in ipairs(db)do if row[".name"]==id then table.remove(db,i);return true end end end,
+        revert=function()db=clone(S.db);fw=clone(S.firewall);return true end,
+        commit=function(_,package)
             if S.fail_commit then return nil end
+            if package=="firewall" then local raw=serialize(fw);S.history[raw]=clone(fw);S.files["/etc/config/firewall"]=raw;S.firewall=clone(fw);return true end
             local raw=serialize(db);S.history[raw]=clone(db);S.files["/etc/config/ocserv"]=raw;S.db=clone(db);return true
         end
     }
@@ -368,6 +381,19 @@ test("network settings apply after validation and preserve users",function()
     local result=request({action="settings",settings=settings,allow_restart=true})
     check(result.effect=="restarted" and S.candidate:find("tcp-port = 5443",1,true))
     check(backend.data().users[1].name=="employee01")
+end)
+test("network settings keep the managed firewall NAT and entry ports in sync",function()
+    reset();local settings=fixture_settings();settings.ipaddr="10.88.0.0";settings.netmask="23";settings.port="5443";settings.udp_port="5444"
+    local result=request({action="settings",settings=settings,allow_restart=true})
+    check(result.effect=="restarted")
+    check(S.files["/etc/config/firewall"]:find("src_ip=10.88.0.0/23",1,true))
+    check(S.files["/etc/config/firewall"]:find("dest_port=5443 5444",1,true))
+end)
+test("unchanged service settings repair a drifted managed firewall",function()
+    reset();S.firewall.ocserv_vpn_nat.src_ip="10.77.0.0/16";S.files["/etc/config/firewall"]=serialize(S.firewall)
+    local result=request({action="settings",settings=backend.data().settings})
+    check(result.effect=="firewall_repaired")
+    check(S.files["/etc/config/firewall"]:find("src_ip=10.77.0.0/24",1,true))
 end)
 test("public endpoint changes preserve live LAN sessions and network sections",function()
     reset();local settings=backend.data().settings;local before=clone(S.db)

@@ -91,7 +91,11 @@
         write_failed:t('保存失败，请检查剩余空间及文件权限。','Saving failed. Check free space and file permissions.'),
         service_failed:t('服务操作失败，请检查 ocserv 日志。','Service operation failed. Check the ocserv log.'),
         unknown_schema:t('未找到标准 ocserv UCI 配置，请先安装并初始化 ocserv。','Standard ocserv UCI configuration was not found. Install and initialize ocserv first.'),
-        ca_unavailable:t('服务器 CA 证书不可用，请先完成证书配置。','The server CA certificate is unavailable. Complete certificate setup first.')
+        ca_unavailable:t('服务器 CA 证书不可用，请先完成证书配置。','The server CA certificate is unavailable. Complete certificate setup first.'),
+        firewall_unavailable:t('无法读取基础防火墙配置，未应用网络设置。','The baseline firewall configuration is unavailable; network settings were not applied.'),
+        firewall_section_conflict:t('发现与 VPN 基础规则同名的自定义防火墙段，请先处理冲突。','A custom firewall section conflicts with the managed VPN rules. Resolve it first.'),
+        firewall_check_failed:t('防火墙配置检查失败，正在恢复原配置。','Firewall configuration validation failed. Restoring the previous configuration.'),
+        firewall_reload_failed:t('防火墙重载失败，正在恢复原配置。','Firewall reload failed. Restoring the previous configuration.')
     };
     function errorText(error) { return errors[error.code] || t('操作失败，请检查输入或刷新后重试。','Operation failed. Check the input or refresh and retry.') + ' (' + String(error.code || 'network_error') + ')'; }
     function notice(text, isError) { messageBox.textContent=text; messageBox.className='easy-notice'+(isError?' error':''); messageBox.hidden=!text; }
@@ -123,6 +127,7 @@
     }
     var effects={saved:t('已保存，下次启动服务时生效。','Saved for the next service start.'),updated_live:t('账号已生效，其他在线用户保持连接。','Account updated. Other users remain connected.'),terminated:t('账号已更新，该账号的旧登录已失效。','Account updated and its previous sessions revoked.'),restarted:t('配置已应用，VPN 服务已重新启动。','Configuration applied and VPN service restarted.'),disconnected:t('已断开该连接。账号仍可重新登录。','Connection disconnected. The account can sign in again.'),service_changed:t('服务操作已执行，状态将自动刷新。','Service operation submitted. Status will refresh automatically.')};
     effects.address_saved=t('连接地址已保存，当前 VPN 连接保持不变。','Connection address saved. Current VPN connections are unchanged.');
+    effects.firewall_repaired=t('基础 VPN 防火墙规则已同步。','Baseline VPN firewall rules were synchronized.');
     effects.profile_settings_saved=t('客户端地址和证书验证方式已保存。','Client address and certificate verification preference saved.');
     effects.certificates_initialized=t('服务端证书已就绪，可以下载客户端连接配置。','The server certificate is ready. You can download client profiles.');
     effects.unchanged=t('内容没有变化，无需重复保存。','Nothing changed; no update was needed.');
@@ -252,7 +257,7 @@
             textInput('ip6addr',t('VPN IPv6 地址池','VPN IPv6 pool'),t('可留空，例如 fd77::/64。','Optional, for example fd77::/64.')),
             textInput('easy_public_url',t('员工连接地址','Employee connection address'),t('填写客户端可访问的 HTTPS 域名或 IP；外网用户应使用公网入口。','Use an HTTPS hostname or IP reachable by clients; remote users need a public endpoint.'),{placeholder:'https://vpn.example.com:4443'})
         ])]);
-        var save=element('button',{type:'submit',className:'cbi-button cbi-button-apply',text:t('保存并应用','Save and apply'),disabled:!writable() || !state.settings_supported || !!(state.guard && state.guard.enabled)});
+        var save=element('button',{type:'submit',className:'cbi-button cbi-button-apply',text:t('保存并应用','Save and apply'),disabled:!writable() || !state.settings_supported || state.firewall_sync===false || !!(state.guard && state.guard.enabled)});
         var form=element('form',{},[general,advanced,element('div',{className:'easy-save-bar'},[element('span',{className:'easy-muted',text:t('应用前检查配置；运行中的 VPN 会短暂重启。','Checks configuration before applying; a running VPN briefly restarts.')}),save])]);
         form.addEventListener('submit',function(event){
             event.preventDefault();
@@ -263,6 +268,7 @@
         });
         content.appendChild(element('section',{className:'easy-card'},[element('h3',{text:t('常用服务设置','Common service settings')}),form]));
         if(!state.settings_supported)content.appendChild(element('p',{className:'easy-notice error',text:t('当前使用自定义认证或代理 ARP。请先恢复普通账号认证和独立 VPN 地址池，再使用本页管理网络。','Custom authentication or proxy ARP is configured. Restore password authentication and a separate VPN pool before managing networking here.')}));
+        if(state.firewall_sync===false)content.appendChild(element('p',{className:'easy-notice error',text:errors.firewall_unavailable}));
         if(state.guard && state.guard.enabled)content.appendChild(element('p',{className:'easy-muted',text:errors.guard_settings_locked}));
     }
     function showGuardLog() {

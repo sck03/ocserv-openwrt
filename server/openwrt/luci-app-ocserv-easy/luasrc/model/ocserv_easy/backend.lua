@@ -5,6 +5,7 @@ local uci = require "luci.model.uci"
 local json = require "luci.jsonc"
 local logic = require "luci.model.ocserv_easy.logic"
 local guard = require "luci.model.ocserv_easy.guard"
+local firewall = require "luci.model.ocserv_easy.firewall"
 local run = require("luci.model.ocserv_easy.process").run
 local M = {}
 local config_path="/etc/config/ocserv"
@@ -12,6 +13,7 @@ local template_path="/etc/ocserv/ocserv.conf.template"
 local local_path="/etc/ocserv/ocserv.conf.local"
 local passwd_path="/var/etc/ocpasswd"
 local runtime_path="/var/etc/ocserv.conf"
+local firewall_path="/etc/config/firewall"
 local work="/var/run/ocserv-easy"
 local occtl="/usr/bin/occtl"
 
@@ -69,15 +71,18 @@ end
 local function snapshot()
     local c=uci.cursor()
     logic.require(c:load("ocserv") and c:get("ocserv","config")=="ocserv","unknown_schema")
+    local firewall_loaded=c:load("firewall") == true
     local users,dns,routes={},{},{}
     c:foreach("ocserv","ocservusers",function(s) users[#users+1]={id=s[".name"],name=s.name,group=s.group,password=s.password} end)
     c:foreach("ocserv","dns",function(s) dns[#dns+1]={id=s[".name"],ip=s.ip} end)
     c:foreach("ocserv","routes",function(s) routes[#routes+1]={id=s[".name"],ip=s.ip,netmask=s.netmask} end)
     local raw=read(config_path) or ""
+    local firewall_raw=read(firewall_path)
     local template=read(template_path) or ""
     local extra=read(local_path) or ""
-    return {cursor=c,config=c:get_all("ocserv","config"),users=users,dns=dns,routes=routes,raw=raw,template=template,extra=extra,
-        revision=logic.revision(raw.."\0"..template.."\0"..extra)}
+    return {cursor=c,config=c:get_all("ocserv","config"),users=users,dns=dns,routes=routes,raw=raw,
+        firewall_loaded=firewall_loaded,firewall_raw=firewall_raw,template=template,extra=extra,
+        revision=logic.revision(raw.."\0"..(firewall_raw or "").."\0"..template.."\0"..extra)}
 end
 local function safe(value,limit) return type(value)=="string" and value:sub(1,limit or 128) or "" end
 function M.status()
@@ -105,6 +110,7 @@ function M.data(admin)
     state.supported=logic.supported_version(state.version)
     state.capabilities=capabilities()
     state.revision=s.revision
+    state.firewall_sync=s.firewall_loaded and s.firewall_raw~=nil
     state.users=logic.public_users(s.users)
     state.settings=logic.settings(s.config,s.dns,s.routes)
     state.auth=s.config.auth or "plain"
@@ -149,20 +155,34 @@ local function commit(s)
     s.committed_raw=read(config_path)
     logic.require(fs.chmod(config_path,"600"),"write_failed")
 end
-local function backup(s,old_passwd)
+local function commit_firewall(s)
+    logic.require(s.firewall_loaded and s.firewall_raw~=nil,"firewall_unavailable")
+    logic.require((read(firewall_path) or "")==s.firewall_raw,"stale_revision")
+    logic.require(s.cursor:commit("firewall"),"write_failed")
+    s.committed_firewall_raw=read(firewall_path)
+    logic.require(fs.chmod(firewall_path,"600"),"write_failed")
+end
+local function backup(s,old_passwd,include_firewall)
     local path="/etc/ocserv/easy-backup"
     directory(path)
     atomic(path.."/ocserv.uci",s.raw)
     atomic(path.."/ocserv.conf.template",s.template)
     atomic(path.."/ocserv.conf.local",s.extra)
     if old_passwd then atomic(path.."/ocpasswd",old_passwd) end
+    if include_firewall and s.firewall_raw then atomic(path.."/firewall.uci",s.firewall_raw) end
 end
-local function transaction(s,was_running,operation)
+local function reload_firewall(mark)
+    mark()
+    logic.require(run({"/sbin/fw4","check"},10)==0,"firewall_check_failed")
+    logic.require(run({"/etc/init.d/firewall","reload"},20)==0,"firewall_reload_failed")
+end
+local function transaction(s,was_running,operation,include_firewall)
     local old_passwd=read(passwd_path)
-    backup(s,old_passwd)
-    local touched=false
+    backup(s,old_passwd,include_firewall)
+    local touched,firewall_touched=false,false
     local function mark_service() touched=true end
-    local ok,result=pcall(operation,mark_service)
+    local function mark_firewall() firewall_touched=true end
+    local ok,result=pcall(operation,mark_service,mark_firewall)
     if ok then return result end
     local restored=pcall(function()
         -- A stale request must never roll back somebody else's later commit.
@@ -170,9 +190,18 @@ local function transaction(s,was_running,operation)
             logic.require(read(config_path)==s.committed_raw,"rollback_failed")
             atomic(config_path,s.raw)
         end
+        if s.committed_firewall_raw then
+            logic.require((read(firewall_path) or "")==s.committed_firewall_raw,"rollback_failed")
+            if s.firewall_raw then atomic(firewall_path,s.firewall_raw) else fs.remove(firewall_path) end
+        end
         s.cursor:revert("ocserv"); s.cursor:unload("ocserv")
+        if include_firewall then s.cursor:revert("firewall"); s.cursor:unload("firewall") end
         if s.committed_raw then
             if old_passwd then atomic(passwd_path,old_passwd) else fs.remove(passwd_path) end
+        end
+        if firewall_touched then
+            logic.require(run({"/sbin/fw4","check"},10)==0,"rollback_failed")
+            logic.require(run({"/etc/init.d/firewall","reload"},20)==0,"rollback_failed")
         end
         if touched then
             logic.require(run({"/etc/init.d/ocserv",was_running and "restart" or "stop"},15)==0,"rollback_failed")
@@ -235,14 +264,24 @@ local function apply_settings(s,request)
     local previous=logic.settings(s.config,s.dns,s.routes)
     local proposed=logic.settings(values,dns,routes)
     proposed.easy_public_url=previous.easy_public_url
+    local firewall_aligned=s.firewall_loaded and s.firewall_raw~=nil and firewall.matches(s.cursor,previous)
     -- The published address is export metadata, independent of the live listener.
-    if logic.equal(previous,proposed) then
+    if logic.equal(previous,proposed) and firewall_aligned then
         if values.easy_public_url==previous.easy_public_url then return {effect="unchanged"} end
         return transaction(s,running(),function()
             logic.require(s.cursor:set("ocserv","config","easy_public_url",values.easy_public_url),"write_failed")
             commit(s)
             return {effect="address_saved"}
         end)
+    end
+    if logic.equal(previous,proposed) then
+        logic.require(s.firewall_loaded and s.firewall_raw~=nil,"firewall_unavailable")
+        return transaction(s,running(),function(_,mark_firewall)
+            local ok,code=firewall.apply(s.cursor,previous); logic.require(ok,code)
+            commit_firewall(s)
+            reload_firewall(mark_firewall)
+            return {effect="firewall_repaired"}
+        end,true)
     end
     local config={}; for key,value in pairs(s.config) do config[key]=value end
     for key,value in pairs(values) do config[key]=value end
@@ -258,7 +297,8 @@ local function apply_settings(s,request)
     local code=run({"/usr/sbin/ocserv","--test-config","--config",test_config},8)
     fs.remove(test_config); fs.remove(test_passwd)
     logic.require(code==0,"config_check_failed")
-    return transaction(s,was_running,function(mark)
+    logic.require(s.firewall_loaded and s.firewall_raw~=nil,"firewall_unavailable")
+    return transaction(s,was_running,function(mark,mark_firewall)
         for key,value in pairs(values) do logic.require(s.cursor:set("ocserv","config",key,value),"write_failed") end
         for _,row in ipairs(s.dns) do logic.require(s.cursor:delete("ocserv",row.id),"write_failed") end
         for _,row in ipairs(s.routes) do logic.require(s.cursor:delete("ocserv",row.id),"write_failed") end
@@ -270,6 +310,9 @@ local function apply_settings(s,request)
             logic.require(id and s.cursor:set("ocserv",id,"ip",row.ip) and s.cursor:set("ocserv",id,"netmask",row.netmask),"write_failed")
         end
         commit(s)
+        local ok,code=firewall.apply(s.cursor,values); logic.require(ok,code)
+        commit_firewall(s)
+        reload_firewall(mark_firewall)
         if was_running then restart(mark) end
         return {effect=was_running and "restarted" or "saved"}
     end)

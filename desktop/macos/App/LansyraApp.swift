@@ -317,6 +317,7 @@ final class DesktopVPN: NSObject, ObservableObject, OSSystemExtensionRequestDele
                 manager = active
                 attemptStarted = true
                 try active.connection.startVPNTunnel(options: ["password": sessionPassword as NSString])
+                sessionPassword = ""
                 password = ""
                 refresh()
             } catch {

@@ -120,13 +120,42 @@ fi
 if [ "$fresh" = 1 ]; then
     # Baseline VPN networking only: no OpenClash or DNS service settings change.
     [ -z "$(uci -q changes firewall)" ] || { echo '其他页面有未应用的防火墙修改，请先处理后重跑安装。'; exit 1; }
+    prefix_octet() {
+        case "$1" in
+            0) printf '0' ;; 128) printf '1' ;; 192) printf '2' ;; 224) printf '3' ;;
+            240) printf '4' ;; 248) printf '5' ;; 252) printf '6' ;; 254) printf '7' ;;
+            255) printf '8' ;; *) return 1 ;;
+        esac
+    }
+    mask_to_prefix() {
+        local mask="$1" old_ifs="$IFS" part bits total=0 count=0
+        IFS=.
+        for part in $mask; do
+            bits=$(prefix_octet "$part") || { IFS="$old_ifs"; return 1; }
+            total=$((total + bits)); count=$((count + 1))
+        done
+        IFS="$old_ifs"
+        [ "$count" = 4 ] || return 1
+        printf '%s' "$total"
+    }
+    vpn_ip=$(uci -q get ocserv.config.ipaddr 2>/dev/null || true)
+    vpn_mask=$(uci -q get ocserv.config.netmask 2>/dev/null || true)
+    vpn_port=$(uci -q get ocserv.config.port 2>/dev/null || true)
+    vpn_udp=$(uci -q get ocserv.config.udp_port 2>/dev/null || true)
+    case "$vpn_ip" in ''|*[!0-9.]*) vpn_ip=10.77.0.0 ;; esac
+    case "$vpn_mask" in ''|*[!0-9.]*) vpn_mask=255.255.255.0 ;; esac
+    vpn_prefix=$(mask_to_prefix "$vpn_mask" 2>/dev/null || printf '24')
+    case "$vpn_port" in ''|*[!0-9]*) vpn_port=4443 ;; esac
+    case "$vpn_udp" in ''|*[!0-9]*) vpn_udp="$vpn_port" ;; esac
+    vpn_ports="$vpn_port"
+    [ "$vpn_udp" = "$vpn_port" ] || vpn_ports="$vpn_ports $vpn_udp"
     rollback_network() {
         uci -q revert firewall || true
         cp -p "$backup/firewall.uci" /etc/config/firewall
         /etc/init.d/firewall reload || true
         echo "VPN 防火墙设置失败，已恢复原文件。备份：$backup"
     }
-    if ! uci batch <<'UCI'
+    if ! uci batch <<UCI
 set firewall.ocserv_vpn=zone
 set firewall.ocserv_vpn.name='ocvpn'
 add_list firewall.ocserv_vpn.device='vpns+'
@@ -140,7 +169,7 @@ set firewall.ocserv_vpn_to_lan.dest='lan'
 set firewall.ocserv_vpn_nat=nat
 set firewall.ocserv_vpn_nat.name='ocserv VPN source NAT'
 set firewall.ocserv_vpn_nat.src='lan'
-set firewall.ocserv_vpn_nat.src_ip='10.77.0.0/24'
+set firewall.ocserv_vpn_nat.src_ip='$vpn_ip/$vpn_prefix'
 set firewall.ocserv_vpn_nat.proto='all'
 set firewall.ocserv_vpn_nat.family='ipv4'
 set firewall.ocserv_vpn_nat.target='MASQUERADE'
@@ -148,7 +177,7 @@ set firewall.ocserv_vpn_entry=rule
 set firewall.ocserv_vpn_entry.name='Allow ocserv from LAN'
 set firewall.ocserv_vpn_entry.src='lan'
 set firewall.ocserv_vpn_entry.proto='tcp udp'
-set firewall.ocserv_vpn_entry.dest_port='4443'
+set firewall.ocserv_vpn_entry.dest_port='$vpn_ports'
 set firewall.ocserv_vpn_entry.target='ACCEPT'
 commit firewall
 UCI
@@ -172,6 +201,6 @@ fi
 # Invalidate both older Lua and current ucode dispatcher caches.
 rm -f /tmp/luci-indexcache* /tmp/luci-modulecache/*
 echo "安装完成。安装前备份：$backup"
-echo '请重新登录 LuCI → VPN → 岚序 Lansyra（管理页 0.5.2）。'
+echo '请重新登录 LuCI → VPN → 岚序 Lansyra（管理页 0.5.2-r2）。'
 echo '全新安装：添加账号，检查服务设置，然后点击「启动服务」。'
 echo '默认端口 4443，VPN 地址池 10.77.0.0/24；专用 OpenClash 开关默认关闭。'

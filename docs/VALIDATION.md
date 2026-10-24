@@ -2,6 +2,12 @@
 
 本页记录岚序（Lansyra）全新安装版本的验证证据与实机边界。以前的打包和系统升级记录见[历史版本](https://github.com/sck03/ocserv-openwrt/blob/ba903fe/docs/VALIDATION.md)。
 
+## 2026-10-24 配置联动与资源边界修复
+
+本次维护将管理页的 VPN 服务设置与项目维护的基础防火墙规则放入同一事务：地址池同步更新源 NAT，TCP/UDP 端口同步更新入口规则；fw4 检查或重载失败会恢复 ocserv 与防火墙配置。新增 Lua 防火墙模块并纳入服务端打包审计，补充地址池、双端口和防火墙漂移回归。
+
+VPN 专用上网事务的截止时间改用设备单调运行时间，避免 NTP 校时改变自动恢复时机。macOS 连接启动后立即清除会话密码，Windows OpenConnect 核心日志级别跟随用户设置。管理页版本发布递增为 `0.5.2-r2`。
+
 ## 2026-10-23 证书初始化、固件架构和客户端导出设置
 
 应用与服务端修复提交为 [`428f538`](https://github.com/sck03/ocserv-openwrt/commit/428f538)。服务端更新为 ocserv 1.5.0-r7、管理页 0.5.2-r1，本次自动选择官方 OpenWrt 25.12.6 SDK。N1 使用 `aarch64_generic` 套装；安装检查优先读取固件的 `/etc/apk/arch`，不会根据 Cortex-A53 CPU 名称推断软件包架构。

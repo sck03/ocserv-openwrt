@@ -21,6 +21,10 @@ local rulefile=root.."/guard.nft"
 local work="/var/run/ocserv-easy"
 local configs={"firewall","dhcp","openclash","ocserv"}
 local phases={queued=true,applying=true,pending=true,enabled=true,restoring=true,recovery_failed=true}
+local function monotonic()
+    local info=nixio.sysinfo and nixio.sysinfo()
+    return info and info.uptime or os.time()
+end
 
 local function read(path)
     local f=io.open(path,"rb"); if not f then return nil end
@@ -159,7 +163,7 @@ local function running()
     return executable=="/usr/sbin/ocserv" or executable=="/usr/sbin/ocserv (deleted)"
 end
 local function plan(c,info)
-    local state={version=1,phase="queued",ops={},before={},files={},info=info,token=random(),deadline=os.time()+240,was_running=running()}
+    local state={version=1,phase="queued",ops={},before={},files={},info=info,token=random(),deadline=monotonic()+240,was_running=running()}
     logic.require(state.was_running,"guard_requires_ocserv")
     pending(c)
     for _,package in ipairs(configs) do state.before[package]=read("/etc/config/"..package) or false end
@@ -274,7 +278,7 @@ function M.active() return saved()~=nil end
 function M.begin(command,admin,token)
     local state=saved()
     if command=="confirm" then
-        logic.require(state and state.phase=="pending" and state.token==token and state.info.admin==admin and os.time()<state.deadline,"guard_confirmation_expired")
+        logic.require(state and state.phase=="pending" and state.token==token and state.info.admin==admin and monotonic()<state.deadline,"guard_confirmation_expired")
         state.phase="enabled"; state.token=nil; save(state)
         log.add("confirmation","enabled")
         return {effect="guard_enabled"}
@@ -289,7 +293,7 @@ function M.begin(command,admin,token)
     else
         if not state then return {effect="guard_disabled"} end
         logic.require(state.phase=="enabled" or state.phase=="pending" or state.phase=="queued" or state.phase=="recovery_failed","busy")
-        state.phase="restoring"; state.deadline=os.time()+240; save(state)
+        state.phase="restoring"; state.deadline=monotonic()+240; save(state)
     end
     log.add("request",command)
     if run({"/etc/init.d/ocserv-easy-guard","restart"},5)~=0 then
@@ -383,7 +387,7 @@ local function apply(state)
     logic.require(command("nft_apply",{"/usr/sbin/nft","-f",rulefile},10)==0,"guard_firewall_failed")
     reload(state,false)
     logic.require(run({"/usr/sbin/nft","list","table","inet","lansyra_guard"},5)==0,"guard_firewall_failed")
-    state.phase="pending"; state.deadline=os.time()+120; save(state)
+    state.phase="pending"; state.deadline=monotonic()+120; save(state)
     log.add("apply","pending")
 end
 local function locked(operation)
@@ -418,10 +422,10 @@ function M.work(boot)
     while true do
         local state=saved()
         if not state or state.phase~="pending" then return end
-        if os.time()>=state.deadline then
+        if monotonic()>=state.deadline then
             locked(function()
                 state=saved()
-                if state and state.phase=="pending" and os.time()>=state.deadline then
+                if state and state.phase=="pending" and monotonic()>=state.deadline then
                     state.phase="restoring"; state.failure="guard_confirmation_expired"; save(state)
                     log.add("operation_failed",state.failure)
                     local ok,err=pcall(restore,state,false)

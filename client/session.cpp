@@ -849,7 +849,10 @@ bool Session::run_attempt() {
         error_ = tr(language_, L"无法创建 VPN 会话。", L"Could not create the VPN session.");
         return fail(ErrorCategory::Internal);
     }
-    openconnect_set_loglevel(vpn_, PRG_TRACE);
+    // Match the user's selected verbosity at the protocol core as well as in
+    // the callback filter. This avoids formatting and dispatching trace output
+    // that the UI will discard anyway.
+    openconnect_set_loglevel(vpn_, log_level_.load());
     openconnect_set_reported_os(vpn_, "win");
     openconnect_set_system_trust(vpn_, 0);
     if (openconnect_set_protocol(vpn_, profile_.protocol.c_str()) ||
