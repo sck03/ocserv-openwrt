@@ -16,6 +16,7 @@ class PromptWaitTest {
         }
         thread.start()
         cancelled.set(true)
+        thread.interrupt()
         thread.join(2000)
         assertFalse(thread.isAlive)
     }

@@ -17,7 +17,8 @@ def maintain(app, root):
             VpnBus.setStage(ConnectionStage.DISCONNECTING)
             Interaction.cancelPending()
         }
-        control.cancel { runCatching { it.cancel() } }''')
+        control.cancel { runCatching { it.cancel() } }
+        interrupt() // Wake a Java prompt wait without a periodic polling timer.''')
         value = once(value, '        runCatching { session?.pause() }', '        control.use { runCatching { it.pause() } }')
         value = once(value, '        runCatching { session?.requestStats() }', '        control.use { runCatching { it.requestStats() } }')
         value = once(value, '            runCatching { session?.destroy() }\n            session = null',

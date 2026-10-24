@@ -143,7 +143,7 @@ if ! /etc/init.d/ocserv initcerts; then
     exit 1
 fi
 /etc/init.d/ocserv-easy-guard enable
-/etc/init.d/ocserv-easy-guard start
+/etc/init.d/ocserv-easy-guard restart
 
 if [ "$fresh" = 1 ]; then
     # Baseline VPN networking only: no OpenClash or DNS service settings change.
