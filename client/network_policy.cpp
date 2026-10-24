@@ -55,7 +55,7 @@ bool Ipv6Guard::require(bool enabled, std::wstring &error) {
         code = FwpmSubLayerAdd0(engine_, &layer, nullptr);
     FWPM_FILTER_CONDITION0 conditions[2]{};
     conditions[0].fieldKey = AppId;
-    conditions[0].matchType = FWP_MATCH_EQUAL;
+    conditions[0].matchType = FWP_MATCH_NOT_EQUAL;
     conditions[0].conditionValue.type = FWP_BYTE_BLOB_TYPE;
     conditions[0].conditionValue.byteBlob = application;
     conditions[1].fieldKey = Flags;
@@ -71,19 +71,10 @@ bool Ipv6Guard::require(bool enabled, std::wstring &error) {
         filter.subLayerKey = key;
         filter.weight.type = FWP_UINT8;
         filter.weight.uint8 = 15;
-        // A soft permit in this sublayer exempts the VPN transport; existing
-        // Windows firewall blocks in other sublayers still take precedence.
-        filter.action.type = FWP_ACTION_PERMIT;
+        filter.action.type = FWP_ACTION_BLOCK;
         filter.numFilterConditions = 2;
         filter.filterCondition = conditions;
         code = FwpmFilterAdd0(engine_, &filter, nullptr, nullptr);
-        if (!code) {
-            filter.weight.uint8 = 1;
-            filter.action.type = FWP_ACTION_BLOCK;
-            filter.numFilterConditions = 1;
-            filter.filterCondition = &conditions[1];
-            code = FwpmFilterAdd0(engine_, &filter, nullptr, nullptr);
-        }
     }
     if (!code)
         code = FwpmTransactionCommit0(engine_);
