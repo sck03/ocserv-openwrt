@@ -141,7 +141,7 @@
     effects.guard_enabled=t('已开启，仅 VPN 用户可通过 N1 使用 OpenClash。','Enabled. Only VPN clients can use OpenClash through this N1.');
     effects.guard_disabled=t('已关闭，已恢复启用前的设置。','Disabled. Previous settings restored.');
     async function complete(payload) {
-        var result=await mutate(payload); await load();
+        var result=await mutate(payload); if(!await load())return;
         if(payload.action==='guard' && state.guard && state.guard.phase==='disabled' && payload.command==='disable')result.effect='guard_disabled';
         notice(effects[result.effect] || t('操作完成。','Done.'));
     }
@@ -393,11 +393,14 @@
         root.appendChild(tabs);content=element('div',{});root.appendChild(content);renderTab();
     }
     var loadPending=null, loadGeneration=0;
-    function load() {
+    function load(preserveDialog) {
         if(!loadPending) {
             var generation=loadGeneration;
             var pending=request('data').then(function(data){
-                if(generation===loadGeneration){state=data;render();}
+                if(generation!==loadGeneration)return false;
+                state=data;
+                if(preserveDialog && guardLogOpen){renderStatus();renderTab();}else render();
+                return true;
             }).finally(function(){if(loadPending===pending)loadPending=null;});
             loadPending=pending;
         }
@@ -421,11 +424,10 @@
             if(state.guard && state.guard.phase==='pending' && state.guard.token && writable()) {
                 // A successful authenticated request from the retained management IP
                 // confirms connectivity. No confirmation is sent after a failed request.
-                state=await request('data');
-                if(!guardLogOpen)render();
+                if(!await load(guardLogOpen))return;
                 if(state.guard && state.guard.phase==='pending' && state.guard.token) {
                     var confirmation={action:'guard',command:'confirm',token:state.guard.token};
-                    if(guardLogOpen){await mutate(confirmation);state=await request('data');renderStatus();renderTab();}
+                    if(guardLogOpen){await mutate(confirmation);await load(true);}
                     else await complete(confirmation);
                 }
             } else if(previous!== (state.guard && state.guard.phase) && !modal) {
