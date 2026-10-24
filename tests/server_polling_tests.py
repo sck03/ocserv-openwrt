@@ -22,6 +22,13 @@ with sync_playwright() as pw:
     page.get_by_role('tab', name='VPN 专用上网', exact=True).click()
     expect(page.get_by_role('button', name='开启', exact=True)).to_be_enabled()
 
+    page.evaluate("window.summaryNode = document.querySelector('.easy-summary').firstChild")
+    for _ in range(3):
+        with page.expect_response('**/easy/status'):
+            page.clock.run_for(3000)
+    assert page.evaluate("window.summaryNode === document.querySelector('.easy-summary').firstChild"), 'unchanged status rebuilt the summary'
+    checks.append('unchanged router status preserves existing summary controls')
+
     # A network request that never returns must be aborted, then polled again.
     requests = []
     def stalled(route):

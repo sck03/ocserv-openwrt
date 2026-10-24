@@ -173,6 +173,7 @@ void Session::state(State value, bool terminal, std::wstring message) {
     emit(std::move(event));
 }
 void Session::emit(Event event) {
+    synchronize_log_level();
     event.session_id = id_;
     event.generation = generation_;
     event.elapsed_ms = GetTickCount64() - started_;
@@ -188,6 +189,12 @@ bool Session::fail(ErrorCategory category, int code) {
     error_category_ = category;
     error_code_ = code;
     return false;
+}
+void Session::synchronize_log_level() {
+    // Every caller runs on the worker. The UI only publishes an atomic level
+    // and wakes the command pipe, never accesses the live core directly.
+    if (vpn_)
+        openconnect_set_loglevel(vpn_, log_level_.load());
 }
 void Session::log(int level, std::string message) {
     if (level > log_level_.load())
@@ -499,6 +506,7 @@ int Session::validate_certificate(const char *reason) {
 }
 void Session::progress_callback(void *context, int level, const char *format, ...) {
     auto *self = static_cast<Session *>(context);
+    self->synchronize_log_level();
     if (strcmp(format, "Got HTTP response: %s\n") == 0) {
         va_list response;
         va_start(response, format);
@@ -546,6 +554,7 @@ void Session::progress_callback(void *context, int level, const char *format, ..
 }
 void Session::statistics_callback(void *context, const oc_stats *stats) {
     auto *self = static_cast<Session *>(context);
+    self->synchronize_log_level();
     self->statistics_pending_.store(false);
     if (!stats || self->stopped())
         return;

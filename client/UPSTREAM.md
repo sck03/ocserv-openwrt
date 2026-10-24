@@ -33,6 +33,8 @@ Script regressions execute the shipped JScript with mocked Windows commands. Aut
 
 patches/openconnect/0002-windows-reconnect-routes.patch prepares a bypass for each new TCP peer before connecting during DDNS recovery. It also inherits the current Windows environment instead of the C runtime's stale environment snapshot, keeping per-session log and route-state paths correct.
 
+patches/openconnect/0003-windows-script-cancellation.patch checks the command pipe while awaiting setup scripts. CANCEL stops the script job and its descendants promptly; disconnect scripts retain the bounded cleanup window. Native regression starts a real script child and verifies cancellation and child termination before any adapter setup.
+
 The JScript helper records only the external routes it creates. Reconnection updates gateway and IPv4/IPv6 exclusion routes; disconnect uses the saved next hops even after a physical network change. Existing administrator routes are preserved. IPv6 default routing covers both halves of the address space, including NAT64 prefixes, and uses temporary routes.
 
 ## Source layout and migration

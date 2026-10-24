@@ -245,7 +245,7 @@ int wmain(int argc, wchar_t **argv) {
                 }
             },
             Session::Options{!tunnel, input.value("retry_failed", false)});
-        session.set_log_level(3);
+        session.set_log_level(input.value("log_level", 3));
         if (input.value("cancel_before_start", false))
             session.cancel();
         if (!session.start())
@@ -254,6 +254,7 @@ int wmain(int argc, wchar_t **argv) {
         bool timeout = false, cancel_sent = false, probe_answered = false;
         bool network_changed = false, suspended = false, resumed = false;
         bool probe_after_reconnect = false;
+        bool log_level_raised = false;
         long long connected_at = -1, probe_sent_at = -1000;
         Probe probe;
         while (!session.finished()) {
@@ -268,6 +269,10 @@ int wmain(int argc, wchar_t **argv) {
                 connections = connected_count;
             }
             if (tunnel && is_connected) {
+                if (!log_level_raised && input.value("raise_log_level", false)) {
+                    log_level_raised = true;
+                    session.set_log_level(3);
+                }
                 if (connected_at < 0)
                     connected_at = elapsed;
                 if (!network_changed && input.value("network_change", false) &&
@@ -354,8 +359,7 @@ int wmain(int argc, wchar_t **argv) {
         output["session_id"] = event_session;
         output["held_prompt_canceled"] = held_prompt && held_prompt->done && !held_prompt->accepted;
         output["diagnostics"] = Json::parse(diagnostic_report(final_status, final_statistics, log, 0));
-        Handle lease(
-            CreateMutexW(nullptr, FALSE, (L"Local\\Lansyra.Session." + wide(profile.id)).c_str()));
+        Handle lease(CreateMutexW(nullptr, FALSE, (L"Local\\Lansyra.Session." + wide(profile.id)).c_str()));
         DWORD acquired = lease ? WaitForSingleObject(lease.get(), 0) : WAIT_FAILED;
         output["lease_released"] = acquired == WAIT_OBJECT_0;
         if (acquired == WAIT_OBJECT_0 || acquired == WAIT_ABANDONED)

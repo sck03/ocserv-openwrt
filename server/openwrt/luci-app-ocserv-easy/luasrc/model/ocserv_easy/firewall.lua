@@ -2,6 +2,7 @@
 -- Managed baseline firewall sections shared by installation and LuCI updates.
 -- Keep this module free of UCI side effects so it can be tested with Lua 5.1.
 local M = {}
+local logic = require "luci.model.ocserv_easy.logic"
 
 M.names = {
     zone = "ocserv_vpn",
@@ -19,18 +20,6 @@ local function unique_ports(settings)
         end
     end
     return table.concat(ports, " ")
-end
-
-local function prefix(mask)
-    if mask:match("^%d+$") then return tonumber(mask) end
-    local a, b, c, d = mask:match("^(%d+)%.(%d+)%.(%d+)%.(%d+)$")
-    if not a then return nil end
-    local value = (((tonumber(a) * 256 + tonumber(b)) * 256 + tonumber(c)) * 256 + tonumber(d))
-    for bits = 0, 32 do
-        local network = bits == 0 and 0 or 4294967296 - 2 ^ (32 - bits)
-        if value == network then return bits end
-    end
-    return nil
 end
 
 function M.sections(settings)
@@ -53,7 +42,7 @@ function M.sections(settings)
             [".type"] = "nat",
             name = "ocserv VPN source NAT",
             src = "lan",
-            src_ip = settings.ipaddr .. "/" .. tostring(prefix(settings.netmask)),
+            src_ip = settings.ipaddr .. "/" .. tostring(logic.prefix(settings.netmask)),
             proto = "all",
             family = "ipv4",
             target = "MASQUERADE",
@@ -76,24 +65,17 @@ local function compatible(actual, expected)
     return true
 end
 
-local function equal(a, b)
-    if type(a) ~= type(b) then return false end
-    if type(a) ~= "table" then return a == b end
-    for key, value in pairs(a) do
-        if not equal(value, b[key]) then return false end
-    end
-    for key in pairs(b) do
-        if a[key] == nil then return false end
-    end
-    return true
-end
-
 function M.matches(cursor, settings)
     for id, expected in pairs(M.sections(settings)) do
         local actual = cursor:get_all("firewall", id)
         if not actual or not compatible(actual, expected) then return false end
         for key, value in pairs(expected) do
-            if key ~= ".type" and not equal(actual[key], value) then return false end
+            if key ~= ".type" and not logic.equal(actual[key], value) then return false end
+        end
+        -- These named sections belong to the baseline. An extra selector or
+        -- enabled=0 can silently disable an otherwise matching rule.
+        for key in pairs(actual) do
+            if key:sub(1, 1) ~= "." and expected[key] == nil then return false end
         end
     end
     return true
@@ -101,13 +83,22 @@ end
 
 function M.apply(cursor, settings)
     local sections = M.sections(settings)
+    -- Detect all ownership conflicts before changing the cursor.
     for id, expected in pairs(sections) do
         local actual = cursor:get_all("firewall", id)
         if actual and not compatible(actual, expected) then
             return nil, "firewall_section_conflict"
         end
+    end
+    for id, expected in pairs(sections) do
+        local actual = cursor:get_all("firewall", id)
         if not actual then
             if not cursor:set("firewall", id, expected[".type"]) then
+                return nil, "write_failed"
+            end
+        end
+        for key in pairs(actual or {}) do
+            if key:sub(1, 1) ~= "." and expected[key] == nil and not cursor:delete("firewall", id, key) then
                 return nil, "write_failed"
             end
         end

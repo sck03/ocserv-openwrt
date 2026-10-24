@@ -4,7 +4,7 @@
     var options = JSON.parse(document.getElementById('ocserv-easy-options').textContent);
     var root = document.getElementById('ocserv-easy');
     var chinese = /^zh/i.test(options.language || '');
-    var state, activeTab = 'users', busy = false, modal = null, guardLogOpen = false, messageBox, content, statusBox;
+    var state, activeTab = 'users', busy = false, modal = null, guardLogOpen = false, messageBox, content, statusBox, statusKey = null;
     function t(zh, en) { return chinese ? zh : en; }
     function array(value) { return Array.isArray(value) ? value : []; }
     function element(tag, attrs, children) {
@@ -56,7 +56,7 @@
         invalid_existing_user:t('现有配置中有不支持的账号名，请修改或删除该账号。','An existing username is unsupported. Edit or delete that account.'),
         invalid_existing_password:t('现有账号的密码记录无效，请先修正。','An existing account has an invalid password record.'),
         stale_revision:t('配置已被其他页面修改。请关闭此对话框，刷新页面后重试。','Configuration changed in another page. Close this dialog, refresh and try again.'),
-        pending_changes:t('其他页面有尚未提交的 ocserv 修改，请先应用或撤销。','Another editor has pending ocserv changes. Apply or discard them first.'),
+        pending_changes:t('其他页面有尚未提交的 VPN 或防火墙修改，请先应用或撤销。','Another editor has pending VPN or firewall changes. Apply or discard them first.'),
         busy:t('另一个操作正在进行，请稍后重试。','Another operation is in progress. Try again shortly.'),
         upgrade_required:t('请先升级到 ocserv 1.5.0 或后续版本。','Upgrade to ocserv 1.5.0 or later first.'),
         version_unavailable:t('暂时无法读取 ocserv 版本。请稍后刷新重试，或运行诊断脚本检查服务。','The ocserv version could not be read. Refresh and retry, or run the diagnostic script.'),
@@ -257,7 +257,7 @@
             textInput('ip6addr',t('VPN IPv6 地址池','VPN IPv6 pool'),t('可留空，例如 fd77::/64。','Optional, for example fd77::/64.')),
             textInput('easy_public_url',t('员工连接地址','Employee connection address'),t('填写客户端可访问的 HTTPS 域名或 IP；外网用户应使用公网入口。','Use an HTTPS hostname or IP reachable by clients; remote users need a public endpoint.'),{placeholder:'https://vpn.example.com:4443'})
         ])]);
-        var save=element('button',{type:'submit',className:'cbi-button cbi-button-apply',text:t('保存并应用','Save and apply'),disabled:!writable() || !state.settings_supported || state.firewall_sync===false || !!(state.guard && state.guard.enabled)});
+        var save=element('button',{type:'submit',className:'cbi-button cbi-button-apply',text:t('保存并应用','Save and apply'),disabled:!writable() || options.firewall_writable===false || !state.settings_supported || state.firewall_sync===false || !!(state.guard && state.guard.enabled)});
         var form=element('form',{},[general,advanced,element('div',{className:'easy-save-bar'},[element('span',{className:'easy-muted',text:t('应用前检查配置；运行中的 VPN 会短暂重启。','Checks configuration before applying; a running VPN briefly restarts.')}),save])]);
         form.addEventListener('submit',function(event){
             event.preventDefault();
@@ -355,6 +355,9 @@
         ]));
     }
     function renderStatus() {
+        var key=JSON.stringify([state.running,state.online,state.online_error,array(state.users).length]);
+        if(key===statusKey)return;
+        statusKey=key;
         statusBox.replaceChildren();
         [[t('VPN 服务','VPN service'),state.running?t('运行中','Running'):t('已停止','Stopped'),state.running?'easy-good':'easy-muted'],[t('在线连接','Online connections'),state.online_error?'—':String(array(state.online).length),''],[t('登录账号','Accounts'),String(array(state.users).length),'']].forEach(function(item){statusBox.appendChild(element('div',{className:'easy-card'},[element('span',{className:'easy-muted',text:item[0]}),element('strong',{className:item[2],text:item[1]})]));});
         renderOnline();
@@ -373,9 +376,9 @@
             }),
             mutationButton(state.autostart?t('关闭开机启动','Disable autostart'):t('开机自动启动','Enable autostart'),function(){complete({action:'service',command:state.autostart?'disable':'enable'}).catch(function(e){notice(errorText(e),true);});})
         ]);
-        root.appendChild(element('div',{className:'easy-heading'},[element('div',{},[element('h2',{text:'岚序 Lansyra'}),element('span',{className:'easy-muted',text:t('管理页 ','UI ')+(state.ui_version || '0.5.2')+' · ocserv '+state.version})]),actions]));
+        root.appendChild(element('div',{className:'easy-heading'},[element('div',{},[element('h2',{text:'岚序 Lansyra'}),element('span',{className:'easy-muted',text:t('管理页 ','UI ')+(state.ui_version || '0.5.3')+' · ocserv '+state.version})]),actions]));
         messageBox=element('div',{className:'easy-notice',hidden:true});root.appendChild(messageBox);
-        statusBox=element('div',{className:'easy-summary'});root.appendChild(statusBox);renderStatus();
+        statusBox=element('div',{className:'easy-summary'});statusKey=null;root.appendChild(statusBox);renderStatus();
         if(state.installation_pending)root.appendChild(element('p',{className:'easy-notice error',text:t('安装尚未完成。请在完整服务端套装目录重新运行 sh install.sh，完成证书和 VPN 网络初始化。','Installation is incomplete. Run sh install.sh again from the complete server bundle to finish certificate and VPN network initialization.')}));
         if(!state.supported)notice(state.version==='unknown'?errors.version_unavailable:errors.upgrade_required,true);
         else if(!options.writable)notice(errors.forbidden);

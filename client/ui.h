@@ -50,7 +50,6 @@ enum Control : int {
     PromptShowPassword,
     PromptDetails,
     PromptCopy,
-    PromptAccept,
     LogText = 400,
     LogCopy,
     LogSelectAll,
@@ -173,5 +172,7 @@ private:
     Language language_ = Language::Chinese;
     bool auto_scroll_ = true;
     bool dirty_ = false;
+    bool reset_text_ = true;
+    size_t rendered_ = 0, trimmed_characters_ = 0, trimmed_lines_ = 0;
 };
 } // namespace vpn::ui

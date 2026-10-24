@@ -14,6 +14,9 @@ final class VPNModel: ObservableObject {
     @Published var disconnecting = false
     private var manager: NETunnelProviderManager?
     private var observer: NSObjectProtocol?
+    private var epoch: UInt64 = 0
+    private var attemptStarted = false
+    private var lastError = ""
 
     init() {
         observer = NotificationCenter.default.addObserver(
@@ -32,6 +35,7 @@ final class VPNModel: ObservableObject {
                 self.manager = managers?.first(where: {
                     ($0.protocolConfiguration as? NETunnelProviderProtocol)?.providerBundleIdentifier == self.tunnelID
                 })
+                self.attemptStarted = self.manager.map { ![.invalid, .disconnected].contains($0.connection.status) } ?? false
                 if let error = error { self.status = error.localizedDescription }
                 else { self.refresh() }
             }
@@ -45,15 +49,40 @@ final class VPNModel: ObservableObject {
         connected = [.connected, .connecting, .reasserting].contains(state)
         disconnecting = state == .disconnecting
         switch state {
-        case .connected: status = "已连接"
-        case .connecting: status = "正在连接"
+        case .connected: status = "已连接"; lastError = ""
+        case .connecting: status = "正在连接"; lastError = ""
         case .disconnecting: status = "正在断开"
         case .reasserting: status = "正在重连"
-        default: status = "未连接"
+        default:
+            status = lastError.isEmpty ? "未连接" : lastError
+            if attemptStarted, let connection = manager?.connection {
+                attemptStarted = false
+                let request = epoch
+                if #available(iOS 16.0, *) {
+                    connection.fetchLastDisconnectError { [weak self] error in
+                        Task { @MainActor in
+                            guard let self, self.epoch == request,
+                                  connection === self.manager?.connection,
+                                  [.invalid, .disconnected].contains(connection.status) else { return }
+                            self.lastError = error?.localizedDescription ?? "服务器已结束连接，请重新连接。"
+                            self.status = self.lastError
+                        }
+                    }
+                } else {
+                    lastError = "连接已结束，请检查服务器地址、证书指纹和账号密码。"
+                    status = lastError
+                }
+            }
         }
     }
 
-    func disconnect() { manager?.connection.stopVPNTunnel() }
+    func disconnect() {
+        epoch &+= 1
+        attemptStarted = false
+        lastError = ""
+        manager?.connection.stopVPNTunnel()
+        refresh()
+    }
 
     func connect(server: String, username: String, password: String, pin: String) async {
         guard !busy && !connected && !disconnecting else { return }
@@ -65,10 +94,14 @@ final class VPNModel: ObservableObject {
             status = "请输入管理员核实的完整 pin-sha256 指纹"; return
         }
         busy = true
+        epoch &+= 1
+        let request = epoch
+        lastError = ""
         defer { busy = false }
         do {
             // Load again to avoid creating duplicate system VPN profiles after launch.
             let managers = try await NETunnelProviderManager.loadAllFromPreferences()
+            guard epoch == request else { return }
             let active = managers.first(where: {
                 ($0.protocolConfiguration as? NETunnelProviderProtocol)?.providerBundleIdentifier == tunnelID
             }) ?? NETunnelProviderManager()
@@ -86,11 +119,19 @@ final class VPNModel: ObservableObject {
             active.localizedDescription = "岚序 Lansyra"
             active.isEnabled = true
             try await active.saveToPreferences()
+            guard epoch == request else { return }
             try await active.loadFromPreferences()
+            guard epoch == request else { return }
             // Password is passed for this connection only, never written to preferences.
+            attemptStarted = true
             try active.connection.startVPNTunnel(options: ["password": password as NSString])
             refresh()
-        } catch { status = error.localizedDescription }
+        } catch {
+            guard epoch == request else { return }
+            attemptStarted = false
+            lastError = error.localizedDescription
+            status = lastError
+        }
     }
 }
 

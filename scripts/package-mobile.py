@@ -22,7 +22,7 @@ def package(platform):
     }[platform]
     scripts = (
         "build_common.py", "mobile-sources.py", "package-mobile.py", "ios-signing.py",
-        "audit-android.py", "prepare-mobile-android.py",
+        "audit-android.py", "prepare-mobile-android.py", "android_maintenance.py", "source_edits.py",
         "build-" + platform + ".sh",
         *(("build-apple-core.sh",) if platform != "android" else ()),
     )

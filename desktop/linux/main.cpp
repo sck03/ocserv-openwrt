@@ -231,12 +231,19 @@ public:
                 auto *operation = static_cast<Deactivation *>(data);
                 auto *self = operation->self;
                 GError *failure = nullptr;
-                nm_client_deactivate_connection_finish(NM_CLIENT(object), result, &failure);
-                g_clear_error(&failure);
+                bool ok = nm_client_deactivate_connection_finish(NM_CLIENT(object), result, &failure);
                 --self->pending;
                 if (nm_active_connection_get_state(operation->connection) ==
                     NM_ACTIVE_CONNECTION_STATE_DEACTIVATED)
                     self->ended(operation->connection);
+                else if (!ok && self->active == operation->connection) {
+                    self->deactivating = false;
+                    self->closing = false;
+                    self->error = "permission";
+                    self->transition("disconnect_failed", "VPN 尚未断开",
+                                     "系统未能断开 VPN。请重试，或在系统网络设置中断开后退出。");
+                }
+                g_clear_error(&failure);
                 g_object_unref(operation->connection);
                 delete operation;
                 self->maybeClose();
@@ -396,7 +403,9 @@ public:
             update();
     }
     void edit(bool existing) {
-        auto *remote = existing ? selected() : nullptr;
+        auto *selected_profile = existing ? selected() : nullptr;
+        g_autoptr(NMRemoteConnection) remote =
+            selected_profile ? NM_REMOTE_CONNECTION(g_object_ref(selected_profile)) : nullptr;
         GtkWidget *dialog = gtk_dialog_new_with_buttons(
             existing ? "编辑服务器" : "新建服务器", GTK_WINDOW(window), GTK_DIALOG_MODAL, "取消",
             GTK_RESPONSE_CANCEL, "保存", GTK_RESPONSE_OK, nullptr);
@@ -507,7 +516,9 @@ public:
         maybeClose();
     }
     void remove() {
-        auto *profile = selected();
+        auto *selected_profile = selected();
+        g_autoptr(NMRemoteConnection) profile =
+            selected_profile ? NM_REMOTE_CONNECTION(g_object_ref(selected_profile)) : nullptr;
         if (!profile)
             return;
         GtkWidget *dialog = gtk_message_dialog_new(GTK_WINDOW(window), GTK_DIALOG_MODAL, GTK_MESSAGE_QUESTION,
@@ -708,7 +719,8 @@ int main(int argc, char **argv) {
     if (argc == 2 && !strcmp(argv[1], "--check-runtime")) {
         const auto dialog = lansyra_auth_dialog();
         if (dialog.empty()) {
-            std::fputs("Install network-manager-openconnect-gnome to provide the authentication helper.\n", stderr);
+            std::fputs("Install network-manager-openconnect-gnome to provide the authentication helper.\n",
+                       stderr);
             return 1;
         }
         std::puts(dialog.c_str());

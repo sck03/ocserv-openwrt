@@ -47,6 +47,7 @@ struct Preferences {
 bool validate_profile(Profile &profile, std::wstring &error);
 class ProfileStore {
 public:
+    static constexpr size_t MaxFileBytes = 8 * 1024 * 1024;
     explicit ProfileStore(std::filesystem::path directory = {});
     const std::filesystem::path &directory() const {
         return directory_;
@@ -62,8 +63,11 @@ public:
                            std::wstring &error) const;
 
 private:
+    bool read(std::vector<Profile> &profiles, Preferences &preferences, std::wstring &error,
+              bool decrypt) const;
+    void prune_certificates(const std::vector<Profile> &profiles) const;
     bool update(const std::function<bool(std::vector<Profile> &, Preferences &, std::wstring &)> &change,
-                std::wstring &error);
+                std::wstring &error, bool prune = false);
     bool write(const std::vector<Profile> &profiles, const Preferences &preferences,
                std::wstring &error) const;
     std::filesystem::path directory_;

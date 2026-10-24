@@ -1,28 +1,15 @@
 """Small, fail-closed adaptations to the checksum-pinned Android upstream."""
 import shutil
-
-
-def once(text, old, new):
-    if text.count(old) != 1:
-        raise ValueError(f"Android upstream changed near: {old[:80]}")
-    return text.replace(old, new)
-
-
-def section(text, start, end, replacement):
-    if text.count(start) != 1 or text.count(end) != 1:
-        raise ValueError("Android upstream section changed")
-    a, b = text.index(start), text.index(end)
-    if b <= a:
-        raise ValueError("Android upstream section order changed")
-    return text[:a] + replacement + text[b:]
+from source_edits import once, section
+from android_maintenance import maintain
 
 
 def prepare(app, root):
     gradle = app / "app/build.gradle.kts"
     value = once(gradle.read_text(encoding="utf-8"), 'applicationId = "dev.opentunnel.vpn"',
                  'applicationId = "io.github.sck03.lansyra"')
-    value = once(value, '        versionCode = 16', '        versionCode = 20')
-    value = section(value, '        versionName =', '\n\n        ndk {', '        versionName = "0.2.1"')
+    value = once(value, '        versionCode = 16', '        versionCode = 21')
+    value = section(value, '        versionName =', '\n\n        ndk {', '        versionName = "0.2.2"')
     gradle.write_text(value, encoding="utf-8")
     resources = app / "app/src/main/res"
     for resource in resources.glob("values*/strings.xml"):
@@ -240,3 +227,4 @@ def prepare(app, root):
         target = app / f"app/src/{directory}/java/dev/opentunnel/vpn/{package}" / source
         target.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(root / "mobile/android" / source, target)
+    maintain(app, root)

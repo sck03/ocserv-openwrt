@@ -3,6 +3,8 @@
 #include <algorithm>
 #include <cctype>
 #include <sstream>
+#include <set>
+#include <unordered_set>
 
 namespace vpn {
 using Json = nlohmann::json;
@@ -67,7 +69,7 @@ Json encode_profile(const Profile &p, std::wstring &error) {
             {"disable_udp", p.disable_udp},
             {"use_proxy", p.use_proxy}};
 }
-Profile decode_profile(const Json &j, const std::filesystem::path &directory) {
+Profile decode_profile(const Json &j, const std::filesystem::path &directory, bool decrypt) {
     if (!j.is_object())
         throw std::runtime_error("Invalid profile");
     Profile p;
@@ -100,9 +102,12 @@ Profile decode_profile(const Json &j, const std::filesystem::path &directory) {
     p.use_proxy = j.value("use_proxy", false);
     p.password_blob = utf8(text(j, "password_dpapi", 65536));
     p.token_blob = utf8(text(j, "token_dpapi", 65536));
-    p.secret_unavailable = !unprotect_secret(p.password_blob, context(p, "password"), p.password);
-    if (!unprotect_secret(p.token_blob, context(p, "token"), p.token))
-        p.secret_unavailable = true;
+    if (decrypt) {
+        p.secret_unavailable = !unprotect_secret(p.password_blob, context(p, "password"), p.password);
+        if (!unprotect_secret(p.token_blob, context(p, "token"), p.token))
+            p.secret_unavailable = true;
+    } else
+        p.secret_unavailable = true; // Preserve opaque blobs during unrelated updates.
     std::wstring error;
     if (!identifier(p.id) || !validate_profile(p, error))
         throw std::runtime_error("Invalid profile data");
@@ -171,6 +176,10 @@ ProfileStore::ProfileStore(std::filesystem::path directory)
     mutex_name_ = L"Local\\Lansyra.ProfileStore." + std::to_wstring(hash);
 }
 bool ProfileStore::load(std::vector<Profile> &profiles, Preferences &preferences, std::wstring &error) const {
+    return read(profiles, preferences, error, true);
+}
+bool ProfileStore::read(std::vector<Profile> &profiles, Preferences &preferences, std::wstring &error,
+                        bool decrypt) const {
     profiles.clear();
     preferences = {};
     auto path = directory_ / L"profiles.json";
@@ -179,7 +188,7 @@ bool ProfileStore::load(std::vector<Profile> &profiles, Preferences &preferences
     if (!std::filesystem::exists(directory_))
         return true;
     std::string raw;
-    if (!read_file(path, raw, error))
+    if (!read_file(path, raw, error, MaxFileBytes))
         return false;
     try {
         Json data = Json::parse(raw);
@@ -201,11 +210,16 @@ bool ProfileStore::load(std::vector<Profile> &profiles, Preferences &preferences
             throw std::runtime_error("Invalid log level");
         if (!preferences.auto_connect.empty() && !identifier(preferences.auto_connect))
             throw std::runtime_error("Invalid automatic connection profile");
+        auto compare_name = [](const std::wstring &a, const std::wstring &b) {
+            return CompareStringOrdinal(a.c_str(), -1, b.c_str(), -1, TRUE) == CSTR_LESS_THAN;
+        };
+        std::set<std::wstring, decltype(compare_name)> names(compare_name);
+        std::unordered_set<std::string> ids;
+        profiles.reserve(data["profiles"].size());
         for (const auto &entry : data["profiles"]) {
-            auto profile = decode_profile(entry, directory_);
-            for (const auto &existing : profiles)
-                if (existing.id == profile.id || same_name(existing.name, profile.name))
-                    throw std::runtime_error("Duplicate profile");
+            auto profile = decode_profile(entry, directory_, decrypt);
+            if (!ids.insert(profile.id).second || !names.insert(profile.name).second)
+                throw std::runtime_error("Duplicate profile");
             profiles.push_back(std::move(profile));
         }
         return true;
@@ -244,11 +258,48 @@ bool ProfileStore::write(const std::vector<Profile> &profiles, const Preferences
             return false;
         data["profiles"].push_back(std::move(item));
     }
-    return write_atomic(directory_ / L"profiles.json", data.dump(2) + '\n', error);
+    auto serialized = data.dump(2) + '\n';
+    if (serialized.size() > MaxFileBytes) {
+        error = L"配置总大小超过 8 MiB，原文件已保留。 / Profiles exceed 8 MiB; the original was preserved.";
+        return false;
+    }
+    const auto path = directory_ / L"profiles.json";
+    if (GetFileAttributesW(path.c_str()) != INVALID_FILE_ATTRIBUTES) {
+        std::string previous;
+        if (!read_file(path, previous, error, MaxFileBytes))
+            return false;
+        if (previous == serialized)
+            return true;
+    }
+    return write_atomic(path, serialized, error);
+}
+void ProfileStore::prune_certificates(const std::vector<Profile> &profiles) const {
+    const auto directory = directory_ / L"certificates";
+    DWORD attributes = GetFileAttributesW(directory.c_str());
+    if (attributes == INVALID_FILE_ATTRIBUTES || (attributes & FILE_ATTRIBUTE_REPARSE_POINT))
+        return;
+    std::error_code ec;
+    for (std::filesystem::directory_iterator it(directory, ec), end; !ec && it != end; it.increment(ec)) {
+        const auto path = it->path();
+        const auto name = utf8(path.filename().wstring());
+        if (name.size() != 39 || name.substr(32) != "-ca.pem" || !identifier(name.substr(0, 32)))
+            continue;
+        attributes = GetFileAttributesW(path.c_str());
+        if (attributes == INVALID_FILE_ATTRIBUTES ||
+            (attributes & (FILE_ATTRIBUTE_DIRECTORY | FILE_ATTRIBUTE_REPARSE_POINT)))
+            continue;
+        const bool used = std::any_of(profiles.begin(), profiles.end(), [&](const Profile &profile) {
+            return !profile.ca_file.empty() &&
+                   same_name(std::filesystem::path(profile.ca_file).lexically_normal().wstring(),
+                             path.lexically_normal().wstring());
+        });
+        if (!used)
+            DeleteFileW(path.c_str());
+    }
 }
 bool ProfileStore::update(
     const std::function<bool(std::vector<Profile> &, Preferences &, std::wstring &)> &change,
-    std::wstring &error) {
+    std::wstring &error, bool prune) {
     Handle mutex(CreateMutexW(nullptr, FALSE, mutex_name_.c_str()));
     if (!mutex) {
         error = system_error(GetLastError());
@@ -267,9 +318,13 @@ bool ProfileStore::update(
     } unlock{mutex.get()};
     std::vector<Profile> profiles;
     Preferences preferences;
-    if (!load(profiles, preferences, error) || !change(profiles, preferences, error))
+    if (!read(profiles, preferences, error, false) || !change(profiles, preferences, error))
         return false;
-    return write(profiles, preferences, error);
+    if (!write(profiles, preferences, error))
+        return false;
+    if (prune)
+        prune_certificates(profiles);
+    return true;
 }
 bool ProfileStore::save(Profile &profile, std::wstring &error) {
     if (!validate_profile(profile, error))
@@ -316,7 +371,7 @@ bool ProfileStore::save(Profile &profile, std::wstring &error) {
             preferences.selected = profile.id;
             return true;
         },
-        error);
+        error, true);
 }
 bool ProfileStore::remove(const std::string &id, std::wstring &error) {
     return update(
@@ -334,7 +389,7 @@ bool ProfileStore::remove(const std::string &id, std::wstring &error) {
                 preferences.auto_connect.clear();
             return true;
         },
-        error);
+        error, true);
 }
 bool ProfileStore::save_preferences(const Preferences &preferences, std::wstring &error) {
     return update(

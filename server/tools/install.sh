@@ -17,8 +17,31 @@ grep -Fqx -- "$device_arch" APK-ARCHITECTURES || {
     exit 1
 }
 
-fresh=0
 pending=/etc/ocserv/easy-install-pending
+network_journal=/etc/ocserv/easy-install-network
+firewall_new=/etc/config/.firewall-lansyra-$$
+recover_network() {
+    [ -d "$network_journal" ] || return 0
+    if [ -f "$network_journal/complete" ]; then
+        # The service and firewall checks completed before interruption.
+        rm -f "$pending"
+    elif [ -f "$network_journal/before" ]; then
+        if cmp -s /etc/config/firewall "$network_journal/before"; then :
+        elif [ -f "$network_journal/prepared" ] && cmp -s /etc/config/firewall "$network_journal/firewall"; then
+            cp -p "$network_journal/before" "$firewall_new" && mv -f "$firewall_new" /etc/config/firewall || return 1
+        else
+            echo "防火墙在安装中断后有其他修改，未覆盖。请核对恢复记录：$network_journal" >&2
+            return 1
+        fi
+        if [ -f "$network_journal/prepared" ]; then /etc/init.d/firewall reload || return 1; fi
+    fi
+    rm -f "$firewall_new"
+    rm -rf -- "$network_journal"
+}
+# Recover a known interrupted first installation before deciding whether its
+# managed section names conflict. Unknown later edits are preserved for review.
+recover_network || exit 1
+fresh=0
 if [ -f "$pending" ] || { ! apk info -e ocserv >/dev/null 2>&1 && [ ! -e /etc/config/ocserv ]; }; then fresh=1; fi
 service_was_running=0
 service_stopped=0
@@ -54,6 +77,10 @@ wait_service() {
 }
 cleanup() {
     status=$?
+    if [ -d "$network_journal" ] && ! recover_network; then
+        echo "首次网络设置尚需恢复。请处理 $network_journal 后重跑安装。" >&2
+        status=1
+    fi
     if [ "$service_stopped" = 1 ] && [ "$service_restored" = 0 ]; then
         if /etc/init.d/ocserv start >/dev/null 2>&1 && wait_service 1; then
             echo '升级中途退出，已尝试恢复当前安装的 ocserv 服务；APK 版本未回滚。'
@@ -150,12 +177,16 @@ if [ "$fresh" = 1 ]; then
     vpn_ports="$vpn_port"
     [ "$vpn_udp" = "$vpn_port" ] || vpn_ports="$vpn_ports $vpn_udp"
     rollback_network() {
-        uci -q revert firewall || true
-        cp -p "$backup/firewall.uci" /etc/config/firewall
-        /etc/init.d/firewall reload || true
-        echo "VPN 防火墙设置失败，已恢复原文件。备份：$backup"
+        if recover_network; then echo "VPN 防火墙设置失败，已恢复原文件。备份：$backup"
+        else echo "VPN 防火墙恢复尚未完成，记录：$network_journal" >&2; fi
     }
-    if ! uci batch <<UCI
+    mkdir -m 700 "$network_journal"
+    mkdir -m 700 "$network_journal/delta"
+    cp -p /etc/config/firewall "$network_journal/before"
+    cp -p /etc/config/firewall "$network_journal/firewall"
+    # Render the candidate in an isolated UCI directory. Journal both versions
+    # before replacement so process termination/power loss is recoverable.
+    if ! uci -c "$network_journal" -t "$network_journal/delta" batch <<UCI
 set firewall.ocserv_vpn=zone
 set firewall.ocserv_vpn.name='ocvpn'
 add_list firewall.ocserv_vpn.device='vpns+'
@@ -185,11 +216,18 @@ UCI
         rollback_network
         exit 1
     fi
+    : > "$network_journal/prepared"
+    sync
+    cp -p "$network_journal/firewall" "$firewall_new"
+    mv -f "$firewall_new" /etc/config/firewall
     if ! fw4 check || ! /etc/init.d/firewall reload; then
         rollback_network
         exit 1
     fi
+    : > "$network_journal/complete"
+    sync
     rm -f "$pending"
+    recover_network
 fi
 if [ "$service_was_running" = 1 ]; then
     echo '正在恢复原有 ocserv 服务。'
@@ -201,6 +239,6 @@ fi
 # Invalidate both older Lua and current ucode dispatcher caches.
 rm -f /tmp/luci-indexcache* /tmp/luci-modulecache/*
 echo "安装完成。安装前备份：$backup"
-echo '请重新登录 LuCI → VPN → 岚序 Lansyra（管理页 0.5.2-r2）。'
+echo '请重新登录 LuCI → VPN → 岚序 Lansyra（管理页 0.5.3-r1）。'
 echo '全新安装：添加账号，检查服务设置，然后点击「启动服务」。'
 echo '默认端口 4443，VPN 地址池 10.77.0.0/24；专用 OpenClash 开关默认关闭。'

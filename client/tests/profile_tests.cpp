@@ -91,10 +91,29 @@ int main(int argc, char **argv) {
         preferences.start_minimized = true;
         preferences.auto_connect = second.id;
         preferences.retry_failed = true;
+        check(read_file(store.directory() / L"profiles.json", raw, error),
+              "could not inspect stored credentials");
+        auto encrypted_before = nlohmann::json::parse(raw)["profiles"][0]["password_dpapi"];
         check(store.save_preferences(preferences, error) && store.load(profiles, preferences, error) &&
                   profiles.size() == 2 && preferences.language == Language::English &&
                   preferences.retry_failed && preferences.auto_connect == second.id,
               "preferences preserve profiles");
+        check(read_file(store.directory() / L"profiles.json", raw, error) &&
+                  nlohmann::json::parse(raw)["profiles"][0]["password_dpapi"] == encrypted_before,
+              "a preference update re-encrypted unchanged credentials");
+        FILETIME marker{12345, 30000000};
+        {
+            Handle file(CreateFileW((store.directory() / L"profiles.json").c_str(), FILE_WRITE_ATTRIBUTES,
+                                    FILE_SHARE_READ, nullptr, OPEN_EXISTING, 0, nullptr));
+            check(file && SetFileTime(file.get(), nullptr, nullptr, &marker),
+                  "could not mark unchanged fixture");
+        }
+        WIN32_FILE_ATTRIBUTE_DATA attributes{};
+        check(store.save_preferences(preferences, error) &&
+                  GetFileAttributesExW((store.directory() / L"profiles.json").c_str(), GetFileExInfoStandard,
+                                       &attributes) &&
+                  CompareFileTime(&marker, &attributes.ftLastWriteTime) == 0,
+              "identical preferences rewrote the file");
         auto invalid_preferences = preferences;
         invalid_preferences.auto_connect = std::string(32, '0');
         check(!store.save_preferences(invalid_preferences, error) &&
@@ -138,6 +157,52 @@ int main(int argc, char **argv) {
         check(!store.load(profiles, preferences, error) && !store.save_preferences(preferences, error),
               "corrupt stores are not overwritten");
         check(read_file(path, raw, error) && raw == "{invalid fixture JSON", "corrupt original retained");
+        ProfileStore bounded(root / L"bounded");
+        nlohmann::json large{{"schema", 2}, {"profiles", nlohmann::json::array()}};
+        for (unsigned i = 0; i < 490; ++i) {
+            auto id = random_id();
+            large["profiles"].push_back({{"id", id},
+                                         {"name", "Boundary " + std::to_string(i)},
+                                         {"gateway", "https://vpn.example.com"},
+                                         {"username", std::string(8192, 'u')},
+                                         {"group", std::string(8192, 'g')}});
+        }
+        check(write_atomic(bounded.directory() / L"profiles.json", large.dump(), error) &&
+                  bounded.load(profiles, preferences, error),
+              "bounded fixture could not load");
+        check(bounded.save_preferences(preferences, error), "valid aggregate configuration rejected");
+        check(read_file(bounded.directory() / L"profiles.json", raw, error),
+              "could not retain bounded original");
+        auto expanded = profiles.front();
+        expanded.ca_file = expanded.certificate_file = expanded.key_file = expanded.script =
+            std::wstring(32760, L'a');
+        check(!bounded.save(expanded, error), "aggregate configuration exceeded its own read limit");
+        std::string retained;
+        check(read_file(bounded.directory() / L"profiles.json", retained, error) && retained == raw &&
+                  bounded.load(profiles, preferences, error),
+              "aggregate rejection damaged the original");
+
+        ProfileStore certificates(root / L"managed-certificates");
+        Profile ca_profile;
+        ca_profile.name = L"Managed CA";
+        ca_profile.gateway = L"vpn.example.com";
+        check(certificates.save(ca_profile, error), "CA fixture profile save");
+        auto ca_path = certificates.directory() / L"certificates" / (wide(ca_profile.id) + L"-ca.pem");
+        check(write_atomic(ca_path, "synthetic public CA", error), "CA fixture creation");
+        ca_profile.ca_file = ca_path.wstring();
+        check(certificates.save(ca_profile, error) && std::filesystem::exists(ca_path),
+              "referenced CA was removed");
+        auto external = certificates.directory() / L"certificates" / L"administrator.pem";
+        check(write_atomic(external, "administrator-owned public CA", error), "external CA fixture creation");
+        Profile shared_ca = ca_profile;
+        shared_ca.id.clear();
+        shared_ca.name = L"Shared CA";
+        check(certificates.save(shared_ca, error) && certificates.remove(ca_profile.id, error) &&
+                  std::filesystem::exists(ca_path),
+              "removing a profile deleted another profile's CA");
+        check(certificates.remove(shared_ca.id, error) && !std::filesystem::exists(ca_path) &&
+                  std::filesystem::exists(external),
+              "CA cleanup escaped program-managed orphan files");
         std::cout
             << "{\"passed\":" << passed
             << ",\"boundary\":\"Synthetic portable profiles and current-user DPAPI; no VPN connection\"}\n";

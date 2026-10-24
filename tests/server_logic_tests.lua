@@ -229,11 +229,16 @@ local fs={
     rename=function(from,to)
         if S.fail_write==to then S.fail_write=nil;return nil end
         S.files[to]=S.files[from];S.files[from]=nil
-        if to=="/etc/config/ocserv" and S.history[S.files[to]] then S.db=clone(S.history[S.files[to]]) end
+        if S.history[S.files[to]] then
+            if to=="/etc/config/ocserv" then S.db=clone(S.history[S.files[to]]) end
+            if to=="/etc/config/firewall" then S.firewall=clone(S.history[S.files[to]]) end
+        end
         return true
     end
 }
-local nixio={bin={},getpid=function()return 42 end,open_flags=function()return 1 end,poll=function()end}
+local nixio={bin={},getpid=function()return 42 end,open_flags=function()return 1 end,poll=function()
+    if S and S.wait_ready then S.wait_ready=S.wait_ready-1; if S.wait_ready==0 then S.wait_ready=nil;set_running(true) end end
+end}
 nixio.bin.hexlify=function(value)return (value:gsub(".",function(c)return string.format("%02x",c:byte())end)) end
 nixio.bin.b64encode=TEST_BASE64
 nixio.crypt=function()if S.fail_hash then return "*0" end return hasher()end
@@ -254,10 +259,18 @@ local function cursor()
         get_all=function(_,package,id)return clone(package=="firewall" and find_fw(id) or find(id))end,
         get_first=function()return "lan"end,
         foreach=function(_,package,kind,fn)if package=="ocserv"then for _,row in ipairs(db)do if row[".type"]==kind then fn(clone(row))end end end end,
-        changes=function(package)return S.pending and {[package]={"pending"}} or {}end,
+        changes=function(_,package)return (S.pending==true or S.pending==package) and {[package]={"pending"}} or {}end,
         add=function(_,package,kind)local id="added"..tostring(#db+1);if package=="firewall" then id="added-fw"..tostring(#db+1);fw[id]={[".name"]=id,[".type"]=kind};return id end;db[#db+1]={[".name"]=id,[".type"]=kind};return id end,
-        set=function(_,package,id,key,value)local row=package=="firewall" and find_fw(id) or find(id);if not row then if package=="firewall" and key==".type" then fw[id]={[".name"]=id,[".type"]=value};return true end;return nil end;row[key]=value;return true end,
-        delete=function(_,package,id)if package=="firewall" then fw[id]=nil;return true end;for i,row in ipairs(db)do if row[".name"]==id then table.remove(db,i);return true end end end,
+        set=function(_,package,id,key,value)
+            if package=="firewall" and value==nil then fw[id]={[".name"]=id,[".type"]=key};return true end
+            local row=package=="firewall" and find_fw(id) or find(id);if not row then return nil end;row[key]=value;return true
+        end,
+        delete=function(_,package,id,key)
+            local row=package=="firewall" and find_fw(id) or find(id)
+            if key then if not row or row[key]==nil then return false end;row[key]=nil;return true end
+            if package=="firewall" then fw[id]=nil;return true end
+            for i,item in ipairs(db)do if item[".name"]==id then table.remove(db,i);return true end end
+        end,
         revert=function()db=clone(S.db);fw=clone(S.firewall);return true end,
         commit=function(_,package)
             if S.fail_commit then return nil end
@@ -268,6 +281,7 @@ local function cursor()
 end
 local function run(argv)
     local command=table.concat(argv," ");S.commands[#S.commands+1]=command
+    if command==S.fail_command then S.fail_command=nil;return 1,"fixture failure" end
     if argv[1]=="/usr/bin/certtool" then
         return S.certtool_code or 0,S.certtool_output or ("Public Key PIN:\n\t"..test_pin.."\n")
     end
@@ -285,6 +299,7 @@ local function run(argv)
     if command=="/etc/init.d/ocserv initcerts"then return S.fail_certificates and 1 or 0,""end
     if command=="/etc/init.d/ocserv restart"then
         if S.fail_restart then S.fail_restart=nil;set_running(false);return 1,""end
+        if S.restart_delay then set_running(false);S.wait_ready=S.restart_delay;return 0,""end
         set_running(true);return 0,""
     end
     if command=="/etc/init.d/ocserv stop"then set_running(false);return 0,""end
@@ -395,6 +410,36 @@ test("unchanged service settings repair a drifted managed firewall",function()
     check(result.effect=="firewall_repaired")
     check(S.files["/etc/config/firewall"]:find("src_ip=10.77.0.0/24",1,true))
 end)
+test("firewall repair also saves a changed public endpoint",function()
+    reset();S.firewall.ocserv_vpn_nat.src_ip="10.77.0.0/16"
+    local settings=backend.data().settings;settings.easy_public_url="https://new.example.com:5443"
+    check(request({action="settings",settings=settings}).effect=="firewall_repaired")
+    check(backend.data().settings.easy_public_url==settings.easy_public_url and not contains_command("restart"))
+end)
+test("unapplied firewall changes block service settings before any writes",function()
+    reset();S.pending="firewall";local raw=S.files["/etc/config/ocserv"];local fw=S.files["/etc/config/firewall"]
+    local settings=backend.data().settings;settings.port="5443"
+    expect("pending_changes",function()request({action="settings",settings=settings,allow_restart=true})end)
+    check(S.files["/etc/config/ocserv"]==raw and S.files["/etc/config/firewall"]==fw)
+    check(not contains_command("restart") and not S.files["/etc/ocserv/easy-backup/ocserv.uci"])
+end)
+test("disabled or constrained managed rules are repaired and missing sections recreated",function()
+    reset();S.firewall.ocserv_vpn_nat.enabled="0";S.firewall.ocserv_vpn_entry.src_ip="192.168.19.2"
+    S.firewall.ocserv_vpn_to_lan=nil
+    check(request({action="settings",settings=backend.data().settings}).effect=="firewall_repaired")
+    check(not S.firewall.ocserv_vpn_nat.enabled and not S.firewall.ocserv_vpn_entry.src_ip)
+    check(S.firewall.ocserv_vpn_to_lan.dest=="lan")
+    check(request({action="settings",settings=backend.data().settings}).effect=="unchanged")
+end)
+test("all network changes retain a firewall recovery copy and roll back reload failures",function()
+    reset();local raw=S.files["/etc/config/ocserv"];local fw=S.files["/etc/config/firewall"]
+    S.fail_command="/etc/init.d/firewall reload"
+    local settings=backend.data().settings;settings.port="5443";settings.ipaddr="10.88.0.0"
+    expect("firewall_reload_failed",function()request({action="settings",settings=settings,allow_restart=true})end)
+    check(S.files["/etc/ocserv/easy-backup/firewall.uci"]==fw)
+    check(S.files["/etc/config/ocserv"]==raw and S.files["/etc/config/firewall"]==fw)
+    check(S.firewall.ocserv_vpn_nat.src_ip=="10.77.0.0/24" and S.running)
+end)
 test("public endpoint changes preserve live LAN sessions and network sections",function()
     reset();local settings=backend.data().settings;local before=clone(S.db)
     settings.easy_public_url="https://[2001:db8::10]:4443"
@@ -450,6 +495,11 @@ test("failed restart restores old configuration and service",function()
     reset();local raw=S.files["/etc/config/ocserv"];S.fail_restart=true
     expect("restart_failed",function()request({action="settings",settings=fixture_settings(),allow_restart=true})end)
     check(S.files["/etc/config/ocserv"]==raw and S.running)
+end)
+test("rollback waits for asynchronous service startup",function()
+    reset();local raw=S.files["/etc/config/ocserv"];S.fail_restart=true;S.restart_delay=3
+    expect("restart_failed",function()request({action="settings",settings=fixture_settings(),allow_restart=true})end)
+    check(S.files["/etc/config/ocserv"]==raw and S.running and not S.wait_ready)
 end)
 test("service stopped remains stopped when settings saved",function()
     reset();set_running(false);local result=request({action="settings",settings=fixture_settings()})

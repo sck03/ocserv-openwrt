@@ -106,7 +106,7 @@ end
 function M.data(admin)
     local s=snapshot(); local state=M.status()
     state.version=version()
-    state.ui_version="0.5.2"
+    state.ui_version="0.5.3"
     state.supported=logic.supported_version(state.version)
     state.capabilities=capabilities()
     state.revision=s.revision
@@ -176,6 +176,7 @@ local function reload_firewall(mark)
     logic.require(run({"/sbin/fw4","check"},10)==0,"firewall_check_failed")
     logic.require(run({"/etc/init.d/firewall","reload"},20)==0,"firewall_reload_failed")
 end
+local wait_running
 local function transaction(s,was_running,operation,include_firewall)
     local old_passwd=read(passwd_path)
     backup(s,old_passwd,include_firewall)
@@ -205,13 +206,13 @@ local function transaction(s,was_running,operation,include_firewall)
         end
         if touched then
             logic.require(run({"/etc/init.d/ocserv",was_running and "restart" or "stop"},15)==0,"rollback_failed")
-            logic.require(not was_running or running(),"rollback_failed")
+            wait_running(was_running,"rollback_failed")
         end
     end)
     if not restored then logic.fail("rollback_failed") end
     error(result,0)
 end
-local function wait_running(expected,code)
+wait_running=function(expected,code)
     -- procd may return before the daemon writes its pidfile.
     for _=1,30 do if running()==expected then return end nixio.poll({},100) end
     logic.fail(code)
@@ -277,6 +278,10 @@ local function apply_settings(s,request)
     if logic.equal(previous,proposed) then
         logic.require(s.firewall_loaded and s.firewall_raw~=nil,"firewall_unavailable")
         return transaction(s,running(),function(_,mark_firewall)
+            if values.easy_public_url~=previous.easy_public_url then
+                logic.require(s.cursor:set("ocserv","config","easy_public_url",values.easy_public_url),"write_failed")
+                commit(s)
+            end
             local ok,code=firewall.apply(s.cursor,previous); logic.require(ok,code)
             commit_firewall(s)
             reload_firewall(mark_firewall)
@@ -315,7 +320,7 @@ local function apply_settings(s,request)
         reload_firewall(mark_firewall)
         if was_running then restart(mark) end
         return {effect=was_running and "restarted" or "saved"}
-    end)
+    end,true)
 end
 function M.action(request,admin)
     logic.require(type(request)=="table" and type(request.action)=="string","bad_request")
@@ -330,8 +335,10 @@ function M.action(request,admin)
         logic.require(current_version~="unknown","version_unavailable")
         logic.require(logic.supported_version(current_version),"upgrade_required")
         -- Pending UCI deltas from another editor must be reviewed there first.
-        local changes=s.cursor:changes("ocserv")
-        logic.require(not changes or not next(changes.ocserv or changes),"pending_changes")
+        for _,package in ipairs(request.action=="settings" and {"ocserv","firewall"} or {"ocserv"}) do
+            local changes=s.cursor:changes(package)
+            logic.require(not changes or not next(changes[package] or changes),"pending_changes")
+        end
         if request.action=="save_user" or request.action=="delete_user" then return change_user(s,request) end
         if request.action=="guard" then return guard.begin(request.command,admin,request.token) end
         if request.action=="initcerts" then initcerts(); return {effect="certificates_initialized"} end

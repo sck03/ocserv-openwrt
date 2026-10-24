@@ -253,15 +253,26 @@ void LogWindow::update_text() {
     LRESULT first = SendMessageW(text, EM_GETFIRSTVISIBLELINE, 0, 0);
     DWORD begin = 0, end = 0;
     SendMessageW(text, EM_GETSEL, reinterpret_cast<WPARAM>(&begin), reinterpret_cast<LPARAM>(&end));
-    SetWindowTextW(text, content_.c_str());
+    if (reset_text_ || rendered_ > content_.size())
+        SetWindowTextW(text, content_.c_str());
+    else if (rendered_ < content_.size()) {
+        SendMessageW(text, EM_SETSEL, static_cast<WPARAM>(rendered_), -1);
+        SendMessageW(text, EM_REPLACESEL, FALSE, reinterpret_cast<LPARAM>(content_.c_str() + rendered_));
+    }
+    rendered_ = content_.size();
+    reset_text_ = false;
     dirty_ = false;
     if (auto_scroll_) {
         SendMessageW(text, EM_SETSEL, static_cast<WPARAM>(-1), -1);
         SendMessageW(text, EM_SCROLLCARET, 0, 0);
     } else {
+        begin -= static_cast<DWORD>(std::min<size_t>(begin, trimmed_characters_));
+        end -= static_cast<DWORD>(std::min<size_t>(end, trimmed_characters_));
         SendMessageW(text, EM_SETSEL, begin, end);
-        SendMessageW(text, EM_LINESCROLL, 0, first);
+        first -= static_cast<LRESULT>(std::min<size_t>(static_cast<size_t>(first), trimmed_lines_));
+        SendMessageW(text, EM_LINESCROLL, 0, first - SendMessageW(text, EM_GETFIRSTVISIBLELINE, 0, 0));
     }
+    trimmed_characters_ = trimmed_lines_ = 0;
 }
 void LogWindow::append(const std::wstring &line) {
     SYSTEMTIME time{};
@@ -269,6 +280,7 @@ void LogWindow::append(const std::wstring &line) {
     wchar_t prefix[24]{};
     swprintf(prefix, 24, L"[%02u:%02u:%02u] ", time.wHour, time.wMinute, time.wSecond);
     std::wstring normalized;
+    normalized.reserve(line.size() + 16);
     for (wchar_t c : line) {
         if (c == L'\r')
             continue;
@@ -281,7 +293,12 @@ void LogWindow::append(const std::wstring &line) {
     content_ += L"\r\n";
     if (content_.size() > 512 * 1024) {
         size_t cut = content_.find(L'\n', content_.size() - 384 * 1024);
-        content_.erase(0, cut == std::wstring::npos ? content_.size() / 2 : cut + 1);
+        size_t removed = cut == std::wstring::npos ? content_.size() / 2 : cut + 1;
+        trimmed_characters_ += removed;
+        trimmed_lines_ +=
+            static_cast<size_t>(std::count(content_.begin(), content_.begin() + removed, L'\n'));
+        content_.erase(0, removed);
+        reset_text_ = true;
     }
     dirty_ = true;
 }
@@ -352,6 +369,8 @@ LRESULT LogWindow::message(UINT message, WPARAM wparam, LPARAM lparam) {
             return 0;
         case LogClear:
             content_.clear();
+            reset_text_ = true;
+            rendered_ = trimmed_characters_ = trimmed_lines_ = 0;
             update_text();
             return 0;
         case LogAutoScroll:

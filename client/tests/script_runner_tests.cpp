@@ -8,7 +8,7 @@
 using namespace vpn;
 namespace {
 void progress(void *, int, const char *, ...) {}
-}
+} // namespace
 
 int wmain(int argc, wchar_t **argv) {
     if (argc != 2)
@@ -21,15 +21,16 @@ int wmain(int argc, wchar_t **argv) {
     try {
         auto directory = std::filesystem::absolute(argv[1]) / L"脚本 runner" / wide(random_id());
         std::filesystem::create_directories(directory);
-        for (const auto &fixture : {std::string("WScript.Quit(1);"), std::string("WScript.Quit(259);"),
-                                    std::string("var env = WScript.CreateObject('WScript.Shell').Environment('Process');"
-                                                "WScript.Quit(env('reason') === 'pre-init' ? 7 : 0);")}) {
+        for (const auto &fixture :
+             {std::string("WScript.Quit(1);"), std::string("WScript.Quit(259);"),
+              std::string("var env = WScript.CreateObject('WScript.Shell').Environment('Process');"
+                          "WScript.Quit(env('reason') === 'pre-init' ? 7 : 0);")}) {
             auto script = directory / (std::to_wstring(passed) + L".js");
             std::wstring error;
             if (!write_atomic(script, fixture, error))
                 throw std::runtime_error("Could not write script fixture");
-            openconnect_info *vpn = openconnect_vpninfo_new("script-fixture", nullptr, nullptr, nullptr,
-                                                           progress, nullptr);
+            openconnect_info *vpn =
+                openconnect_vpninfo_new("script-fixture", nullptr, nullptr, nullptr, progress, nullptr);
             if (!vpn)
                 throw std::runtime_error("Could not create test context");
             int result = openconnect_setup_tun_device(vpn, utf8(script.wstring()).c_str(), "ScriptFixture");
@@ -43,10 +44,12 @@ int wmain(int argc, wchar_t **argv) {
         auto environment_script = directory / L"environment.js";
         std::wstring environment_error;
         if (!write_atomic(environment_script,
-                "try { var e = WScript.CreateObject('WScript.Shell').Environment('Process');"
-                "var f = WScript.CreateObject('Scripting.FileSystemObject').OpenTextFile(e('VPN_SCRIPT_LOG'), 2, true);"
-                "f.WriteLine(e('VPN_SCRIPT_FIXTURE')); f.Close(); } finally { WScript.Quit(1); }",
-                environment_error))
+                          "try { var e = WScript.CreateObject('WScript.Shell').Environment('Process');"
+                          "var f = "
+                          "WScript.CreateObject('Scripting.FileSystemObject').OpenTextFile(e('VPN_SCRIPT_LOG'"
+                          "), 2, true);"
+                          "f.WriteLine(e('VPN_SCRIPT_FIXTURE')); f.Close(); } finally { WScript.Quit(1); }",
+                          environment_error))
             throw std::runtime_error("Could not write environment fixture");
         for (int session = 1; session <= 2; ++session) {
             auto log = directory / (L"日志-" + std::to_wstring(session) + L".txt");
@@ -54,10 +57,12 @@ int wmain(int argc, wchar_t **argv) {
             if (!SetEnvironmentVariableW(L"VPN_SCRIPT_LOG", log.c_str()) ||
                 !SetEnvironmentVariableW(L"VPN_SCRIPT_FIXTURE", expected.c_str()))
                 throw std::runtime_error("Could not set session fixture environment");
-            openconnect_info *vpn = openconnect_vpninfo_new("script-fixture", nullptr, nullptr, nullptr,
-                                                           progress, nullptr);
-            if (!vpn) throw std::runtime_error("Could not create environment test context");
-            int result = openconnect_setup_tun_device(vpn, utf8(environment_script.wstring()).c_str(), "ScriptFixture");
+            openconnect_info *vpn =
+                openconnect_vpninfo_new("script-fixture", nullptr, nullptr, nullptr, progress, nullptr);
+            if (!vpn)
+                throw std::runtime_error("Could not create environment test context");
+            int result = openconnect_setup_tun_device(vpn, utf8(environment_script.wstring()).c_str(),
+                                                      "ScriptFixture");
             openconnect_vpninfo_free(vpn);
             std::ifstream stream(log);
             std::string actual;
@@ -72,8 +77,8 @@ int wmain(int argc, wchar_t **argv) {
         auto invalid_log = directory / L"missing-parent" / L"script.log";
         if (!SetEnvironmentVariableW(L"VPN_SCRIPT_LOG", invalid_log.c_str()))
             throw std::runtime_error("Could not set the script fixture environment");
-        openconnect_info *vpn = openconnect_vpninfo_new("script-fixture", nullptr, nullptr, nullptr,
-                                                       progress, nullptr);
+        openconnect_info *vpn =
+            openconnect_vpninfo_new("script-fixture", nullptr, nullptr, nullptr, progress, nullptr);
         if (!vpn)
             throw std::runtime_error("Could not create test context");
         auto shipped = executable_directory() / L"vpnc-script-win.js";
@@ -82,8 +87,53 @@ int wmain(int argc, wchar_t **argv) {
         if (result != -EIO)
             throw std::runtime_error("The shipped script did not propagate its exception");
         ++passed;
-        std::cout << "{\"passed\":" << passed
-                  << ",\"boundary\":\"Real Windows Script Host; failing pre-init fixtures create no adapters\"}\n";
+        auto child_pid = directory / L"child.pid";
+        auto child_script = directory / L"child.js";
+        auto cancel_script = directory / L"cancel.js";
+        if (!write_atomic(child_script, "WScript.Sleep(60000); WScript.Quit(1);", environment_error) ||
+            !write_atomic(cancel_script,
+                          "try { var s=WScript.CreateObject('WScript.Shell');"
+                          "var f=WScript.CreateObject('Scripting.FileSystemObject');"
+                          "var child=s.Exec('\"'+WScript.FullName+'\" //nologo "
+                          "\"'+f.GetParentFolderName(WScript.ScriptFullName)+'\\\\child.js\"');"
+                          "var out=f.CreateTextFile(s.Environment('Process')('VPN_SCRIPT_CHILD_PID'),true);"
+                          "out.WriteLine(child.ProcessID);out.Close();WScript.Sleep(60000); } finally { "
+                          "WScript.Quit(1); }",
+                          environment_error) ||
+            !SetEnvironmentVariableW(L"VPN_SCRIPT_CHILD_PID", child_pid.c_str()))
+            throw std::runtime_error("Could not create script cancellation fixture");
+        vpn = openconnect_vpninfo_new("script-cancel-fixture", nullptr, nullptr, nullptr, progress, nullptr);
+        if (!vpn)
+            throw std::runtime_error("Could not create cancellation context");
+        SOCKET command = openconnect_setup_cmd_pipe(vpn);
+        if (command == INVALID_SOCKET) {
+            openconnect_vpninfo_free(vpn);
+            throw std::runtime_error("Could not create cancellation pipe");
+        }
+        auto started = GetTickCount64();
+        std::thread canceler([&] {
+            while (GetFileAttributesW(child_pid.c_str()) == INVALID_FILE_ATTRIBUTES &&
+                   GetTickCount64() - started < 5000)
+                Sleep(25);
+            char cancel = OC_CMD_CANCEL;
+            send(command, &cancel, 1, 0);
+        });
+        result = openconnect_setup_tun_device(vpn, utf8(cancel_script.wstring()).c_str(), "ScriptFixture");
+        canceler.join();
+        openconnect_vpninfo_free(vpn);
+        SetEnvironmentVariableW(L"VPN_SCRIPT_CHILD_PID", nullptr);
+        if (result != -EINTR || GetTickCount64() - started >= 8000)
+            throw std::runtime_error("Cancel did not interrupt the pending script");
+        std::string pid_text;
+        if (!read_file(child_pid, pid_text, environment_error))
+            throw std::runtime_error("Cancellation child was not started");
+        Handle child(OpenProcess(SYNCHRONIZE, FALSE, static_cast<DWORD>(std::stoul(pid_text))));
+        if (child && WaitForSingleObject(child.get(), 2000) != WAIT_OBJECT_0)
+            throw std::runtime_error("Cancellation left a child process running");
+        ++passed;
+        std::cout
+            << "{\"passed\":" << passed
+            << ",\"boundary\":\"Real Windows Script Host; failing pre-init fixtures create no adapters\"}\n";
         WSACleanup();
         return 0;
     } catch (const std::exception &error) {

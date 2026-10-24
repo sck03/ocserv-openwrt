@@ -103,9 +103,18 @@ int main() {
         SendMessageW(window, WM_TIMER, 1, 0);
         check(read_window_text(text, 1024 * 1024).find(L"batched update") != std::wstring::npos,
               "visible log did not refresh");
+        CheckDlgButton(window, ui::LogAutoScroll, BST_UNCHECKED);
+        SendMessageW(window, WM_COMMAND, ui::LogAutoScroll, 0);
+        SendMessageW(text, EM_SETSEL, 20, 40);
+        log.append(L"incremental update keeps selection");
+        SendMessageW(window, WM_TIMER, 1, 0);
+        DWORD selection_begin = 0, selection_end = 0;
+        SendMessageW(text, EM_GETSEL, reinterpret_cast<WPARAM>(&selection_begin),
+                     reinterpret_cast<LPARAM>(&selection_end));
+        check(selection_begin == 20 && selection_end == 40, "log append moved the user's selection");
         SendMessageW(window, WM_COMMAND, ui::LogClear, 0);
         check(read_window_text(text).empty(), "clear did not reset visible history");
-        std::cout << "{\"passed\":8,\"events\":600000,\"drain_cycles\":1000,\"private_bytes_before\":"
+        std::cout << "{\"passed\":9,\"events\":600000,\"drain_cycles\":1000,\"private_bytes_before\":"
                   << memory_before << ",\"private_bytes_after\":" << memory_after
                   << ",\"handles_before\":" << handles_before << ",\"handles_after\":" << handles_after
                   << "}\n";

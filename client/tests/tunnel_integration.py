@@ -147,6 +147,9 @@ def fixture_case(client, output, credentials, mode):
     }
     if mode == "network_change":
         config["network_change"] = True
+    elif mode == "verbosity_change":
+        config["log_level"] = 0
+        config["raise_log_level"] = True
     elif mode in ("sleep_wake", "cancel_sleep"):
         config["suspend_for_ms"] = 2000
         config["cancel_suspended"] = mode == "cancel_sleep"
@@ -174,8 +177,10 @@ def fixture_case(client, output, credentials, mode):
         passed = (result.returncode == 0 and not report["timeout"] and report["adapter_removed"]
                   and counts["credentials"] == 1 and report["event_order_valid"]
                   and report["terminal_count"] == 1 and report["lease_released"])
-        if mode == "normal":
+        if mode in ("normal", "verbosity_change"):
             passed = passed and report["terminal"] == "idle" and report["udp_probe"] and counts["datagrams"] > 0
+            if mode == "verbosity_change":
+                passed = passed and any("No work to do; sleeping" in line for line in report["logs"])
         elif mode == "connect_failure":
             passed = (passed and report["terminal"] == "failed" and "connected" not in report["states"]
                       and report["error_category"] == "adapter" and report["attempts"] == 1)
@@ -213,7 +218,7 @@ def main():
     output.mkdir(parents=True)
     credentials = certificate(output, "loopback")
     results = [fixture_case(args.client.resolve(), output, credentials, mode)
-               for mode in ("normal", "connect_failure", "reconnect_failure", "network_change",
+               for mode in ("normal", "verbosity_change", "connect_failure", "reconnect_failure", "network_change",
                             "sleep_wake", "cancel_sleep", "disconnect_failure")]
     report = {"passed": sum(case["passed"] for case in results), "total": len(results), "results": results}
     (args.output / "tunnel-results.json").write_text(json.dumps(report, indent=2), encoding="utf-8")

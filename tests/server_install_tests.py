@@ -50,7 +50,11 @@ elif name=='apk':
         (root/'installed').write_text(json.dumps([p for p in packages if p not in args[1:]]))
 elif name=='uci':
     args=[arg for arg in args if arg!='-q']
-    firewall=root/'etc/config/firewall'
+    configuration=root/'etc/config'
+    while args and args[0] in ('-c','-t'):
+        if args[0]=='-c': configuration=pathlib.Path(args[1])
+        args=args[2:]
+    firewall=configuration/'firewall'
     staging=root/'uci-staging'
     if args[0]=='changes':
         if os.environ.get('INSTALL_PENDING'): print('firewall.user.pending=1')
@@ -81,7 +85,16 @@ elif name=='uci':
                 changes[key.removeprefix('firewall.')]=value
                 staging.write_text(json.dumps(changes))
 elif name=='fw4':
+    if os.environ.get('INSTALL_INTERRUPT_NETWORK'):
+        import signal
+        os.kill(os.getppid(),signal.SIGKILL)
+        sys.exit(1)
     if fail('fail_fw4'): sys.exit(1)
+elif name=='sync':
+    if os.environ.get('INSTALL_INTERRUPT_COMPLETE') and (root/'etc/ocserv/easy-install-network/complete').exists():
+        import signal
+        os.kill(os.getppid(),signal.SIGKILL)
+        sys.exit(1)
 elif name=='ocserv' and args==['initcerts']:
     if fail('fail_cert'): sys.exit(1)
 elif name=='ocserv' and args==['status']:
@@ -110,7 +123,7 @@ with tempfile.TemporaryDirectory(prefix='lansyra-install-test-') as temporary:
         root = base / name
         for folder in ('bin', 'bundle', 'etc/config', 'etc/init.d', 'etc/ocserv', 'etc/apk', 'usr/libexec', 'root', 'tmp'):
             (root / folder).mkdir(parents=True)
-        for command in ('apk', 'uci', 'fw4', 'id', 'ubus', 'jsonfilter', 'df'):
+        for command in ('apk', 'uci', 'fw4', 'id', 'ubus', 'jsonfilter', 'df', 'sync'):
             path = root / 'bin' / command
             path.write_text(MOCK, encoding='utf-8')
             path.chmod(0o755)
@@ -162,6 +175,34 @@ with tempfile.TemporaryDirectory(prefix='lansyra-install-test-') as temporary:
     previous = (root / 'etc/config/firewall').read_bytes()
     assert run(root).returncode == 0 and (root / 'etc/config/firewall').read_bytes() == previous
     checks.append('repeating a completed install does not duplicate firewall sections')
+
+    root=fixture('interrupted_network')
+    assert run(root,INSTALL_INTERRUPT_NETWORK='1').returncode!=0
+    journal=root/'etc/ocserv/easy-install-network'
+    assert (journal/'prepared').exists() and (root/'etc/ocserv/easy-install-pending').exists()
+    result=run(root)
+    assert result.returncode==0,result.stdout+result.stderr
+    assert not journal.exists() and not (root/'etc/ocserv/easy-install-pending').exists()
+    checks.append('an interrupted network commit is recovered before retrying the first installation')
+
+    root=fixture('interrupted_complete')
+    assert run(root,INSTALL_INTERRUPT_COMPLETE='1').returncode!=0
+    previous=(root/'etc/config/firewall').read_bytes()
+    result=run(root)
+    assert result.returncode==0,result.stdout+result.stderr
+    assert (root/'etc/config/firewall').read_bytes()==previous
+    assert not (root/'etc/ocserv/easy-install-network').exists()
+    checks.append('a verified installation interrupted before final cleanup resumes as an upgrade')
+
+    root=fixture('interrupted_then_edited')
+    assert run(root,INSTALL_INTERRUPT_NETWORK='1').returncode!=0
+    firewall=json.loads((root/'etc/config/firewall').read_text());firewall['administrator.change']='preserved'
+    (root/'etc/config/firewall').write_text(json.dumps(firewall))
+    previous=(root/'etc/config/firewall').read_bytes()
+    assert run(root).returncode!=0
+    assert (root/'etc/config/firewall').read_bytes()==previous
+    assert (root/'etc/ocserv/easy-install-network/before').is_file()
+    checks.append('interrupted installation preserves later administrator edits and recovery records')
 
     root = fixture('existing', existing=True)
     previous = {name: (root / 'etc/config' / name).read_bytes() for name in ('ocserv', 'firewall')}

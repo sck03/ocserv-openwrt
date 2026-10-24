@@ -1,0 +1,45 @@
+--- a/script.c
++++ b/script.c
+@@ -568,6 +568,8 @@
+ 	PROCESS_INFORMATION pi;
+ 	STARTUPINFOW si;
+ 	DWORD cpflags, exit_status, waited;
++	ULONGLONG script_started;
++	int canceled = 0;
+ 	HANDLE job = NULL;
+ 	JOBOBJECT_EXTENDED_LIMIT_INFORMATION limits = {0};
+ 	UINT system_length;
+@@ -619,11 +621,31 @@
+ 		TerminateProcess(pi.hProcess, ERROR_ACCESS_DENIED);
+ 		WaitForSingleObject(pi.hProcess, 5000);
+ 	} else {
+-		waited = WaitForSingleObject(pi.hProcess, 60000);
++		script_started = GetTickCount64();
++		do {
++			waited = WaitForSingleObject(pi.hProcess, 100);
++			if (waited != WAIT_TIMEOUT)
++				break;
++			/* Cleanup must run even after CANCEL, but setup scripts can
++			 * stop promptly without leaving netsh/route children behind. */
++			if (strcmp(reason, "disconnect")) {
++				fd_set ready;
++				struct timeval timeout = {0, 0};
++				int maxfd = 0;
++				FD_ZERO(&ready);
++				cmd_fd_set(vpninfo, &ready, &maxfd);
++				if (select(maxfd + 1, &ready, NULL, NULL, &timeout) > 0)
++					check_cmd_fd(vpninfo, &ready);
++				if (vpninfo->got_cancel_cmd) {
++					canceled = 1;
++					break;
++				}
++			}
++		} while (GetTickCount64() - script_started < 60000);
+ 		if (waited != WAIT_OBJECT_0) {
+ 			TerminateJobObject(job, ERROR_TIMEOUT);
+ 			WaitForSingleObject(pi.hProcess, 5000);
+-			ret = waited == WAIT_TIMEOUT ? -ETIMEDOUT : -EIO;
++			ret = canceled ? -EINTR : waited == WAIT_TIMEOUT ? -ETIMEDOUT : -EIO;
+ 		} else if (GetExitCodeProcess(pi.hProcess, &exit_status)) {
+ 			/* WAIT_OBJECT_0 means even exit code 259 is a completed script error. */
+ 			ret = exit_status ? -EIO : 0;

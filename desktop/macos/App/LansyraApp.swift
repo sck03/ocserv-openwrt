@@ -315,6 +315,26 @@ final class DesktopVPN: NSObject, ObservableObject, OSSystemExtensionRequestDele
                 try await active.loadFromPreferences()
                 guard wanted, request == epoch else { return }
                 manager = active
+                if sessionPassword.isEmpty {
+                    if profile.rememberPassword {
+                        sessionPassword = try Credentials.read(profile.id)
+                    } else {
+                        let alert = NSAlert()
+                        alert.messageText = "恢复连接需要重新认证"
+                        alert.informativeText = "请输入“\(profile.name)”的密码。"
+                        alert.addButton(withTitle: "连接")
+                        alert.addButton(withTitle: "取消")
+                        let field = NSSecureTextField(frame: NSRect(x: 0, y: 0, width: 280, height: 24))
+                        alert.accessoryView = field
+                        alert.window.initialFirstResponder = field
+                        let accepted = alert.runModal() == .alertFirstButtonReturn
+                        guard wanted, request == epoch else { field.stringValue = ""; return }
+                        guard accepted else { field.stringValue = ""; disconnect(); return }
+                        sessionPassword = field.stringValue
+                        field.stringValue = ""
+                    }
+                }
+                guard VPNCredentialValid(sessionPassword) else { throw ClientError.missingPassword }
                 attemptStarted = true
                 try active.connection.startVPNTunnel(options: ["password": sessionPassword as NSString])
                 sessionPassword = ""
@@ -322,6 +342,7 @@ final class DesktopVPN: NSObject, ObservableObject, OSSystemExtensionRequestDele
                 refresh()
             } catch {
                 guard wanted, request == epoch else { return }
+                sessionPassword = ""
                 attemptStarted = false
                 finish(error, request: request)
             }

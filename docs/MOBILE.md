@@ -1,6 +1,6 @@
 # Lansyra Android / iOS 客户端
 
-Lansyra 移动端当前版本为 **Android 0.2.1 / iOS 0.2.2**，使用 **OpenConnect / Cisco AnyConnect 协议**连接本项目的 ocserv。Android / iOS 默认安装标识为 `io.github.sck03.lansyra`，按全新安装使用，重新填写服务器、账号和指纹。iOS 与 macOS 共用 `client/apple` 中的地址、数据包与会话代码；桌面使用方法见[桌面说明](DESKTOP.md)。
+Lansyra 移动端当前版本为 **Android 0.2.2 / iOS 0.2.3**，使用 **OpenConnect / Cisco AnyConnect 协议**连接本项目的 ocserv。Android / iOS 默认安装标识为 `io.github.sck03.lansyra`。首次安装需填写服务器、账号和指纹；同一 Lansyra 安装标识和签名下可保留现有配置，升级前应备份。iOS 与 macOS 共用 `client/apple` 中的地址、数据包与会话代码；桌面使用方法见[桌面说明](DESKTOP.md)。
 
 ## GitHub Actions 构建
 
@@ -25,6 +25,10 @@ Android 基于 **OpenTunnel** 固定提交 `0535533dfb7d3a656bfdb880d51f731c1091
 
 Android `0.1.2` 根据服务器实际分配的隧道地址配置 IPv6 路由、DNS 和 MTU。服务器只分配 IPv4 时，即使“允许 IPv6”保持默认开启，也可使用小于 1280 的合法 IPv4 MTU；公网入口使用 IPv6 不会强制隧道内启用 IPv6。未协商的 IPv6 家族保持 Android VPN 的默认阻断行为。旧 IPv4 路由补集与地址转换工具函数已移除，路由统一由双栈策略处理。
 
+Android 0.2.2 的会话归属保留到原生工作线程实际退出。取消超时会再次中止数据通道，不提前宣布已断开；旧回调不能清空新连接。指纹保存绑定发起连接的配置 ID 和服务器来源，配置已删除或换服务器时不再写回。跨服务器重定向不会自动提交原服务器的凭据。
+
+配置最多 128 项、加密后的整体数据最多 1 MiB；损坏数据、无法解密的凭据及超限保存会报错并保留原记录。导出 JSON 排除密码与软件令牌。旧产品的单配置迁移入口已移除。日志在进入界面和 Logcat 前脱敏，限制单条 8 Ki 字符、总计 256 Ki 字符和最多 800 条，并批量更新界面。屏幕关闭后降低统计频率、暂停附加延迟探测；前台探测间隔为 30 秒，首次安装默认关闭 GeoIP 查询。维持 VPN 数据面所需的唤醒锁仍保留。
+
 默认 `build_type=debug` 无需 Secrets，适合测试。GitHub 临时运行器每次可能生成不同的 debug 密钥；不能保证覆盖安装前一次 debug 包，必要时先卸载。正式使用选择 `release`，在仓库 **Settings → Secrets and variables → Actions** 配置：
 
 | Secret | 内容 |
@@ -45,6 +49,8 @@ iOS 为本仓库的原生 SwiftUI 界面和 Objective-C `NEPacketTunnelProvider`
 首版支持 ocserv 用户名/密码认证、IPv4/IPv6 数据通道、服务端 DNS、全隧道及 OpenConnect 的 TLS/DTLS。服务端必须分配 IPv4 地址和 DNS。服务端未分配 IPv6 时仍将 IPv6 导入隧道，避免绕过 VPN。分流规则暂不使用。尚不支持交互式 MFA、分组选择、客户端证书、自动登录及 `.vpn` 导入；遇到额外认证字段会取消，不能拿密码填充验证码。
 
 iOS 要求服务器 MTU 至少为 1280。收包使用最多 32 个数据包的批次，避免持续流量阻塞断开操作；校验 IP 版本、长度和 IPv6 前缀。启动尚未完成时请求停止，也会等待资源清理完成；断开过程中禁用重新连接。
+
+iOS 0.2.3 在 iOS 16 及后续系统读取扩展返回的最后断开原因，显示证书、认证或网络错误；iOS 15 提供连接检查提示。旧连接的异步错误不会覆盖新连接状态。
 
 `0.1.1` 的应用和隧道扩展共用 HTTPS 地址校验，支持带方括号的 IPv6，拒绝错误端口和含凭据的地址。重连后重新应用协商的 MTU、DNS 和远端地址；网络设置失败时结束连接。
 
@@ -84,7 +90,7 @@ bash scripts/build-ios.sh unsigned
 
 ## 验证范围
 
-2026-10-14 的 `7ec83b8` 已通过完整构建：[Android 0.2.1 debug](https://github.com/sck03/ocserv-openwrt/actions/runs/38513611697)和 [iOS 0.2.2 unsigned](https://github.com/sck03/ocserv-openwrt/actions/runs/38513614174)。启动器、应用和扩展使用“岚序 Lansyra”；Android 的全部本地化名称和实际应用 ID、Apple 包内版本均已核对。后续全新安装整理未改变移动端应用或构建脚本，完整结果见 [验证记录](VALIDATION.md)。
+历史版本 `7ec83b8` 于 2026-10-14 通过完整构建：[Android 0.2.1 debug](https://github.com/sck03/ocserv-openwrt/actions/runs/38513611697)和 [iOS 0.2.2 unsigned](https://github.com/sck03/ocserv-openwrt/actions/runs/38513614174)。本次维护修改了会话、存储和错误处理；当前版本的构建结果单独记录在 [验证记录](VALIDATION.md)，历史结果不代替本次验证。
 
 `python3 tests/mobile_build_tests.py` 在 Windows/Linux/macOS 检查下载完整性、缓存篡改、解包路径、ELF 架构/页对齐和 Apple 描述文件校验。Android 工作流另外执行上游及本地策略单元测试、APK 架构/16 KB 对齐和签名验证；iOS 工作流运行 `tests/mobile_protocol_tests.c` 和 `tests/ios_connection_tests.m`，再编译并归档两个 target。
 

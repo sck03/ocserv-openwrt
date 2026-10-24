@@ -82,6 +82,7 @@ public:
     }
     void set_log_level(int level) {
         log_level_.store(level);
+        request_statistics(); // Wake the core; its worker applies the new level.
     }
     bool finished() const {
         return finished_.load();
@@ -109,6 +110,7 @@ private:
     void read_script_log();
     void state(State state, bool terminal = false, std::wstring message = {});
     void log(int level, std::string message);
+    void synchronize_log_level();
     bool stopped() const;
     bool send(char command);
     void persist(const std::function<void(Profile &)> &change);
