@@ -12,7 +12,7 @@ start_service() {
     procd_set_param stdout 0
     procd_set_param stderr 0
     procd_close_instance
-    [ -f /etc/ocserv/easy-guard/state.json ] || return 0
+    [ -f /etc/ocserv/easy-guard/state.json ] || [ -f /etc/ocserv/easy-transaction/state.json ] || return 0
     procd_open_instance worker
     procd_set_param command /usr/bin/lua /usr/libexec/ocserv-easy-guard
     procd_set_param term_timeout 150

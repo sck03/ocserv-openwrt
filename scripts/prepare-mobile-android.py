@@ -8,8 +8,8 @@ def prepare(app, root):
     gradle = app / "app/build.gradle.kts"
     value = once(gradle.read_text(encoding="utf-8"), 'applicationId = "dev.opentunnel.vpn"',
                  'applicationId = "io.github.sck03.lansyra"')
-    value = once(value, '        versionCode = 16', '        versionCode = 21')
-    value = section(value, '        versionName =', '\n\n        ndk {', '        versionName = "0.2.2"')
+    value = once(value, '        versionCode = 16', '        versionCode = 22')
+    value = section(value, '        versionName =', '\n\n        ndk {', '        versionName = "0.2.3"')
     gradle.write_text(value, encoding="utf-8")
     resources = app / "app/src/main/res"
     for resource in resources.glob("values*/strings.xml"):
@@ -97,28 +97,28 @@ def prepare(app, root):
         value = once(value, f'    private fun {name}(builder: VpnService.Builder, ip: LibOpenConnect.IPInfo)',
                      f'    private fun {name}(builder: VpnService.Builder, ip: LibOpenConnect.IPInfo, ipv6: Boolean)')
     value = once(value, 'import dev.opentunnel.vpn.util.Net',
-                 'import dev.opentunnel.vpn.util.Net\nimport dev.opentunnel.vpn.util.RoutePolicy')
-    value = section(value, '\n        if (settings.splitTunnelNetworksEnabled &&\n',
-                    '    private fun applyDns(', '''
-        val includes = when {
-            settings.splitTunnelNetworksEnabled &&
-                settings.splitTunnelNetworksMode == SplitTunnelMode.INCLUDE_SELECTED && customCidrs.isNotEmpty() -> customCidrs
-            serverIncludes.isNotEmpty() -> serverIncludes
-            else -> listOf(Cidr("0.0.0.0", 0, false), Cidr("::", 0, true))
-        }
-        val excludes = buildList {
-            addAll(serverExcludes)
-            if (settings.bypassLocalNetworks) addAll(Net.LOCAL_NETWORKS)
-            if (settings.splitTunnelNetworksEnabled &&
-                settings.splitTunnelNetworksMode == SplitTunnelMode.EXCLUDE_SELECTED) addAll(customCidrs)
-        }
-        val routes = RoutePolicy.routes(includes.filter { ipv6 || !it.isIpv6 }, excludes.filter { ipv6 || !it.isIpv6 })
-        // A missing required route must fail setup, not report a connected tunnel.
+                 'import dev.opentunnel.vpn.util.Net\nimport dev.opentunnel.vpn.util.NetworkRoutes')
+    value = section(value, '    private fun applyRoutes(', '    private fun applyDns(', '''    private fun applyRoutes(builder: VpnService.Builder, ip: LibOpenConnect.IPInfo, ipv6: Boolean) {
+        val rules = NetworkRoutes.Rules(settings.splitTunnelNetworksEnabled,
+            settings.splitTunnelNetworksMode == SplitTunnelMode.INCLUDE_SELECTED, settings.splitTunnelNetworks)
+        val routes = NetworkRoutes.routes(ip.splitIncludes.orEmpty().toList(), ip.splitExcludes.orEmpty().toList(),
+            rules, settings.bypassLocalNetworks, ipv6)
         routes.forEach { builder.addRoute(it.address, it.prefixLength) }
         VpnBus.info("Installed ${routes.size} tunnel route(s)")
     }
 
 ''')
+    value = section(value, '        // Collect search domains from three sources:', '        val domains = buildList', '')
+    value = once(value, '            addAll(wildcardDomains)\n', '')
+    value = once(value, '        var domainCount = 0\n', '')
+    value = once(value, '            runCatching { builder.addSearchDomain(domain) }.onSuccess { domainCount++ }',
+                 '            runCatching { builder.addSearchDomain(domain) }')
+    value = section(value, '        if (wildcardDomains.isNotEmpty()) {', '    private fun applySplitTunnel(', '    }\n\n')
+    value = section(value, '    /**\n     * Returns true for entries that represent a wildcard domain suffix',
+                    '    // ── libopenconnect callbacks', '')
+    value = section(value, '/**\n * Drives one libopenconnect session', 'class TunnelRunner(',
+                    '/** Drives one native session; routing and ownership policies are independently tested. */\n')
+    value = once(value, 'import dev.opentunnel.vpn.util.Cidr\n', '')
     # A DNS server also enables its address family in VpnService.Builder.
     # Only configure families negotiated for the tunnel, regardless of the uplink.
     for loop in ('            for (server in customDnsList) {',
@@ -222,8 +222,9 @@ def prepare(app, root):
     service.write_text(value, encoding="utf-8")
     for source, directory in (("CertificatePolicy.kt", "main"), ("CertificatePolicyTest.kt", "test"),
                               ("ConnectionPolicy.kt", "main"), ("ConnectionPolicyTest.kt", "test"),
-                              ("RoutePolicy.kt", "main"), ("RoutePolicyTest.kt", "test")):
-        package = "util" if source.startswith("RoutePolicy") else "core"
+                              ("RoutePolicy.kt", "main"), ("RoutePolicyTest.kt", "test"),
+                              ("NetworkRoutes.kt", "main"), ("NetworkRoutesTest.kt", "test")):
+        package = "util" if source.startswith(("RoutePolicy", "NetworkRoutes")) else "core"
         target = app / f"app/src/{directory}/java/dev/opentunnel/vpn/{package}" / source
         target.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(root / "mobile/android" / source, target)

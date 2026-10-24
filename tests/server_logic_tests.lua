@@ -248,9 +248,10 @@ nixio.open=function(path,flags,permissions)
     S.files[path]=""
     return {write=function(_,data)S.files[path]=S.files[path]..data;return #data end,sync=function()return true end,close=function()end,lock=function()return not S.busy end}
 end
-local function cursor()
-    local db=clone(S.db)
-    local fw=clone(S.firewall)
+local function cursor(directory)
+    directory=directory or "/etc/config"
+    local db=clone(directory=="/etc/config" and S.db or S.history[S.files[directory.."/ocserv"]] or S.db)
+    local fw=clone(directory=="/etc/config" and S.firewall or S.history[S.files[directory.."/firewall"]] or S.firewall)
     local function find(id)for _,row in ipairs(db)do if row[".name"]==id then return row end end end
     local function find_fw(id) return fw[id] end
     return {
@@ -274,8 +275,8 @@ local function cursor()
         revert=function()db=clone(S.db);fw=clone(S.firewall);return true end,
         commit=function(_,package)
             if S.fail_commit then return nil end
-            if package=="firewall" then local raw=serialize(fw);S.history[raw]=clone(fw);S.files["/etc/config/firewall"]=raw;S.firewall=clone(fw);return true end
-            local raw=serialize(db);S.history[raw]=clone(db);S.files["/etc/config/ocserv"]=raw;S.db=clone(db);return true
+            if package=="firewall" then local raw=serialize(fw);S.history[raw]=clone(fw);S.files[directory.."/firewall"]=raw;if directory=="/etc/config" then S.firewall=clone(fw) end;return true end
+            local raw=serialize(db);S.history[raw]=clone(db);S.files[directory.."/ocserv"]=raw;if directory=="/etc/config" then S.db=clone(db) end;return true
         end
     }
 end
@@ -309,7 +310,14 @@ end
 package.loaded["nixio"]=nixio;package.loaded["nixio.fs"]=fs
 package.loaded["luci.model.uci"]={cursor=cursor}
 package.loaded["luci.model.ocserv_easy.process"]={run=run}
-package.loaded["luci.jsonc"]={parse=function(value)if value=="ONLINE"then return clone(S.online)elseif value=="SESSIONS"then return clone(S.sessions)end end}
+package.loaded["luci.jsonc"]={
+    stringify=function(value) S.json=S.json or {};local key="JSON"..tostring(#S.json+1);S.json[#S.json+1]=clone(value);return key end,
+    parse=function(value)
+        if value=="ONLINE"then return clone(S.online)elseif value=="SESSIONS"then return clone(S.sessions)end
+        local index=type(value)=="string" and tonumber(value:match("^JSON(%d+)$"))
+        return index and S.json and clone(S.json[index]) or nil
+    end
+}
 local backend=require "luci.model.ocserv_easy.backend"
 local function request(payload)payload.revision=payload.revision or backend.data().revision;return backend.action(payload)end
 local function edit(password,enabled)return {action="save_user",id="employee",name="employee01",group="*",password=password or "",enabled=enabled~=false}end
@@ -560,6 +568,46 @@ test("profile downloads reject insecure addresses and injected lines",function()
     expect("bad_request",function()backend.export("private-key","")end)
 end)
 -- A separate local preview process may keep this isolated in-memory backend.
+test("oversized candidate is rejected before changing the live UCI file",function()
+    reset();local c=cursor();c:set("ocserv","config","padding","");c:commit("ocserv")
+    c=cursor();c:set("ocserv","config","padding",string.rep("x",262140-#S.files["/etc/config/ocserv"]));c:commit("ocserv")
+    local before=S.files["/etc/config/ocserv"]
+    expect("file_too_large",function()request({action="save_user",name="newuser",group="*",password="FixturePassword",enabled=true})end)
+    check(S.files["/etc/config/ocserv"]==before and backend.data().users[1].name=="employee01")
+end)
+test("an interrupted multi-file transaction restores both files on recovery",function()
+    reset();local tx=require "luci.model.ocserv_easy.configuration"
+    local before=S.files["/etc/config/ocserv"];local fw=S.files["/etc/config/firewall"]
+    local state=tx.begin(true)
+    tx.replace(state,"ocserv",before,before.."\ninterrupted")
+    tx.replace(state,"firewall",fw,fw.."\ninterrupted")
+    tx.mark(state,"firewall");tx.mark(state,"service")
+    check(backend.status().recovery_pending and backend.recover(false))
+    check(S.files["/etc/config/ocserv"]==before and S.files["/etc/config/firewall"]==fw)
+    check(contains_command("firewall reload") and contains_command("ocserv restart") and not tx.pending())
+end)
+test("recovery keeps its journal when a later editor changed a committed file",function()
+    reset();local tx=require "luci.model.ocserv_easy.configuration"
+    local before=S.files["/etc/config/ocserv"];local state=tx.begin(false)
+    tx.replace(state,"ocserv",before,before.."\ninterrupted")
+    S.files["/etc/config/ocserv"]="later administrator changes"
+    expect("rollback_failed",function()backend.recover(false)end)
+    check(tx.pending() and S.files["/etc/config/ocserv"]=="later administrator changes")
+end)
+test("boot recovery restores configuration without starting runtime services",function()
+    reset();local tx=require "luci.model.ocserv_easy.configuration"
+    local before=S.files["/etc/config/ocserv"];local state=tx.begin(false)
+    tx.replace(state,"ocserv",before,before.."\ninterrupted");tx.mark(state,"service")
+    check(backend.recover(true) and S.files["/etc/config/ocserv"]==before and not contains_command("ocserv restart"))
+end)
+test("runtime recovery failures retain a retryable journal",function()
+    reset();local tx=require "luci.model.ocserv_easy.configuration"
+    local before=S.files["/etc/config/ocserv"];local state=tx.begin(true)
+    tx.replace(state,"ocserv",before,before.."\ninterrupted");tx.mark(state,"service")
+    S.fail_command="/etc/init.d/ocserv restart"
+    expect("rollback_failed",function()backend.recover(false)end)
+    check(tx.pending() and S.files["/etc/config/ocserv"]==before and backend.recover(false) and not tx.pending())
+end)
 TEST_PREVIEW={reset=reset,backend=backend,request=request,state=function()return S end}
 if not TEST_KEEP_SANDBOX then io.open=original_io_open end
 return results

@@ -7,7 +7,7 @@ import struct
 
 SYSTEM_DLLS = {
     "advapi32.dll", "bcrypt.dll", "comctl32.dll", "comdlg32.dll", "crypt32.dll", "gdi32.dll",
-    "iphlpapi.dll", "kernel32.dll", "msvcrt.dll", "ntdll.dll", "ole32.dll", "oleaut32.dll",
+    "iphlpapi.dll", "kernel32.dll", "msvcrt.dll", "ntdll.dll", "ole32.dll", "oleaut32.dll", "fwpuclnt.dll",
     "rpcrt4.dll", "secur32.dll", "shell32.dll", "user32.dll", "ws2_32.dll", "winmm.dll",
     "winspool.drv", "winhttp.dll", "normaliz.dll", "ncrypt.dll",
 }

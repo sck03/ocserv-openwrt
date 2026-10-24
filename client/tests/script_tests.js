@@ -119,6 +119,17 @@ test('disconnect releases the gateway route and tunnel address', () => {
     assert(result.commands.some(c => c.includes('route delete 203.0.113.7')));
     assert(result.commands.some(c => c.includes('delete address 42 198.18.0.2')));
 });
+test('failed route deletion retains recovery and reports failure until absence is verified', () => {
+    const storage = { text: '' };
+    execute({}, () => 0, storage);
+    const existing = { ipv4: '203.0.113.7 255.255.255.255 192.0.2.1 192.0.2.2 1\n' };
+    const failed = execute({ reason: 'disconnect' }, c => c.includes('route delete') ? 5 : 0, storage, existing);
+    assert.equal(failed.exitCode, 1);
+    assert(storage.stateFiles.size > 0);
+    const retried = execute({ reason: 'disconnect' }, c => c.includes('route delete') ? 1 : 0, storage, { ipv4: '', ipv6: '' });
+    assert.equal(retried.exitCode, 0);
+    assert.equal(storage.stateFiles.size, 0);
+});
 test('IPv6 DNS uses the IPv6 netsh command', () => {
     const result = execute({ INTERNAL_IP4_DNS: '198.18.0.1 2001:db8::53' });
     assert(result.commands.some(c => c.includes('ipv6 add dnsservers 42 2001:db8::53 validate=no')));

@@ -1,91 +1,10 @@
 import SwiftUI
 import AppKit
 import NetworkExtension
-import Security
 import ServiceManagement
 import UniformTypeIdentifiers
 import SystemExtensions
 
-struct VPNProfile: Codable, Identifiable, Equatable {
-    var id = UUID().uuidString
-    var name = "新服务器"
-    var server = ""
-    var username = ""
-    var pin = ""
-    var rememberPassword = false
-    var origin: String {
-        guard let url = VPNServerURL(server) else { return "" }
-        return (url.host?.lowercased() ?? "") + ":" + String(url.port ?? 443)
-    }
-
-    func validated() throws -> VPNProfile {
-        guard let url = VPNServerURL(server), !name.trimmingCharacters(in: .whitespaces).isEmpty,
-              name.count <= 128, VPNCredentialValid(username), VPNServerPinValid(pin), UUID(uuidString: id) != nil else {
-            throw ClientError.invalidProfile
-        }
-        var result = self
-        result.server = url.absoluteString
-        return result
-    }
-}
-enum ClientError: LocalizedError {
-    case invalidProfile, missingPassword, invalidStore, keychain, login, extensionPending, extensionRestart
-    var errorDescription: String? {
-        switch self {
-        case .invalidProfile: return "请填写名称、HTTPS 服务器、用户名和管理员核实的完整 pin-sha256 指纹。"
-        case .missingPassword: return "请输入密码，或先将密码保存到钥匙串。"
-        case .invalidStore: return "配置文件无效，原文件已保留。"
-        case .keychain: return "无法访问钥匙串，请检查系统授权。"
-        case .login: return "请先保存有效配置与钥匙串密码，再启用登录后自动连接。"
-        case .extensionPending: return "系统扩展授权尚未结束，请先完成系统提示。"
-        case .extensionRestart: return "系统扩展将在重启后启用，请重启后连接。"
-        }
-    }
-}
-private struct ProfileFile: Codable {
-    var schema = 1
-    var profiles: [VPNProfile]
-
-    static func readData(_ url: URL, limit: Int) throws -> Data {
-        let file = try FileHandle(forReadingFrom: url)
-        defer { try? file.close() }
-        let data = try file.read(upToCount: limit + 1) ?? Data()
-        guard data.count <= limit else { throw ClientError.invalidProfile }
-        return data
-    }
-}
-private enum Credentials {
-    static func query(_ id: String) -> [String: Any] {
-        [kSecClass as String: kSecClassGenericPassword,
-         kSecAttrService as String: Bundle.main.bundleIdentifier! + ".password",
-         kSecAttrAccount as String: id]
-    }
-    static func read(_ id: String) throws -> String {
-        var request = query(id)
-        request[kSecReturnData as String] = true
-        var item: CFTypeRef?
-        let status = SecItemCopyMatching(request as CFDictionary, &item)
-        if status == errSecItemNotFound { return "" }
-        guard status == errSecSuccess, let data = item as? Data,
-              let password = String(data: data, encoding: .utf8) else { throw ClientError.keychain }
-        return password
-    }
-    static func save(_ password: String, for id: String) throws {
-        let request = query(id)
-        let data = Data(password.utf8)
-        let status = SecItemUpdate(request as CFDictionary, [kSecValueData as String: data] as CFDictionary)
-        if status == errSecItemNotFound {
-            var item = request
-            item[kSecValueData as String] = data
-            item[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
-            guard SecItemAdd(item as CFDictionary, nil) == errSecSuccess else { throw ClientError.keychain }
-        } else if status != errSecSuccess { throw ClientError.keychain }
-    }
-    static func remove(_ id: String) throws {
-        let status = SecItemDelete(query(id) as CFDictionary)
-        guard status == errSecSuccess || status == errSecItemNotFound else { throw ClientError.keychain }
-    }
-}
 
 @MainActor
 final class DesktopVPN: NSObject, ObservableObject, OSSystemExtensionRequestDelegate {
@@ -129,7 +48,7 @@ final class DesktopVPN: NSObject, ObservableObject, OSSystemExtensionRequestDele
         do {
             let url = directory.appendingPathComponent("profiles.json")
             if FileManager.default.fileExists(atPath: url.path) {
-                let data = try ProfileFile.readData(url, limit: 1_048_576)
+                let data = try ProfileFile.readData(url, limit: ProfileFile.maxBytes)
                 let file = try JSONDecoder().decode(ProfileFile.self, from: data)
                 guard file.schema == 1, file.profiles.count <= 128,
                       Set(file.profiles.map(\.id)).count == file.profiles.count else { throw ClientError.invalidStore }
@@ -196,27 +115,32 @@ final class DesktopVPN: NSObject, ObservableObject, OSSystemExtensionRequestDele
         draft = VPNProfile()
         password = ""
     }
-    private func write(_ values: [VPNProfile]) throws {
+    private func write(_ values: [VPNProfile], credentialID: String, credential: String) throws {
         guard storageReady else { throw ClientError.invalidStore }
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+        // Validate the aggregate budget before changing either durable store.
+        let data = try ProfileFile.encoded(values)
         let destination = directory.appendingPathComponent("profiles.json")
-        try JSONEncoder().encode(ProfileFile(profiles: values)).write(to: destination, options: .atomic)
-        try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: destination.path)
+        try CredentialTransaction.perform(password: credential, read: { try Credentials.read(credentialID) }, write: {
+            if $0.isEmpty { try Credentials.remove(credentialID) }
+            else { try Credentials.save($0, for: credentialID) }
+        }, commit: { try ProfileFile.replace(data, at: destination) })
         profiles = values
     }
     @discardableResult func save() -> Bool {
         do {
             let profile = try draft.validated()
             guard profiles.count < 128 || profiles.contains(where: { $0.id == profile.id }) else { throw ClientError.invalidStore }
-            if let previous = profiles.first(where: { $0.id == profile.id }), previous.origin != profile.origin {
-                try Credentials.remove(profile.id)
-            }
+            let previous = profiles.first(where: { $0.id == profile.id })
+            let sameOrigin = previous == nil || previous?.origin == profile.origin
+            var credential = ""
             if profile.rememberPassword {
-                if !password.isEmpty { try Credentials.save(password, for: profile.id) }
-            } else { try Credentials.remove(profile.id) }
+                if !password.isEmpty { credential = password }
+                else if sameOrigin { credential = try Credentials.read(profile.id) }
+            }
+            guard credential.isEmpty || VPNCredentialValid(credential) else { throw ClientError.missingPassword }
             var values = profiles.filter { $0.id != profile.id }
             values.append(profile)
-            try write(values)
+            try write(values, credentialID: profile.id, credential: credential)
             draft = profile
             UserDefaults.standard.set(profile.id, forKey: "selected")
             detail = "配置已保存"
@@ -236,8 +160,7 @@ final class DesktopVPN: NSObject, ObservableObject, OSSystemExtensionRequestDele
                         try await item.removeFromPreferences()
                     }
                 }
-                try Credentials.remove(id)
-                try write(profiles.filter { $0.id != id })
+                try write(profiles.filter { $0.id != id }, credentialID: id, credential: "")
                 if UserDefaults.standard.string(forKey: "autoProfile") == id { setLogin(false) }
                 draft = profiles.first ?? VPNProfile()
                 password = ""

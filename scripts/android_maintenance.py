@@ -11,6 +11,35 @@ def maintain(app, root):
         path.write_text(transform(path.read_text(encoding="utf-8")), encoding="utf-8")
 
     def runner(value):
+        value = once(value, '    @Volatile private var session: Session? = null',
+                     '    private val control = SessionControl<Session>()\n    private val session: Session? get() = control.current()')
+        value = once(value, '        if (!disconnectRequested.compareAndSet(false, true)) return\n        VpnBus.setStage(ConnectionStage.DISCONNECTING)\n        Interaction.cancelPending()\n        runCatching { session?.cancel() }', '''        if (disconnectRequested.compareAndSet(false, true)) {
+            VpnBus.setStage(ConnectionStage.DISCONNECTING)
+            Interaction.cancelPending()
+        }
+        control.cancel { runCatching { it.cancel() } }''')
+        value = once(value, '        runCatching { session?.pause() }', '        control.use { runCatching { it.pause() } }')
+        value = once(value, '        runCatching { session?.requestStats() }', '        control.use { runCatching { it.requestStats() } }')
+        value = once(value, '            runCatching { session?.destroy() }\n            session = null',
+                     '            control.close { runCatching { it.destroy() } }')
+        value = once(value, '    private fun connect(): String? {',
+                     '    private fun connect(): String? {\n        if (disconnectRequested.get()) return null')
+        value = once(value, '        session = lib', '''        if (!control.publish(lib)) { lib.destroy(); return null }
+        if (disconnectRequested.get()) { control.cancel { it.cancel() }; return null }''')
+        value = once(value, '        val cookieResult = lib.obtainCookie()',
+                     '        if (disconnectRequested.get()) return null\n        val cookieResult = lib.obtainCookie()')
+        value = once(value, '        while (true) {\n            if (lib.mainloop(RECONNECT_TIMEOUT_SECONDS, LibOpenConnect.RECONNECT_INTERVAL_MIN) < 0) break\n        }\n        return connectionFailure', '''        while (!disconnectRequested.get()) {
+            val result = lib.mainloop(RECONNECT_TIMEOUT_SECONDS, LibOpenConnect.RECONNECT_INTERVAL_MIN)
+            if (result < 0) return if (disconnectRequested.get()) null else connectionFailure ?: ConnectionPolicy.mainloopFailure(result)
+        }
+        return null''')
+        value = once(value, '        override fun onValidatePeerCert(reason: String?): Int {',
+                     '        override fun onValidatePeerCert(reason: String?): Int {\n            if (disconnectRequested.get()) return -1')
+        value = once(value, '        override fun onProcessAuthForm(form: LibOpenConnect.AuthForm?): Int {',
+                     '        override fun onProcessAuthForm(form: LibOpenConnect.AuthForm?): Int {\n            if (disconnectRequested.get()) return LibOpenConnect.OC_FORM_RESULT_CANCELLED')
+        if value.count('Interaction.await(prompt)') != 2:
+            raise ValueError("Pinned authentication prompt boundaries changed")
+        value = value.replace('Interaction.await(prompt)', 'Interaction.await(prompt) { disconnectRequested.get() }')
         value = once(value, '    fun persistCertificatePin(fingerprint: String)',
                      '    fun persistCertificatePin(profileID: String, server: String, fingerprint: String)')
         value = once(value, '    fun onTunnelFinished(error: String?)',
@@ -58,6 +87,13 @@ def maintain(app, root):
         return value
 
     edit("core/TunnelRunner.kt", runner)
+    def interaction(value):
+        value = once(value, 'import java.util.concurrent.TimeUnit\n', '')
+        value = once(value, 'fun await(prompt: UserPrompt): PromptResult',
+                     'fun await(prompt: UserPrompt, cancelled: () -> Boolean = { false }): PromptResult')
+        return once(value, 'queue.poll(PROMPT_TIMEOUT_SECONDS, TimeUnit.SECONDS) ?: PromptResult.Cancel',
+                    'PromptWait.await(queue, cancelled, PROMPT_TIMEOUT_SECONDS * 1000) ?: PromptResult.Cancel')
+    edit("core/Interaction.kt", interaction)
 
     def service(value):
         value = once(value, 'import dev.opentunnel.vpn.core.ConnectionStage',
@@ -172,6 +208,16 @@ def maintain(app, root):
         value = once(value, '    companion object {', '    companion object {\n        private val sessions = SessionOwner<TunnelRunner>()')
         value = once(value, '                delay(STATS_INTERVAL_MS)',
                      '                delay(if (getSystemService<PowerManager>()?.isInteractive == true) STATS_INTERVAL_MS else 5_000L)')
+        value = once(value, '                if (VpnBus.status.value.stage == ConnectionStage.CONNECTED) {\n                    runner?.pollStats()',
+                     '                if (runner != null && wakeLock?.isHeld != true) acquireWakeLock()\n                if (VpnBus.status.value.stage == ConnectionStage.CONNECTED) {\n                    runner?.pollStats()')
+        value = once(value, '    private var lastNotifyTime = 0L', '    private var lastWidgetTime = 0L\n    private var lastNotifyTime = 0L')
+        value = once(value, '                    TunnelWidget.notifyAll(this@OpenTunnelVpnService)\n\n                    if (status.stage', '''                    val widgetInterval = if (getSystemService<PowerManager>()?.isInteractive == true) 5_000L else 30_000L
+                    if (stageChanged || now - lastWidgetTime >= widgetInterval) {
+                        lastWidgetTime = now
+                        TunnelWidget.notifyAll(this@OpenTunnelVpnService)
+                    }
+
+                    if (status.stage''')
         value = once(value, '                if (VpnBus.status.value.stage == ConnectionStage.CONNECTED) {\n                    val pingMs = measurePing()',
                      '                if (getSystemService<PowerManager>()?.isInteractive == true && VpnBus.status.value.stage == ConnectionStage.CONNECTED) {\n                    val pingMs = measurePing()')
         value = once(value, 'private const val PING_INTERVAL_MS    = 4_000L', 'private const val PING_INTERVAL_MS    = 30_000L')
@@ -227,6 +273,7 @@ def maintain(app, root):
     edit("core/VpnBus.kt", bus)
 
     def repository(value):
+        value = section(value, '    /** Back-compat alias used by older callers', '    suspend fun currentProfile()', '')
         value = section(value, '        // Legacy single-profile keys', '        val themeMode', '')
         value = once(value, '        val legacyMigrated = booleanPreferencesKey("settings.legacyMigrated")\n', '')
         value = section(value, '    /**\n     * One-time migration:', '    // ── settings', '')
@@ -306,8 +353,39 @@ def maintain(app, root):
                              '}.getOrElse { throw IllegalStateException("Device credential encryption is unavailable", it) }')
 
     edit("util/SecretBox.kt", secrets)
+    def network_screen(value):
+        labels = {
+            "Network & Site Split Tunneling": "IP Network Split Tunneling",
+            "Route traffic by IP subnet ranges or domain suffixes": "Route traffic by numeric IPv4/IPv6 addresses or CIDR networks",
+            "All traffic routes through VPN except listed networks/domains.": "All traffic routes through VPN except listed IP networks.",
+            "Only listed networks/domains route through VPN.": "Only listed IP networks route through VPN.",
+            "Add Network or Domain": "Add IP Address or CIDR Network",
+            "e.g. *.ir or 192.168.1.0/24": "e.g. 192.168.1.0/24 or 2001:db8::/64",
+            "Tip: Use wildcard * to match domain suffixes (e.g. *.ir matches all .ir websites and subdomains).": "Use numeric IP/CIDR rules. Domain and wildcard rules are unsupported; remove any saved by older versions.",
+            "Added Networks & Domains": "Added IP Networks",
+            "No networks or domains added yet": "No IP networks added yet",
+            "تونل‌سازی شبکه‌ها و سایت‌ها": "تونل‌سازی شبکه‌های IP",
+            "مدیریت ترافیک بر اساس رنج آدرس IP یا پسوند دامنه‌ها": "مدیریت ترافیک با آدرس IP یا شبکه CIDR",
+            "همه ترافیک از VPN می‌گذرد به جز شبکه‌ها/سایت‌های لیست شده.": "همه ترافیک به جز شبکه‌های IP فهرست‌شده از VPN می‌گذرد.",
+            "فقط شبکه‌ها/سایت‌های لیست شده از VPN می‌گذرند.": "فقط شبکه‌های IP فهرست‌شده از VPN می‌گذرند.",
+            "افزودن شبکه یا دامنه": "افزودن آدرس IP یا شبکه CIDR",
+            "مثال: *.ir یا 192.168.1.0/24": "مثال: 192.168.1.0/24 یا 2001:db8::/64",
+            "راهنما: برای استثناء کردن تمام سایت‌های یک پسوند، از * استفاده کنید (مثلا *.ir شامل تمامی دامنه و زیردامنه‌های .ir می‌شود).": "فقط IP/CIDR پشتیبانی می‌شود. قوانین دامنه قدیمی را حذف کنید.",
+            "شبکه‌ها و دامنه‌های اضافه شده": "شبکه‌های IP اضافه‌شده",
+            "هیچ شبکه یا دامنه‌ای اضافه نشده است": "هنوز شبکه IP اضافه نشده است",
+        }
+        for old, new in labels.items():
+            value = once(value, old, new)
+        value = once(value, '                                    singleLine = true,', '''                                    singleLine = true,
+                                    isError = newEntryText.isNotBlank() && dev.opentunnel.vpn.util.Net.parseCidr(newEntryText) == null,''')
+        value = once(value, 'if (newEntryText.isNotBlank()) {',
+                     'if (dev.opentunnel.vpn.util.Net.parseCidr(newEntryText) != null) {')
+        return once(value, 'enabled = newEntryText.isNotBlank(),',
+                    'enabled = dev.opentunnel.vpn.util.Net.parseCidr(newEntryText) != null,')
+    edit("ui/screens/SplitTunnelNetworksScreen.kt", network_screen)
+    edit("ui/screens/HomeScreen.kt", lambda value: value.replace("network(s)/domain(s)", "IP network(s)"))
     edit("data/Models.kt", lambda value: once(value, 'val enableGeoIpLookup: Boolean = true', 'val enableGeoIpLookup: Boolean = false'))
-    for name in ("SessionOwner", "DiagnosticLog", "ProfilePolicy", "ProfileCodec"):
+    for name in ("SessionOwner", "SessionControl", "PromptWait", "DiagnosticLog", "ProfilePolicy", "ProfileCodec"):
         package = "data" if name.startswith("Profile") else "core"
         for suffix, directory in (("", "main"), ("Test", "test")):
             target = app / f"app/src/{directory}/java/dev/opentunnel/vpn/{package}/{name}{suffix}.kt"

@@ -27,6 +27,8 @@
         var b=button(label,handler,kind); b.disabled=!writable(); return b;
     }
     var errors = {
+        file_too_large:t('配置超过大小上限，原配置已保留。请减少配置内容后重试。','The configuration exceeds its size limit. Previous settings were preserved.'),
+        recovery_pending:t('上次服务设置尚需恢复，请稍后刷新；恢复记录位于 /etc/ocserv/easy-transaction。','A previous configuration transaction needs recovery. Refresh shortly; records are in /etc/ocserv/easy-transaction.'),
         guard_requires_fw4:t('需要 Firewall4 和 nftables。','Firewall4 and nftables are required.'),
         guard_requires_openclash:t('请先安装、配置并启用 OpenClash。','Install, configure and enable OpenClash first.'),
         guard_requires_ocserv:t('请先完成账号和证书设置，并启动 VPN 服务。','Set up accounts and certificates, then start VPN first.'),
@@ -121,6 +123,9 @@
     async function mutate(payload) {
         if (busy) throw {code:'busy'};
         busy=true;
+        // Replies issued before this mutation cannot represent its result.
+        ++loadGeneration;
+        loadPending=null;
         var buttons=Array.from(root.querySelectorAll('button')).map(function(b){var old=b.disabled;b.disabled=true;return [b,old];});
         try { payload.revision=state.revision; return await request('action',payload); }
         finally { busy=false; buttons.forEach(function(pair){pair[0].disabled=pair[1];}); }
@@ -376,19 +381,26 @@
             }),
             mutationButton(state.autostart?t('关闭开机启动','Disable autostart'):t('开机自动启动','Enable autostart'),function(){complete({action:'service',command:state.autostart?'disable':'enable'}).catch(function(e){notice(errorText(e),true);});})
         ]);
-        root.appendChild(element('div',{className:'easy-heading'},[element('div',{},[element('h2',{text:'岚序 Lansyra'}),element('span',{className:'easy-muted',text:t('管理页 ','UI ')+(state.ui_version || '0.5.3')+' · ocserv '+state.version})]),actions]));
+        root.appendChild(element('div',{className:'easy-heading'},[element('div',{},[element('h2',{text:'岚序 Lansyra'}),element('span',{className:'easy-muted',text:t('管理页 ','UI ')+(state.ui_version || '0.5.4')+' · ocserv '+state.version})]),actions]));
         messageBox=element('div',{className:'easy-notice',hidden:true});root.appendChild(messageBox);
         statusBox=element('div',{className:'easy-summary'});statusKey=null;root.appendChild(statusBox);renderStatus();
         if(state.installation_pending)root.appendChild(element('p',{className:'easy-notice error',text:t('安装尚未完成。请在完整服务端套装目录重新运行 sh install.sh，完成证书和 VPN 网络初始化。','Installation is incomplete. Run sh install.sh again from the complete server bundle to finish certificate and VPN network initialization.')}));
+        if(state.recovery_pending)notice(errors.recovery_pending,true);
         if(!state.supported)notice(state.version==='unknown'?errors.version_unavailable:errors.upgrade_required,true);
         else if(!options.writable)notice(errors.forbidden);
         var tabs=element('div',{className:'easy-tabs',role:'tablist'});
         [['users',t('账号与在线用户','Accounts and connections')],['settings',t('服务设置','Service settings')],['guard',t('VPN 专用上网','VPN-only access')],['export',t('客户端配置','Client profiles')]].forEach(function(item){var b=button(item[1],function(){activeTab=item[0];renderTab();});b.dataset.tab=item[0];b.setAttribute('role','tab');tabs.appendChild(b);});
         root.appendChild(tabs);content=element('div',{});root.appendChild(content);renderTab();
     }
-    var loadPending=null;
+    var loadPending=null, loadGeneration=0;
     function load() {
-        if(!loadPending)loadPending=request('data').then(function(data){state=data;render();}).finally(function(){loadPending=null;});
+        if(!loadPending) {
+            var generation=loadGeneration;
+            var pending=request('data').then(function(data){
+                if(generation===loadGeneration){state=data;render();}
+            }).finally(function(){if(loadPending===pending)loadPending=null;});
+            loadPending=pending;
+        }
         return loadPending;
     }
     var statusPending=false;

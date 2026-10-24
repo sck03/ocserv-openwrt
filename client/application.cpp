@@ -47,13 +47,7 @@ Application::~Application() {
         DestroyAcceleratorTable(accelerators_);
 }
 bool Application::claim_instance() {
-    uint64_t hash = 1469598103934665603ULL;
-    for (wchar_t c : store_.directory().wstring()) {
-        hash ^= static_cast<uint64_t>(std::towlower(c));
-        hash *= 1099511628211ULL;
-    }
-    instance_name_ =
-        L"Local\\Lansyra.App." + std::to_wstring(hash) + (administrator() ? L".admin" : L".user");
+    instance_name_ = local_object_name(L"App", store_.directory()) + (administrator() ? L".admin" : L".user");
     instance_.reset(CreateMutexW(nullptr, FALSE, instance_name_.c_str()));
     if (!instance_) {
         error(nullptr, system_error(GetLastError()));
@@ -82,7 +76,7 @@ bool Application::claim_instance() {
 }
 int Application::run(int show, const std::string &connect_profile, bool startup) {
     std::wstring reason;
-    if (!store_.load(profiles_, preferences_, reason)) {
+    if (!store_.load_metadata(profiles_, preferences_, reason)) {
         error(nullptr, reason);
         return 1;
     }
@@ -239,7 +233,7 @@ bool Application::reload(const std::string &id) {
     std::wstring reason;
     Preferences current;
     std::vector<Profile> profiles;
-    if (!store_.load(profiles, current, reason)) {
+    if (!store_.load_metadata(profiles, current, reason)) {
         error(window_, reason);
         return false;
     }
@@ -538,9 +532,6 @@ void Application::connect() {
     }
     active_gateway_ = profile.gateway;
     active_minimize_ = profile.minimize_on_connect;
-    if (profile.secret_unavailable)
-        log_.append(t(L"保存的凭据不属于当前 Windows 用户，请重新输入。",
-                      L"Saved credentials are unavailable for this Windows user. Enter them again."));
     int level = profile.log_level >= 0 ? profile.log_level : preferences_.log_level;
     Session::Options options;
     options.retry_failed = preferences_.retry_failed;

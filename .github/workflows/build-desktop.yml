@@ -131,6 +131,8 @@ jobs:
         run: |
           clang -Wall -Wextra -Werror -fobjc-arc -framework Foundation tests/ios_connection_tests.m -o "$RUNNER_TEMP/apple-address-tests"
           "$RUNNER_TEMP/apple-address-tests"
+          swiftc -import-objc-header client/apple/ServerAddress.h -framework Foundation -framework Security desktop/macos/App/ProfilePersistence.swift tests/apple_storage_tests.swift -o "$RUNNER_TEMP/apple-storage-tests"
+          "$RUNNER_TEMP/apple-storage-tests"
           cc -Wall -Wextra -Werror -std=c11 tests/mobile_protocol_tests.c -o "$RUNNER_TEMP/apple-packet-tests"
           "$RUNNER_TEMP/apple-packet-tests"
           bash -n scripts/build-apple-core.sh scripts/build-macos.sh scripts/build-linux.sh

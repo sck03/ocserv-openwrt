@@ -151,9 +151,7 @@ function addOwnedRoute(family, prefix, gateway, kind) {
     if (!gateway) return; // An on-link/specific route can work without a default gateway.
     loadRoutes();
     var r = [family, prefix, gateway, kind];
-    var pattern = family === "4" ? prefix.replace("/", "\\s+") : prefix;
-    pattern = pattern.replace(/\./g, "\\.") + "\\s+" + gateway.replace(/ /g, "\\s+").replace(/\./g, "\\.");
-    if (new RegExp("(?:^|\\s)" + pattern + "(?:\\s|$)", "i").test(family === "4" ? routes4 : routes6)) return;
+    if (routePresent(r, family === "4" ? routes4 : routes6)) return;
     if (ownedRoutes.length >= 256) throw new Error("Too many pending VPN routes");
     run(routeCommand("add", r));
     if (lastExitCode) return;
@@ -163,13 +161,28 @@ function addOwnedRoute(family, prefix, gateway, kind) {
     if (!known) ownedRoutes.push(r);
     try { saveRoutes(); } catch (error) { run(routeCommand("delete", r), true); throw error; }
 }
+function routePresent(route, output) {
+    var pattern = route[0] === "4" ? route[1].replace("/", "\\s+") : route[1];
+    pattern = pattern.replace(/\./g, "\\.") + "\\s+" + route[2].replace(/ /g, "\\s+").replace(/\./g, "\\.");
+    return new RegExp("(?:^|\\s)" + pattern + "(?:\\s|$)", "i").test(output);
+}
 function releaseRoutes(keep) {
     loadRoutes();
     var remaining = [];
     for (var i = 0; i < ownedRoutes.length; i++) {
         var r = ownedRoutes[i];
         if (keep && keep(r)) remaining.push(r);
-        else run(routeCommand("delete", r), true);
+        else {
+            run(routeCommand("delete", r), true);
+            if (lastExitCode) {
+                var current = run(r[0] === "4" ? "route print" : "netsh interface ipv6 show route", true);
+                if (lastExitCode || routePresent(r, current)) {
+                    remaining.push(r);
+                    accumulatedExitCode = 1;
+                    echo(ERROR, "VPN route cleanup failed; recovery record retained: " + statePath);
+                }
+            }
+        }
     }
     ownedRoutes = remaining;
     if (ownedRoutes.length) saveRoutes();

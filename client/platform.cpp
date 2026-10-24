@@ -70,6 +70,14 @@ std::string random_id() {
     }
     return result;
 }
+std::wstring local_object_name(const wchar_t *kind, const std::filesystem::path &directory) {
+    uint64_t hash = 1469598103934665603ULL;
+    for (wchar_t c : directory.wstring()) {
+        hash ^= static_cast<uint64_t>(std::towlower(c));
+        hash *= 1099511628211ULL;
+    }
+    return L"Local\\Lansyra." + std::wstring(kind) + L"." + std::to_wstring(hash);
+}
 bool read_file(const std::filesystem::path &path, std::string &value, std::wstring &error, size_t limit) {
     value.clear();
     Handle file(CreateFileW(path.c_str(), GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_DELETE, nullptr,

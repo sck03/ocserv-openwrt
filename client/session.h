@@ -1,6 +1,7 @@
 #pragma once
 #include "profile.h"
 #include "diagnostics.h"
+#include "network_policy.h"
 #include <openconnect.h>
 #include <atomic>
 #include <functional>
@@ -111,6 +112,7 @@ private:
     void state(State state, bool terminal = false, std::wstring message = {});
     void log(int level, std::string message);
     void synchronize_log_level();
+    bool update_network_policy();
     bool stopped() const;
     bool send(char command);
     void persist(const std::function<void(Profile &)> &change);
@@ -153,5 +155,6 @@ private:
     std::wstring previous_script_log_;
     size_t script_log_read_ = 0;
     bool script_environment_set_ = false;
+    Ipv6Guard ipv6_guard_;
 };
 } // namespace vpn

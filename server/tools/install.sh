@@ -143,6 +143,7 @@ if ! /etc/init.d/ocserv initcerts; then
     exit 1
 fi
 /etc/init.d/ocserv-easy-guard enable
+/etc/init.d/ocserv-easy-guard start
 
 if [ "$fresh" = 1 ]; then
     # Baseline VPN networking only: no OpenClash or DNS service settings change.
@@ -239,6 +240,6 @@ fi
 # Invalidate both older Lua and current ucode dispatcher caches.
 rm -f /tmp/luci-indexcache* /tmp/luci-modulecache/*
 echo "安装完成。安装前备份：$backup"
-echo '请重新登录 LuCI → VPN → 岚序 Lansyra（管理页 0.5.3-r1）。'
+echo '请重新登录 LuCI → VPN → 岚序 Lansyra（管理页 0.5.4-r1）。'
 echo '全新安装：添加账号，检查服务设置，然后点击「启动服务」。'
 echo '默认端口 4443，VPN 地址池 10.77.0.0/24；专用 OpenClash 开关默认关闭。'

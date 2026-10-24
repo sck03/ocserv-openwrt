@@ -29,7 +29,7 @@ def package(platform):
     paths = source_files(ROOT, directories, (
         "mobile/sources.json",
         "LICENSE", "README.md", "THIRD-PARTY-NOTICES.md", "docs/MOBILE.md", "docs/DESKTOP.md",
-        "tests/mobile_build_tests.py", "tests/mobile_protocol_tests.c", "tests/ios_connection_tests.m",
+        "tests/mobile_build_tests.py", "tests/mobile_protocol_tests.c", "tests/ios_connection_tests.m", "tests/apple_storage_tests.swift",
         ".github/workflows/build-" + ("desktop" if platform == "macos" else platform) + ".yml",
         *("scripts/" + name for name in scripts),
     ))

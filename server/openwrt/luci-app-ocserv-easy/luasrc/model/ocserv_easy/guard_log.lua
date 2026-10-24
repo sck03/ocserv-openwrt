@@ -65,6 +65,11 @@ function M.diagnostic(output)
 end
 function M.clean_loop()
     while true do
+        -- A killed HTTP request cannot strand an ordinary configuration commit.
+        -- Recovery acquires the same nonblocking lease as live operations.
+        if fs.access("/etc/ocserv/easy-transaction/state.json") then
+            pcall(function() require("luci.model.ocserv_easy.backend").recover(false) end)
+        end
         local ok,rows=pcall(access)
         local seconds=60
         if ok and rows[1] then seconds=math.max(1,math.min(seconds,rows[1].time+ttl-os.time())) end

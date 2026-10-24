@@ -3,9 +3,16 @@ package dev.opentunnel.vpn.core
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertThrows
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ConnectionPolicyTest {
+    @Test fun nativeLoopFailuresRemainVisibleAndContainNoCoreOutput() {
+        assertTrue(ConnectionPolicy.mainloopFailure(-110).contains("timed out"))
+        assertTrue(ConnectionPolicy.mainloopFailure(-13).contains("authentication"))
+        assertTrue(ConnectionPolicy.mainloopFailure(-32).contains("server"))
+        assertTrue(ConnectionPolicy.mainloopFailure(-5).contains("code -5"))
+    }
     @Test fun preservesHostnameIpv6AndAuthenticationPath() {
         assertEquals("https://vpn.example.com:4443/group?q=one%20two", ConnectionPolicy.serverUrl(" VPN.Example.COM:4443/group?q=one%20two "))
         assertEquals("https://[2001:db8::1]:4443", ConnectionPolicy.serverUrl("[2001:DB8::1]:4443"))

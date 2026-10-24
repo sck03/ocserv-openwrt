@@ -9,6 +9,12 @@ import java.util.Locale
 
 /** Address parsing never resolves DNS: OpenConnect retains all A/AAAA candidates and SNI. */
 internal object ConnectionPolicy {
+    fun mainloopFailure(code: Int): String = when (code) {
+        -1, -13 -> "VPN authentication expired or was rejected; sign in again."
+        -110 -> "VPN reconnection timed out; check the network and server."
+        -32 -> "The VPN server ended this session; reconnect to sign in again."
+        else -> "VPN transport ended (code $code); check the network and diagnostic log."
+    }
     fun serverUrl(raw: String): String {
         val value = raw.trim().let { if ("://" in it) it else "https://$it" }
         require(value.none { it <= ' ' || it == '\u007f' || it == '\\' }) { "Invalid server address" }

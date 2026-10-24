@@ -7,6 +7,9 @@ local logic = require "luci.model.ocserv_easy.logic"
 local guard = require "luci.model.ocserv_easy.guard"
 local firewall = require "luci.model.ocserv_easy.firewall"
 local run = require("luci.model.ocserv_easy.process").run
+local storage = require "luci.model.ocserv_easy.storage"
+local configuration = require "luci.model.ocserv_easy.configuration"
+local read, atomic, directory, random_bytes = storage.read, storage.atomic, storage.directory, storage.random
 local M = {}
 local config_path="/etc/config/ocserv"
 local template_path="/etc/ocserv/ocserv.conf.template"
@@ -16,40 +19,6 @@ local runtime_path="/var/etc/ocserv.conf"
 local firewall_path="/etc/config/firewall"
 local work="/var/run/ocserv-easy"
 local occtl="/usr/bin/occtl"
-
-local function read(path, limit)
-    local f=io.open(path,"rb")
-    if not f then return nil end
-    local data=f:read((limit or 262144)+1) or ""; f:close()
-    logic.require(#data<=(limit or 262144),"file_too_large")
-    return data
-end
-local function directory(path)
-    if not fs.stat(path) then logic.require(fs.mkdir(path,"700"),"write_failed") end
-    logic.require(fs.chmod(path,"700"),"write_failed")
-end
-local function random_bytes(count)
-    local source=nixio.open("/dev/urandom","r")
-    logic.require(source,"random_failed")
-    local value=source:read(count); source:close()
-    logic.require(value and #value==count,"random_failed")
-    return value
-end
-local function atomic(path,data)
-    local tmp=path..".easy-"..nixio.getpid().."-"..nixio.bin.hexlify(random_bytes(8))
-    local out=nixio.open(tmp,nixio.open_flags("wronly","creat","excl"),"600")
-    logic.require(out,"write_failed")
-    local offset=1; local ok=true
-    while offset<=#data do
-        local written=out:write(data:sub(offset))
-        if not written or written==0 then ok=false; break end
-        offset=offset+written
-    end
-    if ok then ok=out:sync() end
-    out:close()
-    if ok then ok=fs.rename(tmp,path) end
-    if not ok then fs.remove(tmp); logic.fail("write_failed") end
-end
 
 local function version()
     local code,output=run({"/usr/sbin/ocserv","--version"},10)
@@ -86,7 +55,7 @@ local function snapshot()
 end
 local function safe(value,limit) return type(value)=="string" and value:sub(1,limit or 128) or "" end
 function M.status()
-    local result={running=running(),online={}}
+    local result={running=running(),online={},recovery_pending=configuration.pending()}
     if not result.running then return result end
     local code,output=run({occtl,"-j","show","users"},4)
     local parsed=code==0 and json.parse(output) or nil
@@ -106,7 +75,7 @@ end
 function M.data(admin)
     local s=snapshot(); local state=M.status()
     state.version=version()
-    state.ui_version="0.5.3"
+    state.ui_version="0.5.4"
     state.supported=logic.supported_version(state.version)
     state.capabilities=capabilities()
     state.revision=s.revision
@@ -149,27 +118,26 @@ local function write_users(s,users)
     for _,user in ipairs(s.users) do if not keep[user.id] then logic.require(s.cursor:delete("ocserv",user.id),"write_failed") end end
 end
 local function commit(s)
-    -- Do not overwrite changes made in the original LuCI page since this request began.
-    logic.require((read(config_path) or "")==s.raw,"stale_revision")
     logic.require(s.cursor:commit("ocserv"),"write_failed")
-    s.committed_raw=read(config_path)
-    logic.require(fs.chmod(config_path,"600"),"write_failed")
+    local candidate=read(s.stage.."/ocserv")
+    logic.require(candidate,"write_failed")
+    configuration.replace(s.journal,"ocserv",s.raw,candidate)
 end
 local function commit_firewall(s)
     logic.require(s.firewall_loaded and s.firewall_raw~=nil,"firewall_unavailable")
-    logic.require((read(firewall_path) or "")==s.firewall_raw,"stale_revision")
     logic.require(s.cursor:commit("firewall"),"write_failed")
-    s.committed_firewall_raw=read(firewall_path)
-    logic.require(fs.chmod(firewall_path,"600"),"write_failed")
+    local candidate=read(s.stage.."/firewall")
+    logic.require(candidate,"write_failed")
+    configuration.replace(s.journal,"firewall",s.firewall_raw,candidate)
 end
 local function backup(s,old_passwd,include_firewall)
     local path="/etc/ocserv/easy-backup"
     directory(path)
-    atomic(path.."/ocserv.uci",s.raw)
-    atomic(path.."/ocserv.conf.template",s.template)
-    atomic(path.."/ocserv.conf.local",s.extra)
-    if old_passwd then atomic(path.."/ocpasswd",old_passwd) end
-    if include_firewall and s.firewall_raw then atomic(path.."/firewall.uci",s.firewall_raw) end
+    storage.keep(path.."/ocserv.uci",s.raw)
+    storage.keep(path.."/ocserv.conf.template",s.template)
+    storage.keep(path.."/ocserv.conf.local",s.extra)
+    if old_passwd then storage.keep(path.."/ocpasswd",old_passwd) end
+    if include_firewall and s.firewall_raw then storage.keep(path.."/firewall.uci",s.firewall_raw) end
 end
 local function reload_firewall(mark)
     mark()
@@ -177,37 +145,49 @@ local function reload_firewall(mark)
     logic.require(run({"/etc/init.d/firewall","reload"},20)==0,"firewall_reload_failed")
 end
 local wait_running
+local function recover_locked(boot)
+    local state=configuration.restore()
+    if not state then return end
+    if not boot and state.firewall then
+        logic.require(run({"/sbin/fw4","check"},10)==0,"rollback_failed")
+        logic.require(run({"/etc/init.d/firewall","reload"},20)==0,"rollback_failed")
+    end
+    if not boot and state.service then
+        logic.require(run({"/etc/init.d/ocserv",state.was_running and "restart" or "stop"},15)==0,"rollback_failed")
+        wait_running(state.was_running,"rollback_failed")
+    end
+    configuration.finish()
+end
+local function stage_cursor(s,include_firewall)
+    s.stage=work.."/config-stage"
+    directory(s.stage); directory(s.stage.."/delta")
+    for _,package in ipairs({"ocserv","firewall"}) do
+        -- Fixed paths under the shared lease; clear only our private UCI deltas.
+        fs.remove(s.stage.."/delta/"..package)
+    end
+    atomic(s.stage.."/ocserv",s.raw)
+    if include_firewall then atomic(s.stage.."/firewall",s.firewall_raw) end
+    s.cursor=uci.cursor(s.stage,s.stage.."/delta")
+    logic.require(s.cursor:load("ocserv"),"write_failed")
+    if include_firewall then logic.require(s.cursor:load("firewall"),"write_failed") end
+end
 local function transaction(s,was_running,operation,include_firewall)
     local old_passwd=read(passwd_path)
+    s.old_passwd=old_passwd
     backup(s,old_passwd,include_firewall)
-    local touched,firewall_touched=false,false
-    local function mark_service() touched=true end
-    local function mark_firewall() firewall_touched=true end
+    stage_cursor(s,include_firewall)
+    s.journal=configuration.begin(was_running)
+    local function mark_service() configuration.mark(s.journal,"service") end
+    local function mark_firewall() configuration.mark(s.journal,"firewall") end
     local ok,result=pcall(operation,mark_service,mark_firewall)
-    if ok then return result end
+    if ok then
+        configuration.finish()
+        return result
+    end
     local restored=pcall(function()
-        -- A stale request must never roll back somebody else's later commit.
-        if s.committed_raw then
-            logic.require(read(config_path)==s.committed_raw,"rollback_failed")
-            atomic(config_path,s.raw)
-        end
-        if s.committed_firewall_raw then
-            logic.require((read(firewall_path) or "")==s.committed_firewall_raw,"rollback_failed")
-            if s.firewall_raw then atomic(firewall_path,s.firewall_raw) else fs.remove(firewall_path) end
-        end
         s.cursor:revert("ocserv"); s.cursor:unload("ocserv")
         if include_firewall then s.cursor:revert("firewall"); s.cursor:unload("firewall") end
-        if s.committed_raw then
-            if old_passwd then atomic(passwd_path,old_passwd) else fs.remove(passwd_path) end
-        end
-        if firewall_touched then
-            logic.require(run({"/sbin/fw4","check"},10)==0,"rollback_failed")
-            logic.require(run({"/etc/init.d/firewall","reload"},20)==0,"rollback_failed")
-        end
-        if touched then
-            logic.require(run({"/etc/init.d/ocserv",was_running and "restart" or "stop"},15)==0,"rollback_failed")
-            wait_running(was_running,"rollback_failed")
-        end
+        recover_locked(false)
     end)
     if not restored then logic.fail("rollback_failed") end
     error(result,0)
@@ -236,7 +216,7 @@ local function change_user(s,request)
     return transaction(s,was_running,function(mark)
         write_users(s,users); commit(s)
         if not fs.stat("/var/etc") then logic.require(fs.mkdir("/var/etc","755"),"write_failed") end
-        atomic(passwd_path,logic.passwd(users))
+        configuration.replace(s.journal,"passwd",s.old_passwd,logic.passwd(users))
         local effect=was_running and "updated_live" or "saved"
         if was_running and revoke then
             local code=run({occtl,"terminate","user",revoke},5)
@@ -329,6 +309,7 @@ function M.action(request,admin)
     logic.require(lock,"write_failed")
     if not lock:lock("tlock") then lock:close(); logic.fail("busy") end
     local ok,result=pcall(function()
+        recover_locked(false)
         local s=snapshot()
         logic.require(request.revision==s.revision,"stale_revision")
         local current_version=version()
@@ -377,6 +358,17 @@ function M.action(request,admin)
     lock:lock("ulock"); lock:close()
     if not ok then error(result,0) end
     return result
+end
+function M.recover(boot)
+    if not configuration.pending() then return true end
+    directory(work)
+    local lock=nixio.open(work.."/lock","w","600")
+    logic.require(lock,"write_failed")
+    if not lock:lock("tlock") then lock:close(); return false end
+    local ok,result=pcall(recover_locked,boot)
+    lock:lock("ulock"); lock:close()
+    if not ok then error(result,0) end
+    return true
 end
 local function server_pin()
     local s=snapshot()

@@ -177,6 +177,9 @@ def main():
         [sys.executable, ROOT / "client/tests/auth_integration.py", "--client", build / "native_session_tests.exe",
          "--output", output / "authentication"], ROOT, environment, output, "authentication", timeout=300)
     if args.network:
+        report["tests"]["network_policy"] = run(
+            [build / "native_policy_tests.exe", "--allow-network-changes"],
+            build, environment, output, "network-policy")
         report["tests"]["tunnel"] = run(
             [sys.executable, ROOT / "client/tests/tunnel_integration.py", "--client", build / "native_session_tests.exe",
              "--output", output / "tunnel", "--allow-network-changes"],

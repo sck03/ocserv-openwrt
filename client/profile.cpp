@@ -168,15 +168,20 @@ bool validate_profile(Profile &p, std::wstring &error) {
 ProfileStore::ProfileStore(std::filesystem::path directory)
     : directory_(directory.empty() ? executable_directory() / L"data" : std::move(directory)) {
     directory_ = std::filesystem::absolute(directory_).lexically_normal();
-    uint64_t hash = 1469598103934665603ULL;
-    for (wchar_t c : directory_.wstring()) {
-        hash ^= static_cast<uint64_t>(std::towlower(c));
-        hash *= 1099511628211ULL;
-    }
-    mutex_name_ = L"Local\\Lansyra.ProfileStore." + std::to_wstring(hash);
+    mutex_name_ = local_object_name(L"ProfileStore", directory_);
 }
 bool ProfileStore::load(std::vector<Profile> &profiles, Preferences &preferences, std::wstring &error) const {
     return read(profiles, preferences, error, true);
+}
+bool ProfileStore::load_metadata(std::vector<Profile> &profiles, Preferences &preferences, std::wstring &error) const {
+    return read(profiles, preferences, error, false);
+}
+void ProfileStore::unlock(Profile &profile) {
+    profile.secret_unavailable = false;
+    if (profile.password.empty() && !unprotect_secret(profile.password_blob, context(profile, "password"), profile.password))
+        profile.secret_unavailable = true;
+    if (profile.token.empty() && !unprotect_secret(profile.token_blob, context(profile, "token"), profile.token))
+        profile.secret_unavailable = true;
 }
 bool ProfileStore::read(std::vector<Profile> &profiles, Preferences &preferences, std::wstring &error,
                         bool decrypt) const {
@@ -327,6 +332,10 @@ bool ProfileStore::update(
     return true;
 }
 bool ProfileStore::save(Profile &profile, std::wstring &error) {
+    return save_prepared(profile, error, {});
+}
+bool ProfileStore::save_prepared(Profile &profile, std::wstring &error,
+                                 const std::function<bool()> &prepare) {
     if (!validate_profile(profile, error))
         return false;
     if (profile.id.empty())
@@ -359,6 +368,8 @@ bool ProfileStore::save(Profile &profile, std::wstring &error) {
                         profile.fixed_pin = false;
                         profile.secret_unavailable = false;
                     }
+                    if (prepare && !prepare())
+                        return false;
                     existing = profile;
                     preferences.selected = profile.id;
                     return true;
@@ -367,6 +378,8 @@ bool ProfileStore::save(Profile &profile, std::wstring &error) {
                 message = L"配置数量已达上限。 / Too many profiles.";
                 return false;
             }
+            if (prepare && !prepare())
+                return false;
             profiles.push_back(profile);
             preferences.selected = profile.id;
             return true;
@@ -512,20 +525,22 @@ bool ProfileStore::import_connection(const std::filesystem::path &path, Profile 
         return false;
     }
     std::filesystem::path imported_certificate;
+    std::string certificate;
     if (!ca.empty()) {
-        std::string certificate;
         if (!unbase64(ca, certificate) || !valid_public_certificates(certificate, error)) {
             if (error.empty())
                 error = L"CA 证书无效。 / Invalid CA certificate.";
             return false;
         }
         auto destination = directory_ / L"certificates" / (wide(candidate.id) + L"-ca.pem");
-        if (!write_atomic(destination, certificate, error))
-            return false;
         imported_certificate = destination;
         candidate.ca_file = destination.wstring();
     }
-    if (!save(candidate, error)) {
+    // Install the public CA while holding the same lease as profile replacement
+    // and orphan collection. Other instances must never see a staged orphan.
+    if (!save_prepared(candidate, error, [&] {
+            return imported_certificate.empty() || write_atomic(imported_certificate, certificate, error);
+        })) {
         if (!imported_certificate.empty())
             DeleteFileW(imported_certificate.c_str());
         return false;

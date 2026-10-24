@@ -53,6 +53,8 @@ public:
         return directory_;
     }
     bool load(std::vector<Profile> &profiles, Preferences &preferences, std::wstring &error) const;
+    bool load_metadata(std::vector<Profile> &profiles, Preferences &preferences, std::wstring &error) const;
+    static void unlock(Profile &profile);
     bool save(Profile &profile, std::wstring &error);
     bool remove(const std::string &id, std::wstring &error);
     bool save_preferences(const Preferences &preferences, std::wstring &error);
@@ -63,6 +65,7 @@ public:
                            std::wstring &error) const;
 
 private:
+    bool save_prepared(Profile &profile, std::wstring &error, const std::function<bool()> &prepare);
     bool read(std::vector<Profile> &profiles, Preferences &preferences, std::wstring &error,
               bool decrypt) const;
     void prune_certificates(const std::vector<Profile> &profiles) const;

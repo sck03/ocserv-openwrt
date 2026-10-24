@@ -42,13 +42,16 @@ internal class DiagnosticLog {
         val plain = message.lowercase(Locale.ROOT)
         if (fields.containsMatchIn(probe) || secrets.any { folded.contains(it) || plain.contains(it) })
             return "[authentication data redacted]"
-        return urls.replace(message) { match ->
+        val sanitized = urls.replace(message) { match ->
             runCatching {
                 val url = URI(match.value)
                 if (url.rawUserInfo != null) "[authentication data redacted]"
                 else "${url.scheme}://${url.rawAuthority}/[redacted]"
             }.getOrDefault("[URL redacted]")
-        }.map { if (it < ' ' && it != '\n' && it != '\t') ' ' else it }.joinToString("")
+        }
+        return buildString(sanitized.length) {
+            for (character in sanitized) append(if (character < ' ' && character != '\n' && character != '\t') ' ' else character)
+        }
     }
 
     @Synchronized fun clear() {

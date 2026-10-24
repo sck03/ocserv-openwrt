@@ -5,13 +5,17 @@ import java.net.InetAddress
 
 /** Express exclusions as included prefixes on every supported Android version. */
 internal object RoutePolicy {
+    private const val MAX_ROUTES = 2048
     private data class Block(val address: BigInteger, val prefix: Int, val bits: Int) {
         fun contains(other: Block) = bits == other.bits && prefix <= other.prefix &&
             address.shiftRight(bits - prefix) == other.address.shiftRight(bits - prefix)
 
         fun subtract(other: Block, result: MutableList<Block>) {
             if (other.contains(this)) return
-            if (!contains(other)) { result.add(this); return }
+            if (!contains(other)) {
+                require(result.size < MAX_ROUTES) { "The route exclusions produce too many tunnel routes" }
+                result.add(this); return
+            }
             val child = prefix + 1
             Block(address, child, bits).subtract(other, result)
             Block(address.setBit(bits - child), child, bits).subtract(other, result)
@@ -48,10 +52,12 @@ internal object RoutePolicy {
     }
 
     fun routes(included: List<Cidr>, excluded: List<Cidr>): List<Cidr> {
+        require(included.size <= 4096 && excluded.size <= 4096) { "Too many tunnel routes" }
         var remaining = blocks(included)
         for (excludedBlock in blocks(excluded)) {
             remaining = buildList { for (route in remaining) route.subtract(excludedBlock, this) }
         }
+        require(remaining.size <= MAX_ROUTES) { "Too many tunnel routes" }
         return remaining.map { it.cidr() }
     }
 }

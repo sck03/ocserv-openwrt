@@ -186,6 +186,10 @@ int main() {
         errors_and_retries();
         redaction();
         startup_registration();
+        check(ipv4_full_tunnel({}) && ipv4_full_tunnel({"0.0.0.0/0"}) &&
+                  ipv4_full_tunnel({"0.0.0.0/1", "128.0.0.0/1"}) &&
+                  !ipv4_full_tunnel({"10.77.0.0/24"}) && !ipv4_full_tunnel({"0.0.0.0/1"}),
+              "full tunnel IPv6 guard eligibility");
         std::cout << "{\"passed\":" << passed << "}\n";
         return 0;
     } catch (const std::exception &error) {

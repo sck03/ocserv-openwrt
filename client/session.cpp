@@ -340,10 +340,7 @@ int Session::authenticate(oc_auth_form *form) {
         }
     }
     bool empty = true;
-    unsigned fields = 0;
     for (oc_form_opt *option = form->opts; option; option = option->next) {
-        if (++fields > 256)
-            return OC_FORM_RESULT_CANCELLED;
         if (option->flags & OC_FORM_OPT_IGNORE)
             continue;
         if (form->authgroup_opt && option == &form->authgroup_opt->form)
@@ -586,6 +583,12 @@ void Session::setup_tun_callback(void *context) {
         if (!self->wait_until_resumed())
             return;
         self->state(State::Configuring);
+        if (!self->update_network_policy()) {
+            self->tun_failed_ = true;
+            self->fail(ErrorCategory::Adapter);
+            self->send(OC_CMD_CANCEL);
+            return;
+        }
         auto script = self->profile_.script.empty() ? executable_directory() / L"vpnc-script-win.js"
                                                     : std::filesystem::path(self->profile_.script);
         std::string interface_name = self->profile_.interface_name.empty()
@@ -618,10 +621,30 @@ void Session::reconnected_callback(void *context) {
     auto *self = static_cast<Session *>(context);
     try {
         self->read_script_log();
+        if (!self->update_network_policy()) {
+            self->tun_failed_ = true;
+            self->fail(ErrorCategory::Adapter);
+            self->send(OC_CMD_CANCEL);
+            return;
+        }
         if (!self->stopped() && self->tun_ready_ && !self->tun_failed_)
             self->state(State::Connected);
     } catch (...) {
     }
+}
+bool Session::update_network_policy() {
+    const oc_ip_info *info = nullptr;
+    if (openconnect_get_ip_info(vpn_, &info, nullptr, nullptr) || !info)
+        return false;
+    std::vector<std::string> included;
+    for (auto *route = info->split_includes; route; route = route->next) {
+        if (included.size() >= 4096)
+            return false;
+        if (route->route)
+            included.emplace_back(route->route);
+    }
+    const bool ipv6 = (info->addr6 && *info->addr6) || (info->netmask6 && *info->netmask6);
+    return ipv6_guard_.require(!ipv6 && ipv4_full_tunnel(included), error_);
 }
 int Session::lock_token_callback(void *context) {
     auto *self = static_cast<Session *>(context);
@@ -733,12 +756,17 @@ void Session::cleanup() noexcept {
                                 previous_script_log_.empty() ? nullptr : previous_script_log_.c_str());
         script_environment_set_ = false;
     }
+    ipv6_guard_.reset();
     if (!script_log_.empty()) {
         try {
-            DeleteFileW((script_log_.wstring() + L".routes").c_str());
+            const auto routes = script_log_.wstring() + L".routes";
+            if (GetFileAttributesW(routes.c_str()) != INVALID_FILE_ATTRIBUTES) {
+                cleanup_failed_ = true;
+                log(PRG_ERR, utf8(L"VPN 路由尚未清理，恢复记录已保留： / VPN route recovery retained: " + routes));
+            } else
+                DeleteFileW(script_log_.c_str());
         } catch (...) {
         }
-        DeleteFileW(script_log_.c_str());
         script_log_.clear();
     }
     if (script_environment_lock_.owns_lock())
@@ -756,6 +784,14 @@ void Session::run() {
         state(State::Idle, true);
         return;
     }
+    // The UI keeps opaque blobs only. Decrypt the selected connection on its
+    // worker instead of decrypting every profile on each menu/list refresh.
+    ProfileStore::unlock(profile_);
+    redactor_.remember(profile_.password);
+    redactor_.remember(profile_.token);
+    if (profile_.secret_unavailable)
+        log(PRG_INFO, utf8(tr(language_, L"保存的凭据不属于当前 Windows 用户，请重新输入。",
+                             L"Saved credentials are unavailable for this Windows user. Enter them again.")));
     Handle session_lock(
         CreateMutexW(nullptr, FALSE, (L"Local\\Lansyra.Session." + wide(profile_.id)).c_str()));
     DWORD acquired = session_lock ? WaitForSingleObject(session_lock.get(), 0) : WAIT_FAILED;

@@ -1,6 +1,6 @@
 # macOS 与 Linux 桌面客户端
 
-macOS 0.1.2 支持 macOS 13+，同一应用包含 Apple Silicon 和 Intel；Linux 0.1.2 支持 Debian 13 / Ubuntu 26.04 的 amd64、arm64。Windows 0.7.2 支持 Windows 10/11，见[Windows 使用说明](CLIENT.md)。
+macOS 0.1.3 支持 macOS 13+，同一应用包含 Apple Silicon 和 Intel；Linux 0.1.3 支持 Debian 13 / Ubuntu 26.04 的 amd64、arm64。Windows 0.7.3 支持 Windows 10/11，见[Windows 使用说明](CLIENT.md)。
 
 | 平台 | 界面与隧道 | 认证与密码 | 安装包 |
 |---|---|---|---|
@@ -19,6 +19,8 @@ macOS 0.1.2 支持 macOS 13+，同一应用包含 Apple Silicon 和 Intel；Linu
 4. 可选启用“在钥匙串中保存密码”。启用登录后自动连接前必须先保存有效配置和钥匙串密码；登录项可能还需要在系统设置中批准。
 
 网络失败后重试时，应用重新从该配置的钥匙串获取密码；未保存密码时会请求重新输入，取消即可结束重试。启动请求结束后清除应用持有的本次密码，不将空密码发送给扩展。
+
+macOS 配置最多 128 项，序列化后的 JSON 在读写两端统一限制为 1 MiB。保存先验证完整候选数据，再更新钥匙串并原子替换权限为 0600 的配置文件；文件替换失败时恢复原凭据。存储逻辑独立于 SwiftUI，可在不访问真实钥匙串的回归中注入失败。
 
 原始 OpenConnect 日志不被保存。诊断文件包含产品版本、会话编号、状态代次、错误类别及有限的状态记录；不导出服务器地址、用户名、密码、Cookie 或认证表单。睡眠使用核心暂停命令，唤醒后恢复当前隧道；旧数据包回调携带代次，不能向新会话发送数据。
 
@@ -39,19 +41,21 @@ bash scripts/build-macos.sh unsigned
 按实际 CPU 下载并全新安装对应包：
 
 ```sh
-sudo apt install ./lansyra_0.1.2_amd64.deb
-# ARM64 使用 lansyra_0.1.2_arm64.deb
+sudo apt install ./lansyra_0.1.3_amd64.deb
+# ARM64 使用 lansyra_0.1.3_arm64.deb
 ```
 
 依赖由 Debian/Ubuntu 软件源提供，包括 GTK、NetworkManager、OpenConnect 插件及认证窗口。桌面界面以普通用户运行，系统通过 Polkit 管理 VPN 权限。需要正在运行的 NetworkManager 和桌面会话；不作为无图形环境的命令行客户端使用。
 
-DEB 只有几十 KB、解压后的可执行文件约一百 KB 可以是正常的：它包含本项目的原生界面和认证代理，GTK、VPN 核心、路由及 DNS 管理由系统库和插件提供，并非将这些组件静态合并的独立便携包。请使用上面的 `apt install ./…deb` 安装命令自动满足依赖；仅复制可执行文件不能替代安装。首次下载及安装的总空间取决于系统已有依赖，可用 `apt --simulate install ./lansyra_0.1.2_amd64.deb` 查看待安装的软件包。
+DEB 只有几十 KB、解压后的可执行文件约一百 KB 可以是正常的：它包含本项目的原生界面和认证代理，GTK、VPN 核心、路由及 DNS 管理由系统库和插件提供，并非将这些组件静态合并的独立便携包。请使用上面的 `apt install ./…deb` 安装命令自动满足依赖；仅复制可执行文件不能替代安装。首次下载及安装的总空间取决于系统已有依赖，可用 `apt --simulate install ./lansyra_0.1.3_amd64.deb` 查看待安装的软件包。
 
 新建服务器时填写 HTTPS 网关，可预填用户名，并选择公共 CA 文件。连接时使用系统 OpenConnect 窗口核对证书并完成密码、分组或验证码认证。Linux 的证书策略由该窗口和所选 CA 管理，不将 Windows `.vpn` 固定指纹文件当成 Linux 系统配置直接导入。保存密码由系统认证窗口选择，诊断导出不收集该窗口的原始输出或系统日志。
 
 登录后连接绑定启用时的服务器配置；关闭开关即删除本用户的登录启动项。钥匙串未解锁、证书需要确认或启用 MFA 时，仍需完成系统交互。网络切换、休眠与路由恢复由 NetworkManager 管理；只有网络中断或连接超时触发最多三次重试。
 
 系统拒绝断开时，客户端显示原因并允许重试；退出请求不会把仍在运行的 VPN 当作已清理。编辑或删除弹窗期间，客户端保持所选系统配置的有效引用。
+
+Linux 编辑向 NetworkManager 发送独立候选设置，授权失败不改写缓存中的旧连接。只有系统确认删除成功后才清除对应的自动连接配置；删除失败时保留原设置。
 
 从源码构建：
 

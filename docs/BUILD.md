@@ -32,6 +32,7 @@ Linux Release 在工具链支持时启用链接时优化；Windows 保留 `-Os` 
 | client/ui.*、dialogs.cpp | Win32 控件、配置/认证弹窗和日志 |
 | client/profile.*、platform.* | 便携配置、DPAPI、地址与公共证书解析 |
 | client/session.*、certificates.cpp | 官方核心回调、认证、Windows 证书链与系统证书 |
+| client/network_policy.* | IPv4 全隧道识别、WFP 动态 IPv6 防绕行策略 |
 | client/vendor/、patches/ | JSON、上游网络脚本、许可证和核心补丁 |
 | client/tests/ | 配置、界面、认证和网络脚本回归 |
 | scripts/build-dependencies.sh | Linux/MSYS2 共用静态依赖配方 |
@@ -119,6 +120,8 @@ python scripts/test-client.py --build build/client/x86 --package dist/Lansyra-0.
 测试子进程的 PATH 仅保留 Windows 系统目录。认证测试运行真实 OpenConnect/GnuTLS 回调和临时回环 HTTPS 服务；界面测试只操作自己的窗口并导出截图。包内实际 EXE 分别以中文、英文启动和退出。基础回归不创建网卡或修改主机路由。
 
 GitHub 的独立 Windows 运行器还对 x64 启用 --network：用真实 Wintun 建立通往回环 TLS 测试服务的 198.18.0.0/24 分流隧道，验证 UDP 包往返、连接脚本失败、重连脚本失败及网卡清理。它不修改默认路由、不使用真实 VPN 账号。该选项只用于隔离的管理员测试机，普通本地回归默认关闭。
+
+`--network` 还会验证动态 IPv6 WFP 策略的创建、重复启用、移除和重新创建；测试期间短暂约束其他进程的非回环 IPv6，仅用于上述隔离运行器。普通本地测试只验证策略选择，不应用这些网络规则。macOS 工作流另用 `apple_storage_tests.swift` 检查整体大小预算、0600 原子替换及注入的凭据恢复失败路径。
 
 PE 审计要求正确架构、Windows 10 操作系统标识、系统加载器接受的 6.2 PE 子系统版本及允许的系统 DLL，拒绝非系统运行库及未经审计的延迟导入。Wintun 是显式加载的驱动，另外与官方归档核对哈希。macOS 与 Linux 构建步骤见[桌面客户端说明](DESKTOP.md)。
 

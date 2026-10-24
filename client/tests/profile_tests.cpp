@@ -2,6 +2,7 @@
 #include "vendor/json.hpp"
 #include <iostream>
 #include <stdexcept>
+#include <thread>
 
 using namespace vpn;
 namespace {
@@ -137,6 +138,34 @@ int main(int argc, char **argv) {
         check(imported.import_connection(root / L"fixture.vpn", imported_profile, error) &&
                   imported_profile.gateway == L"https://127.0.0.1:4443",
               "public vpn import");
+        ProfileStore concurrent(root / L"concurrent-import");
+        Profile base;
+        base.name = L"Existing"; base.gateway = L"https://base.example.com";
+        check(concurrent.save(base, error), "concurrent import fixture");
+        auto ca_import = root / L"public-ca.vpn";
+        check(write_atomic(ca_import, "[VPN]\nName=Imported CA\nServer=https://fixture.example.com\nCABase64=LS0tLS1CRUdJTiBDRVJUSUZJQ0FURS0tLS0tCk1JSUNxekNDQVpPZ0F3SUJBZ0lCQVRBTkJna3Foa2lHOXcwQkFRc0ZBREFaTVJjd0ZRWURWUVFEREE1eVpYWnAKWlhjdFptbDRkSFZ5WlRBZUZ3MHlOakV3TWpNeU1ERTROVFJhRncweU5qRXdNalV5TURFNE5UUmFNQmt4RnpBVgpCZ05WQkFNTURuSmxkbWxsZHkxbWFYaDBkWEpsTUlJQklqQU5CZ2txaGtpRzl3MEJBUUVGQUFPQ0FROEFNSUlCCkNnS0NBUUVBc3luZk1jU0Q0TStCTHJ5ZEJDZmxuTVRaYzFSRkZ1ZTQzR09QY3lVbmNVaGNzZFYzYk50bXhLU0gKNUVrVWxMQnVSUzJIeFNFNEFqeUdwNGZrNGdBMXF3MVZ4ZmszU3N5VTdXTkZobVd0d1M3UEFVaGF5YlBZemE1QwoybjMvS21LRXQza25aV24vTGl1RXR5NUM4c3plcTdYYXMrYi9RSzd4aUxQV3N0NXM4MUlvZWRTK1FjbnFVejZ4CjhMWmthQnZwSGd4RTN5M3JSNHdQcUhUVVZOKzF4V25TN2d5WmFqVytjc1d2V2xBOGJZQ3ZEWU5acytucVcwRzkKRkFNcEpQSVhucUpVVnlVaVBNZ2hBYWxiZDlVVFFRWVBleXBYNnpyMWFHR0o4ZmxzbEtmcDNEdXF3SXBPL2E5dwpuVG1Zc0xsemNQRzRPdVV5enJYamlKWVVKb1lyeXdJREFRQUJNQTBHQ1NxR1NJYjNEUUVCQ3dVQUE0SUJBUUIwCk1xZ1BoYS9PUy9sSnRXWjF5aVpHQ1pmK3BoSlVnelQ3L21QeEFOaFFwK1BKTS9rSGc4L2JtSENMbThVM0s3a3IKQVFrTVJyYWpCT2xGQkNRNmxjczlYWXBDbUpValFkczV0bEtkTW05ckcxZjArMmZGMWZ0N1lSU2lFMGltd1ZJYQpWUi9lM1M0dU1pREptTG5OczU3a1Z4dkpNNmthMVNjWlpMZmRNWlduZ0RWOFFjQ2hsMXlkS0xSNE5IMW1LWDZECndFY2VRZU16N3RHQ0kvWkg2MFN2cnVVV0lGWVl1cjhjNm1iNUdaNW14Y1F5VXpnR0Zjbjl5Zk02V3NjY3hCbHQKd0VaN2dkQVJ2QVNCY3VPU1pueXd4aXdHTmt5TVRaczMyZmordkRvNktabjQrM3d1bUtja3JHblVHaVk2dW1hZgplbU82a1dHenRHby9MeWFSbFJnbAotLS0tLUVORCBDRVJUSUZJQ0FURS0tLS0tCg==\n", error), "public CA import fixture");
+        Handle lease(CreateMutexW(nullptr, TRUE, local_object_name(L"ProfileStore", concurrent.directory()).c_str()));
+        Handle entered(CreateEventW(nullptr, TRUE, FALSE, nullptr));
+        Profile imported_ca;
+        bool import_ok = false;
+        std::wstring import_error;
+        std::thread importer([&] {
+            SetEvent(entered.get());
+            import_ok = concurrent.import_connection(ca_import, imported_ca, import_error);
+        });
+        WaitForSingleObject(entered.get(), 2000);
+        // Let an unlocked import stage its CA, then run the competing collector.
+        Sleep(200);
+        const bool saved = concurrent.save(base, error);
+        ReleaseMutex(lease.get());
+        importer.join();
+        check(saved && import_ok && std::filesystem::exists(imported_ca.ca_file),
+              "a concurrent save collected the CA of a successful import");
+        check(store.load_metadata(profiles, preferences, error) && profiles.front().password.empty() &&
+                  !profiles.front().password_blob.empty(), "metadata refresh decrypted stored credentials");
+        ProfileStore::unlock(profiles.front());
+        check(profiles.front().password == "New fixture password" && !profiles.front().secret_unavailable,
+              "selected metadata credentials could not be unlocked");
         check(store.remove(second.id, error) && store.load(profiles, preferences, error) &&
                   profiles.size() == 1 && preferences.auto_connect.empty(),
               "profile deletion");

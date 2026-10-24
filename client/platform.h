@@ -58,6 +58,7 @@ std::wstring trim(const std::wstring &value);
 std::wstring system_error(DWORD code);
 std::filesystem::path executable_directory();
 std::string random_id();
+std::wstring local_object_name(const wchar_t *kind, const std::filesystem::path &directory);
 bool read_file(const std::filesystem::path &path, std::string &value, std::wstring &error,
                size_t limit = 8 * 1024 * 1024);
 bool write_atomic(const std::filesystem::path &path, const std::string &value, std::wstring &error);

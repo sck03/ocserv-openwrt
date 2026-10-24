@@ -450,6 +450,7 @@ public:
         auto *setting = NM_SETTING_CONNECTION(nm_setting_connection_new());
         char *uuid =
             remote ? g_strdup(nm_connection_get_uuid(NM_CONNECTION(remote))) : g_uuid_string_random();
+        const std::string previousID = selectedID;
         selectedID = uuid;
         g_object_set(setting, NM_SETTING_CONNECTION_ID, name.c_str(), NM_SETTING_CONNECTION_UUID, uuid,
                      NM_SETTING_CONNECTION_TYPE, NM_SETTING_VPN_SETTING_NAME,
@@ -475,32 +476,44 @@ public:
             nm_connection_add_setting(connection, ip);
         }
         ++pending;
+        struct SaveOperation { Application *self; std::string previousID; };
+        auto *operation = new SaveOperation{this, previousID};
         if (remote) {
-            nm_connection_replace_settings_from_connection(NM_CONNECTION(remote), connection);
-            nm_remote_connection_commit_changes_async(
-                remote, TRUE, nullptr,
+            // Send an immutable candidate. Failed authorization must not mutate
+            // the cached remote connection the UI will use for its next attempt.
+            GVariant *settings = nm_connection_to_dbus(connection, NM_CONNECTION_SERIALIZE_ALL);
+            nm_remote_connection_update2(
+                remote, settings, NM_SETTINGS_UPDATE2_FLAG_TO_DISK, nullptr, nullptr,
                 [](GObject *object, GAsyncResult *result, gpointer data) {
-                    auto *self = static_cast<Application *>(data);
+                    auto *operation = static_cast<SaveOperation *>(data);
+                    auto *self = operation->self;
                     GError *failure = nullptr;
-                    bool ok = nm_remote_connection_commit_changes_finish(NM_REMOTE_CONNECTION(object), result,
-                                                                         &failure);
+                    GVariant *reply = nm_remote_connection_update2_finish(NM_REMOTE_CONNECTION(object), result, &failure);
+                    bool ok = reply != nullptr;
+                    if (!ok) self->selectedID = operation->previousID;
+                    if (reply) g_variant_unref(reply);
                     g_clear_error(&failure);
+                    delete operation;
                     self->saved(ok);
                 },
-                this);
+                operation);
+            g_variant_unref(settings);
         } else
             nm_client_add_connection_async(
                 client, connection, TRUE, nullptr,
                 [](GObject *object, GAsyncResult *result, gpointer data) {
-                    auto *self = static_cast<Application *>(data);
+                    auto *operation = static_cast<SaveOperation *>(data);
+                    auto *self = operation->self;
                     GError *failure = nullptr;
                     auto *profile = nm_client_add_connection_finish(NM_CLIENT(object), result, &failure);
                     bool ok = profile != nullptr;
+                    if (!ok) self->selectedID = operation->previousID;
                     g_clear_object(&profile);
                     g_clear_error(&failure);
+                    delete operation;
                     self->saved(ok);
                 },
-                this);
+                operation);
         g_free(uuid);
         g_object_unref(connection);
         update();
@@ -528,24 +541,28 @@ public:
         if (!confirmed)
             return;
         ++pending;
-        if (autoID == nm_connection_get_uuid(NM_CONNECTION(profile))) {
-            autoID.clear();
-            savePreferences();
-            g_unlink(startupPath().c_str());
-            refreshing = true;
-            gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(login), FALSE);
-            refreshing = false;
-        }
+        struct Deletion { Application *self; std::string id; };
+        auto *operation = new Deletion{this, nm_connection_get_uuid(NM_CONNECTION(profile))};
         nm_remote_connection_delete_async(
             profile, nullptr,
             [](GObject *object, GAsyncResult *result, gpointer data) {
-                auto *self = static_cast<Application *>(data);
+                auto *operation = static_cast<Deletion *>(data);
+                auto *self = operation->self;
                 GError *failure = nullptr;
                 bool ok = nm_remote_connection_delete_finish(NM_REMOTE_CONNECTION(object), result, &failure);
+                if (ok && self->autoID == operation->id) {
+                    self->autoID.clear();
+                    self->savePreferences();
+                    g_unlink(self->startupPath().c_str());
+                    self->refreshing = true;
+                    gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(self->login), FALSE);
+                    self->refreshing = false;
+                }
                 g_clear_error(&failure);
+                delete operation;
                 self->saved(ok);
             },
-            this);
+            operation);
         update();
     }
     void exportDiagnostics() {

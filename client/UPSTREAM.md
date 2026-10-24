@@ -39,4 +39,6 @@ The JScript helper records only the external routes it creates. Reconnection upd
 
 ## Source layout and migration
 
-client/ is the sole client implementation. Lansyra uses application-local JSON (schema 2), current-user DPAPI and public .vpn connection exports. Install in a new directory and create new profiles; earlier product data is not migrated.
+client/ is the sole Windows implementation. Lansyra uses application-local JSON (schema 2), current-user DPAPI and public .vpn connection exports. Same-product 0.7.x upgrades retain this format and crypto binding; earlier products are not migrated. The UI reads opaque credential blobs and the selected session decrypts on its worker.
+
+network_policy uses documented Windows Filtering Platform identifiers and a dynamic engine session. An IPv4-only full tunnel blocks other processes' non-loopback IPv6 while preserving this executable's transport. WFP engine closure removes the filters even on process termination; persistent firewall settings are not changed. Protocol core patches remain separate from this Windows policy.

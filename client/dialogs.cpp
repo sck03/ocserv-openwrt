@@ -120,6 +120,9 @@ private:
             add_choice(tokens, L"STOKEN (RSA)", OC_TOKEN_MODE_STOKEN);
         select_choice(tokens, result.token_type);
         edit(wide(result.token), TokenValue, 288, 220, 264, 25, ES_PASSWORD);
+        if (!result.token_blob.empty())
+            SendMessageW(item(TokenValue), EM_SETCUEBANNER, FALSE,
+                         reinterpret_cast<LPARAM>(t(L"已保存；输入新令牌可替换", L"Saved; enter a new token to replace")));
         button(L"…", ImportToken, 560, 220, 40);
         caption(L"接口名称", L"Interface name", 16, 254);
         edit(result.interface_name, InterfaceName, 146, 254, 454);

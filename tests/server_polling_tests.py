@@ -63,6 +63,30 @@ with sync_playwright() as pw:
     page.unroute('**/easy/data')
     checks.append('50 refresh clicks issue one full-data request')
 
+    # A pre-mutation refresh must never replace the snapshot fetched after save.
+    older = []
+    def old_refresh(route):
+        if not older:
+            older.append((route, route.fetch()))
+        else:
+            route.continue_()
+    page.route('**/easy/data', old_refresh)
+    page.get_by_role('button', name='刷新', exact=True).click()
+    page.get_by_role('tab', name='账号与在线用户', exact=True).click()
+    page.get_by_role('button', name='＋ 添加账号', exact=True).click()
+    dialog = page.get_by_role('dialog')
+    dialog.get_by_label('登录账号', exact=True).fill('refresh-race')
+    dialog.get_by_label('密码', exact=True).fill('FixturePassword123')
+    dialog.get_by_label('再次输入密码', exact=True).fill('FixturePassword123')
+    with page.expect_response('**/easy/action'):
+        dialog.get_by_role('button', name='保存并生效', exact=True).click()
+    older[0][0].fulfill(response=older[0][1])
+    expect(page.get_by_role('dialog')).to_have_count(0)
+    expect(page.get_by_role('cell', name='refresh-race', exact=True)).to_have_count(1)
+    page.unroute('**/easy/data', old_refresh)
+    checks.append('a delayed refresh cannot overwrite a successful mutation with old data')
+    page.get_by_role('tab', name='VPN 专用上网', exact=True).click()
+
     # A timeout while reading the response body must also clear the request.
     page.evaluate("""() => {
         const original = window.fetch;
