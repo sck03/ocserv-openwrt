@@ -401,6 +401,9 @@
                 state=data;
                 if(preserveDialog && guardLogOpen){renderStatus();renderTab();}else render();
                 return true;
+            }).catch(function(error){
+                if(generation!==loadGeneration)return false;
+                throw error;
             }).finally(function(){if(loadPending===pending)loadPending=null;});
             loadPending=pending;
         }
