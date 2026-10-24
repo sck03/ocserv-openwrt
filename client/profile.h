@@ -65,7 +65,6 @@ public:
                            std::wstring &error) const;
 
 private:
-    bool save_prepared(Profile &profile, std::wstring &error, const std::function<bool()> &prepare);
     bool read(std::vector<Profile> &profiles, Preferences &preferences, std::wstring &error,
               bool decrypt) const;
     void prune_certificates(const std::vector<Profile> &profiles) const;

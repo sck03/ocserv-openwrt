@@ -161,6 +161,13 @@ int main(int argc, char **argv) {
         importer.join();
         check(saved && import_ok && std::filesystem::exists(imported_ca.ca_file),
               "a concurrent save collected the CA of a successful import");
+        Profile rejected_import;
+        const bool rejected = !concurrent.import_connection(ca_import, rejected_import, error);
+        size_t certificate_count = 0;
+        for (const auto &entry : std::filesystem::directory_iterator(concurrent.directory() / L"certificates"))
+            if (entry.is_regular_file()) ++certificate_count;
+        check(rejected && certificate_count == 1 && std::filesystem::exists(imported_ca.ca_file),
+              "failed import left an orphan or removed another profile's CA");
         check(store.load_metadata(profiles, preferences, error) && profiles.front().password.empty() &&
                   !profiles.front().password_blob.empty(), "metadata refresh decrypted stored credentials");
         ProfileStore::unlock(profiles.front());

@@ -9,6 +9,22 @@
 namespace vpn {
 using Json = nlohmann::json;
 namespace {
+class StoreLease {
+public:
+    StoreLease(const std::wstring &name, std::wstring &error)
+        : mutex_(CreateMutexW(nullptr, FALSE, name.c_str())) {
+        if (!mutex_) { error = system_error(GetLastError()); return; }
+        const DWORD wait = WaitForSingleObject(mutex_.get(), 5000);
+        locked_ = wait == WAIT_OBJECT_0 || wait == WAIT_ABANDONED;
+        if (!locked_)
+            error = L"另一个实例正在保存配置。 / Another instance is saving profiles.";
+    }
+    ~StoreLease() { if (locked_) ReleaseMutex(mutex_.get()); }
+    explicit operator bool() const { return locked_; }
+private:
+    Handle mutex_;
+    bool locked_ = false;
+};
 bool identifier(const std::string &value) {
     return value.size() == 32 && std::all_of(value.begin(), value.end(), [](char c) {
                return (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f');
@@ -305,22 +321,9 @@ void ProfileStore::prune_certificates(const std::vector<Profile> &profiles) cons
 bool ProfileStore::update(
     const std::function<bool(std::vector<Profile> &, Preferences &, std::wstring &)> &change,
     std::wstring &error, bool prune) {
-    Handle mutex(CreateMutexW(nullptr, FALSE, mutex_name_.c_str()));
-    if (!mutex) {
-        error = system_error(GetLastError());
+    StoreLease lease(mutex_name_, error);
+    if (!lease)
         return false;
-    }
-    DWORD wait = WaitForSingleObject(mutex.get(), 5000);
-    if (wait != WAIT_OBJECT_0 && wait != WAIT_ABANDONED) {
-        error = L"另一个实例正在保存配置。 / Another instance is saving profiles.";
-        return false;
-    }
-    struct Unlock {
-        HANDLE handle;
-        ~Unlock() {
-            ReleaseMutex(handle);
-        }
-    } unlock{mutex.get()};
     std::vector<Profile> profiles;
     Preferences preferences;
     if (!read(profiles, preferences, error, false) || !change(profiles, preferences, error))
@@ -332,10 +335,6 @@ bool ProfileStore::update(
     return true;
 }
 bool ProfileStore::save(Profile &profile, std::wstring &error) {
-    return save_prepared(profile, error, {});
-}
-bool ProfileStore::save_prepared(Profile &profile, std::wstring &error,
-                                 const std::function<bool()> &prepare) {
     if (!validate_profile(profile, error))
         return false;
     if (profile.id.empty())
@@ -368,8 +367,6 @@ bool ProfileStore::save_prepared(Profile &profile, std::wstring &error,
                         profile.fixed_pin = false;
                         profile.secret_unavailable = false;
                     }
-                    if (prepare && !prepare())
-                        return false;
                     existing = profile;
                     preferences.selected = profile.id;
                     return true;
@@ -378,8 +375,6 @@ bool ProfileStore::save_prepared(Profile &profile, std::wstring &error,
                 message = L"配置数量已达上限。 / Too many profiles.";
                 return false;
             }
-            if (prepare && !prepare())
-                return false;
             profiles.push_back(profile);
             preferences.selected = profile.id;
             return true;
@@ -536,11 +531,14 @@ bool ProfileStore::import_connection(const std::filesystem::path &path, Profile 
         imported_certificate = destination;
         candidate.ca_file = destination.wstring();
     }
-    // Install the public CA while holding the same lease as profile replacement
-    // and orphan collection. Other instances must never see a staged orphan.
-    if (!save_prepared(candidate, error, [&] {
-            return imported_certificate.empty() || write_atomic(imported_certificate, certificate, error);
-        })) {
+    // Windows mutex leases are recursive for their owner. Keep the outer lease
+    // through installation, save()/collection and failure cleanup as one unit.
+    StoreLease lease(mutex_name_, error);
+    if (!lease)
+        return false;
+    if (!imported_certificate.empty() && !write_atomic(imported_certificate, certificate, error))
+        return false;
+    if (!save(candidate, error)) {
         if (!imported_certificate.empty())
             DeleteFileW(imported_certificate.c_str());
         return false;
