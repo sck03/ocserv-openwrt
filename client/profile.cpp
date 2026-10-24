@@ -33,6 +33,9 @@ std::wstring text(const Json &value, const char *key, size_t maximum = 4 * 32760
 bool same_name(const std::wstring &a, const std::wstring &b) {
     return CompareStringOrdinal(a.c_str(), -1, b.c_str(), -1, TRUE) == CSTR_EQUAL;
 }
+bool less_name(const std::wstring &a, const std::wstring &b) {
+    return CompareStringOrdinal(a.c_str(), -1, b.c_str(), -1, TRUE) == CSTR_LESS_THAN;
+}
 Json encode_profile(const Profile &p, std::wstring &error) {
     std::string password, token;
     if (p.batch_mode) {
@@ -215,10 +218,7 @@ bool ProfileStore::read(std::vector<Profile> &profiles, Preferences &preferences
             throw std::runtime_error("Invalid log level");
         if (!preferences.auto_connect.empty() && !identifier(preferences.auto_connect))
             throw std::runtime_error("Invalid automatic connection profile");
-        auto compare_name = [](const std::wstring &a, const std::wstring &b) {
-            return CompareStringOrdinal(a.c_str(), -1, b.c_str(), -1, TRUE) == CSTR_LESS_THAN;
-        };
-        std::set<std::wstring, decltype(compare_name)> names(compare_name);
+        std::set<std::wstring, decltype(&less_name)> names(&less_name);
         std::unordered_set<std::string> ids;
         profiles.reserve(data["profiles"].size());
         for (const auto &entry : data["profiles"]) {
@@ -283,6 +283,10 @@ void ProfileStore::prune_certificates(const std::vector<Profile> &profiles) cons
     DWORD attributes = GetFileAttributesW(directory.c_str());
     if (attributes == INVALID_FILE_ATTRIBUTES || (attributes & FILE_ATTRIBUTE_REPARSE_POINT))
         return;
+    std::set<std::wstring, decltype(&less_name)> references(&less_name);
+    for (const auto &profile : profiles)
+        if (!profile.ca_file.empty())
+            references.insert(std::filesystem::path(profile.ca_file).lexically_normal().wstring());
     std::error_code ec;
     for (std::filesystem::directory_iterator it(directory, ec), end; !ec && it != end; it.increment(ec)) {
         const auto path = it->path();
@@ -293,11 +297,7 @@ void ProfileStore::prune_certificates(const std::vector<Profile> &profiles) cons
         if (attributes == INVALID_FILE_ATTRIBUTES ||
             (attributes & (FILE_ATTRIBUTE_DIRECTORY | FILE_ATTRIBUTE_REPARSE_POINT)))
             continue;
-        const bool used = std::any_of(profiles.begin(), profiles.end(), [&](const Profile &profile) {
-            return !profile.ca_file.empty() &&
-                   same_name(std::filesystem::path(profile.ca_file).lexically_normal().wstring(),
-                             path.lexically_normal().wstring());
-        });
+        const bool used = references.find(path.lexically_normal().wstring()) != references.end();
         if (!used)
             DeleteFileW(path.c_str());
     }
