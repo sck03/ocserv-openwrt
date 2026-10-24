@@ -51,11 +51,12 @@ elif name=='apk':
 elif name=='uci':
     args=[arg for arg in args if arg!='-q']
     configuration=root/'etc/config'
+    staging=root/'uci-staging'
     while args and args[0] in ('-c','-t'):
         if args[0]=='-c': configuration=pathlib.Path(args[1])
+        else: staging=pathlib.Path(args[1])/'uci-staging'
         args=args[2:]
     firewall=configuration/'firewall'
-    staging=root/'uci-staging'
     if args[0]=='changes':
         if os.environ.get('INSTALL_PENDING'): print('firewall.user.pending=1')
     elif args[0]=='get':
