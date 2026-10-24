@@ -4,11 +4,11 @@
 
 ## 2026-10-25 事务恢复、取消与分流边界修复
 
-本次源码版本为 Windows 0.7.3、Linux/macOS 0.1.3、Android 0.2.3、iOS 0.2.3、管理页 0.5.4-r1，ocserv 仍为 1.5.0-r7。修复服务端配置超限和中断恢复、Windows CA 并发导入和路由清理错误、IPv4 全隧道的 IPv6 防绕行、管理页旧刷新覆盖、Android 取消及错误丢失、数字网络分流，以及桌面端保存失败的一致性。新增独立的持久化、网络和会话策略模块，数据格式与用户凭据上下文保持不变。
+本次源码版本为 Windows 0.7.3、Linux/macOS 0.1.3、Android 0.2.3、iOS 0.2.3、管理页 0.5.4-r1，ocserv 仍为 1.5.0-r7。最终应用提交为 [`d08a7cb`](https://github.com/sck03/ocserv-openwrt/commit/d08a7cb)，Windows 原生回归对应 [`5a38f8a`](https://github.com/sck03/ocserv-openwrt/commit/5a38f8a)。修复服务端配置超限和中断恢复、Windows CA 并发导入和路由清理错误、IPv4 全隧道的 IPv6 防绕行、管理页旧刷新覆盖、Android 取消及错误丢失、数字网络分流，以及桌面端保存失败的一致性。新增独立的持久化、网络和会话策略模块，数据格式与用户凭据上下文保持不变。
 
-本地已通过 Windows x64 指定 MSVCRT 工具链编译，连接 61、配置/DPAPI 69、界面 29、真实 WSH 7、资源 9、回环 TLS 认证 35 项。资源测试处理 60 万事件和 1,000 次清空，句柄保持 134，私有内存增加 292 KiB；这是短时队列测试的计数。真实 Chrome 界面 18、轮询 7 项通过，无脚本错误，包含延迟刷新与保存竞态。服务端 Lua 逻辑 67、守护事务 37、命令边界 9、权限 6 项通过，新增超限拒绝、中断多文件恢复、后续编辑保护和恢复失败重试。Android 的 28 项本地 JVM 策略测试通过，数字地址辅助使用 Android 8 分支的测试桩；它不替代 Android 工程构建和真机。
+本地已通过 Windows x64 指定 MSVCRT 工具链编译，连接 61、配置/DPAPI 70、界面 29、真实 WSH 7、资源 9、回环 TLS 认证 35 项。资源测试处理 60 万事件和 1,000 次清空，句柄保持 134，私有内存保持不变；这是短时队列测试的计数。真实 Chrome 界面 18、轮询 8 项通过，无脚本错误，包含延迟刷新、失败旧响应和保存竞态。服务端 Lua 逻辑 67、守护事务 37、命令边界 9、权限 6 项通过，新增超限拒绝、中断多文件恢复、后续编辑保护和恢复失败重试。Android 的 28 项本地 JVM 策略测试通过，数字地址辅助使用 Android 8 分支的测试桩；它不替代 Android 工程构建和真机。
 
-GitHub 各目标构建和隔离管理员网络测试的结果在运行完成后补录。当前记录不声称真实 N1、手机、Apple 签名扩展或 24–72 小时运行已经验收。
+GitHub Windows 运行 [`40136084573`](https://github.com/sck03/ocserv-openwrt/actions/runs/40136084573) 通过 x86/x64 编译、PE 审计、两架构原生回归；x64 另通过 4 项动态 WFP 策略和 8 项真实 Wintun 隧道检查。Linux/macOS 运行 [`40133609941`](https://github.com/sck03/ocserv-openwrt/actions/runs/40133609941) 通过 Linux 双架构安装/启动和 macOS Universal unsigned；iOS 运行 [`40133614926`](https://github.com/sck03/ocserv-openwrt/actions/runs/40133614926) 通过 unsigned archive；Android 运行 [`40134242522`](https://github.com/sck03/ocserv-openwrt/actions/runs/40134242522) 通过 debug APK、策略 JUnit、16 KB 对齐和签名检查；服务端六架构运行 [`40137068399`](https://github.com/sck03/ocserv-openwrt/actions/runs/40137068399) 通过逻辑 67、守护 37、浏览器 18、轮询 8 和六架构 APK/ELF/源码打包。所有本地下载的报告和附件均按 GitHub artifact digest、ZIP CRC 或 SHA256SUMS 校验后保存到 `artifacts/validation/2026-10-25/`。当前记录不声称真实 N1、手机、Apple 签名扩展或 24–72 小时运行已经验收。
 
 ## 2026-10-24 维护修复与模块化
 
