@@ -49,6 +49,8 @@ int main(int argc, char **argv) {
                  std::wstring(64, L'a') + L".example.com"}) {
             check(!normalize_gateway(invalid, normalized), "malformed gateway rejected before connection");
         }
+        check(!normalize_gateway(L"vpn.example.com/" + std::wstring(4080, L'a'), normalized),
+              "normalization expanded a gateway beyond its persistent limit");
         check(wide(utf8(L"中文配置")) == L"中文配置", "Unicode conversion");
         std::string encoded, decoded;
         check(protect_secret("Synthetic fixture password", "fixture-A", encoded, error) &&
@@ -203,6 +205,18 @@ int main(int argc, char **argv) {
         check(certificates.remove(shared_ca.id, error) && !std::filesystem::exists(ca_path) &&
                   std::filesystem::exists(external),
               "CA cleanup escaped program-managed orphan files");
+        ProfileStore unicode(root / L"unicode-contracts");
+        Profile unicode_profile;
+        unicode_profile.name = L"Unicode round trip";
+        unicode_profile.gateway = L"https://vpn.example.com/" + std::wstring(3000, L'路');
+        unicode_profile.ca_file = (unicode.directory() / std::wstring(20000, L'证')).wstring();
+        unicode_profile.certificate_file = unicode_profile.key_file = unicode_profile.script =
+            unicode_profile.ca_file;
+        check(unicode.save(unicode_profile, error) && unicode.load(profiles, preferences, error) &&
+                  profiles.front().gateway == unicode_profile.gateway &&
+                  profiles.front().ca_file == unicode_profile.ca_file &&
+                  profiles.front().script == unicode_profile.script,
+              "valid UTF-16 fields exceeded the JSON UTF-8 read limits");
         std::cout
             << "{\"passed\":" << passed
             << ",\"boundary\":\"Synthetic portable profiles and current-user DPAPI; no VPN connection\"}\n";

@@ -177,8 +177,8 @@ bool protect_secret(const std::string &value, const std::string &context, std::s
     DATA_BLOB entropy{static_cast<DWORD>(context.size()),
                       reinterpret_cast<BYTE *>(const_cast<char *>(context.data()))};
     DATA_BLOB output{};
-    if (!CryptProtectData(&input, L"Lansyra profile", &entropy, nullptr, nullptr,
-                          CRYPTPROTECT_UI_FORBIDDEN, &output)) {
+    if (!CryptProtectData(&input, L"Lansyra profile", &entropy, nullptr, nullptr, CRYPTPROTECT_UI_FORBIDDEN,
+                          &output)) {
         error = system_error(GetLastError());
         return false;
     }
@@ -286,7 +286,7 @@ bool normalize_gateway(const std::wstring &input, std::wstring &normalized, std:
         parts.dwExtraInfoLength ? std::wstring(parts.lpszExtraInfo, parts.dwExtraInfoLength) : L"";
     normalized =
         L"https://" + host + (parts.nPort == 443 ? L"" : L":" + std::to_wstring(parts.nPort)) + path + extra;
-    return true;
+    return normalized.size() <= 4096;
 }
 bool valid_pin(const std::string &value) {
     if (value.empty())

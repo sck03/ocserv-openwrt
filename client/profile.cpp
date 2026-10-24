@@ -19,7 +19,7 @@ std::string context(const Profile &p, const char *kind) {
     normalize_gateway(p.gateway, normalized, &origin);
     return "Lansyra/1/" + p.id + "/" + kind + "/" + utf8(origin);
 }
-std::wstring text(const Json &value, const char *key, size_t maximum = 32768) {
+std::wstring text(const Json &value, const char *key, size_t maximum = 4 * 32760) {
     auto item = value.find(key);
     if (item == value.end())
         return {};
@@ -75,7 +75,7 @@ Profile decode_profile(const Json &j, const std::filesystem::path &directory, bo
     Profile p;
     p.id = utf8(text(j, "id", 32));
     p.name = text(j, "name", 512);
-    p.gateway = text(j, "gateway", 8192);
+    p.gateway = text(j, "gateway", 4 * 4096);
     p.protocol = j.value("protocol", std::string("anyconnect"));
     p.username = utf8(text(j, "username", 8192));
     p.group = utf8(text(j, "group", 8192));
