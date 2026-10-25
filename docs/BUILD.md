@@ -18,6 +18,8 @@ Actions 使用官方 checkout、cache、setup-node、setup-python、upload-artif
 
 服务端同样提供 `release_version` 和 `publish_release`，关闭后只生成构建附件；发布仅在 main 上执行。`build_jobs=auto` 通过 nproc 使用可用 CPU，GNU Make 和 SDK 的 Ninja 共用额度。`sdk_version` 默认 `auto`，在参数检查阶段解析为 25.12 系列最新稳定补丁版，后续全部架构使用同一版本。SDK 放在 Git 仓库之外，仅构建 ocserv 和独立中文管理页两个 APK。详见 [上游更新](UPSTREAM-UPDATES.md)。
 
+服务端按 SDK 版本、目标及解析配方缓存下载归档，每次取用仍校验官方 SHA-256；解压和构建继续使用独立干净目录。Windows 构建在耗时编译前检查 Python 版本及认证测试依赖，缺失时给出安装命令。
+
 `release_version` 是发行套装版本，用于 Release 标题、标签、ZIP 名称和 BUILDINFO；不改写源码中的客户端程序版本、ocserv 上游版本或 APK 版本。版本号允许 2–4 段数字、可选 v 前缀及预发布后缀，最长 64 字符。构建时间由参数检查任务生成一次，以 UTC 保存、北京时间显示，x86/x64、源码包和发布页保持一致。
 
 ## 客户端结构
@@ -31,6 +33,7 @@ Linux Release 在工具链支持时启用链接时优化；Windows 保留 `-Os` 
 | client/application.*、main.cpp | 主窗口、配置列表、菜单、托盘和生命周期 |
 | client/ui.*、dialogs.cpp | Win32 控件、配置/认证弹窗和日志 |
 | client/profile.*、platform.* | 便携配置、DPAPI、地址与公共证书解析 |
+| client/preferences_writer.* | 偏好后台去抖、最新状态合并、退出刷新和有界结果回传 |
 | client/session.*、certificates.cpp | 官方核心回调、认证、Windows 证书链与系统证书 |
 | client/network_policy.* | IPv4 全隧道识别、WFP 动态 IPv6 防绕行策略 |
 | client/vendor/、patches/ | JSON、上游网络脚本、许可证和核心补丁 |
@@ -118,6 +121,8 @@ python scripts/test-client.py --build build/client/x86 --package dist/Lansyra-0.
 ~~~
 
 测试子进程的 PATH 仅保留 Windows 系统目录。认证测试运行真实 OpenConnect/GnuTLS 回调和临时回环 HTTPS 服务；界面测试只操作自己的窗口并导出截图。包内实际 EXE 分别以中文、英文启动和退出。基础回归不创建网卡或修改主机路由。
+
+CTest 是原生独立测试的子集；完整 Windows 回归统一通过 `scripts/test-client.py` 运行。会话测试需要回环 HTTPS 夹具，WFP 与 Wintun 检查只由显式 `--network` 开启，避免普通 CTest 意外修改测试主机网络。
 
 GitHub 的独立 Windows 运行器还对 x64 启用 --network：用真实 Wintun 建立通往回环 TLS 测试服务的 198.18.0.0/24 分流隧道，验证 UDP 包往返、连接脚本失败、重连脚本失败及网卡清理。它不修改默认路由、不使用真实 VPN 账号。该选项只用于隔离的管理员测试机，普通本地回归默认关闭。
 

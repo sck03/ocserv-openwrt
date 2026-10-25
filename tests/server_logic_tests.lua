@@ -190,7 +190,7 @@ local function set_running(value)
 end
 local function reset()
     local cfg=logic.validate_settings(fixture_settings());cfg[".name"]="config";cfg[".type"]="ocserv"
-    S={files={},dirs={},history={},commands={},version="1.5.0",counter=0,online={},sessions={}}
+    S={files={},dirs={},history={},commands={},disk_events={},version="1.5.0",counter=0,online={},sessions={}}
     S.db={cfg,{[".name"]="employee",[".type"]="ocservusers",name="employee01",group="*",password=old_hash},
         {[".name"]="dns1",[".type"]="dns",ip="10.77.0.1"}}
     S.firewall={
@@ -225,9 +225,10 @@ local fs={
     readlink=function(path)if S.running and path=="/proc/101/exe"then return "/usr/sbin/ocserv"end end,
     mkdir=function(path,value)S.dirs[path]={mode=mode(value)};return true end,
     chmod=function(path,value)mode(value);return true end,
-    remove=function(path)S.files[path]=nil;return true end,
+    remove=function(path)S.files[path]=nil;S.disk_events[#S.disk_events+1]="remove:"..path;return true end,
     rename=function(from,to)
         if S.fail_write==to then S.fail_write=nil;return nil end
+        S.disk_events[#S.disk_events+1]="rename:"..to
         S.files[to]=S.files[from];S.files[from]=nil
         if S.history[S.files[to]] then
             if to=="/etc/config/ocserv" then S.db=clone(S.history[S.files[to]]) end
@@ -244,9 +245,14 @@ nixio.bin.b64encode=TEST_BASE64
 nixio.crypt=function()if S.fail_hash then return "*0" end return hasher()end
 nixio.open=function(path,flags,permissions)
     if path=="/dev/urandom" then return {read=function(_,count)S.counter=S.counter+1;return string.rep(string.char(S.counter%255),count)end,close=function()end} end
+    if flags=="r" then return {sync=function()
+        S.disk_events[#S.disk_events+1]="sync:"..path
+        if S.fail_directory_sync==path then S.fail_directory_sync=nil;return false end
+        return true
+    end,close=function()end} end
     mode(permissions)
     S.files[path]=""
-    return {write=function(_,data)S.files[path]=S.files[path]..data;return #data end,sync=function()return true end,close=function()end,lock=function()return not S.busy end}
+    return {write=function(_,data)S.files[path]=S.files[path]..data;return #data end,sync=function()S.disk_events[#S.disk_events+1]="sync:"..path;return true end,close=function()end,lock=function()return not S.busy end}
 end
 local function cursor(directory)
     directory=directory or "/etc/config"
@@ -322,6 +328,63 @@ local backend=require "luci.model.ocserv_easy.backend"
 local function request(payload)payload.revision=payload.revision or backend.data().revision;return backend.action(payload)end
 local function edit(password,enabled)return {action="save_user",id="employee",name="employee01",group="*",password=password or "",enabled=enabled~=false}end
 local function contains_command(part)for _,cmd in ipairs(S.commands)do if cmd:find(part,1,true)then return true end end return false end
+test("the shared maintenance lease excludes actions and recovery",function()
+    reset();S.busy=true
+    local before=S.files["/etc/config/ocserv"]
+    expect("busy",function()request(edit("FixturePassword"))end)
+    check(S.files["/etc/config/ocserv"]==before)
+    S.busy=false
+    local tx=require "luci.model.ocserv_easy.configuration"
+    local state=tx.begin(false);tx.replace(state,"ocserv",before,before.."\ninterrupted")
+    S.busy=true;check(not backend.recover(false) and tx.pending())
+    S.busy=false;check(backend.recover(false) and S.files["/etc/config/ocserv"]==before)
+end)
+test("atomic replacement syncs the file before rename and its directory afterward",function()
+    reset();local storage=require "luci.model.ocserv_easy.storage"
+    storage.atomic("/etc/config/ocserv","durable candidate")
+    local events=S.disk_events
+    check(#events==3 and events[1]:match("^sync:/etc/config/ocserv%.easy%-") and
+        events[2]=="rename:/etc/config/ocserv" and events[3]=="sync:/etc/config")
+end)
+test("directory sync failure after replacement is recovered before reporting failure",function()
+    reset();local before=S.files["/etc/config/ocserv"]
+    S.fail_directory_sync="/etc/config"
+    expect("write_failed",function()request(edit("FixturePassword"))end)
+    check(S.files["/etc/config/ocserv"]==before and not require("luci.model.ocserv_easy.configuration").pending())
+end)
+test("transaction completion persists removal of its recovery marker",function()
+    reset();local tx=require "luci.model.ocserv_easy.configuration"
+    tx.begin(false);S.disk_events={};tx.finish()
+    check(#S.disk_events==2 and S.disk_events[1]=="remove:/etc/ocserv/easy-transaction/state.json" and
+        S.disk_events[2]=="sync:/etc/ocserv/easy-transaction" and not tx.pending())
+end)
+test("query snapshots share live work, expire, refresh and survive corrupt caches",function()
+    reset()
+    local cache=require "luci.model.ocserv_easy.query_cache"
+    local original_time=os.time
+    local time,calls=1000,0
+    os.time=function()return time end
+    local function query()calls=calls+1;return {value=calls}end
+    check(cache.get("test","one",5,query).value==1)
+    check(cache.get("test","one",5,query).value==1 and calls==1)
+    time=1005;check(cache.get("test","one",5,query).value==2)
+    check(cache.get("test","two",5,query).value==3)
+    check(cache.get("test","two",5,query,true).value==4)
+    S.files["/var/run/ocserv-easy/query-test.json"]="invalid"
+    check(cache.get("test","two",5,query).value==5)
+    S.fail_write="/var/run/ocserv-easy/query-test.json"
+    check(cache.get("test","three",5,query).value==6)
+    cache.invalidate("test");check(not S.files["/var/run/ocserv-easy/query-test.json"])
+    os.time=original_time
+end)
+test("frequent online snapshots avoid repeated occtl and explicit refresh stays live",function()
+    reset();backend.status();local count=#S.commands
+    for _=1,100 do backend.status()end
+    check(#S.commands==count)
+    backend.status(true);check(#S.commands==count+1)
+    request(edit("FixturePassword"));count=#S.commands
+    backend.status();check(#S.commands==count+1)
+end)
 test("both actual and legacy ocserv version banners enable the page",function()
     reset();check(backend.data().supported and backend.data().version=="1.5.0")
     S.legacy_banner=true;check(backend.data().supported)

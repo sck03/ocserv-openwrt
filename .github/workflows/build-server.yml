@@ -166,6 +166,11 @@ jobs:
         with:
           python-version: '3.14'
           check-latest: true
+      - name: Cache verified OpenWrt SDK archives
+        uses: actions/cache@v6.1.0
+        with:
+          path: .tools/downloads
+          key: openwrt-sdk-${{ needs.validate.outputs.sdk_version }}-${{ matrix.target }}-${{ hashFiles('scripts/sdk_config.py', 'server/openwrt/targets.json') }}
       - name: Select official ocserv source
         env:
           OCSERV_VERSION: ${{ inputs.ocserv_version }}

@@ -1,5 +1,7 @@
 #include "profile.h"
+#include "preferences_writer.h"
 #include "vendor/json.hpp"
+#include <algorithm>
 #include <iostream>
 #include <stdexcept>
 #include <thread>
@@ -58,6 +60,94 @@ int main(int argc, char **argv) {
                   unprotect_secret(encoded, "fixture-A", decoded) && decoded == "Synthetic fixture password",
               "DPAPI round trip");
         check(!unprotect_secret(encoded, "fixture-B", decoded), "DPAPI context isolation");
+        Profile credential_source;
+        credential_source.name = L"Credential value semantics";
+        credential_source.password = "short-secret";
+        credential_source.token = std::string(128, 't');
+        credential_source.password_blob = "opaque-password";
+        credential_source.token_blob = "opaque-token";
+        Profile credential_target;
+        credential_target.password = std::string(128, 'p');
+        credential_target.token = "old-token";
+        credential_target = credential_source;
+        check(credential_target.password == credential_source.password &&
+                  credential_target.token == credential_source.token &&
+                  credential_target.name == credential_source.name,
+              "credential copy assignment changed profile value semantics");
+        const auto short_size = credential_source.password.size();
+        const char *short_storage = credential_source.password.data();
+        Profile credential_moved = std::move(credential_source);
+        check(credential_moved.password == "short-secret" && credential_moved.token == std::string(128, 't') &&
+                  credential_source.password.empty() && credential_source.token.empty(),
+              "credential move did not transfer and clear the source");
+        if (credential_source.password.data() == short_storage) {
+            check(std::all_of(short_storage, short_storage + short_size,
+                              [](char value) { return value == '\0'; }),
+                  "short-string move left credential bytes in the source");
+        }
+        credential_target = std::move(credential_moved);
+        credential_target = credential_target;
+        check(credential_target.password == "short-secret" && credential_target.password_blob == "opaque-password" &&
+                  credential_target.token_blob == "opaque-token" && credential_moved.password.empty(),
+              "credential move/self assignment lost values");
+
+        ProfileStore async_store(root / L"async-preferences");
+        PreferencesWriter writer(async_store);
+        Preferences unavailable_preferences;
+        check(!writer.request(unavailable_preferences, error) && writer.flush(error),
+              "an unstarted preference writer accepted work that could not complete");
+        writer.start({});
+        Handle preference_lease(CreateMutexW(
+            nullptr, TRUE, local_object_name(L"ProfileStore", async_store.directory()).c_str()));
+        Preferences async_preferences;
+        async_preferences.language = Language::English;
+        check(writer.request(async_preferences, error), "preference request was rejected");
+        Sleep(350); // Hold the store lease beyond the debounce interval.
+        async_preferences.log_level = 3;
+        async_preferences.retry_failed = true;
+        const auto request_at = GetTickCount64();
+        check(writer.request(async_preferences, error), "preference request was rejected");
+        const bool request_fast = GetTickCount64() - request_at < 100;
+        const bool request_pending = writer.pending();
+        ReleaseMutex(preference_lease.get());
+        check(request_fast && request_pending && writer.flush(error),
+              "queued preferences blocked on the cross-process store lease");
+        std::vector<Profile> async_profiles;
+        Preferences saved_preferences;
+        check(async_store.load_metadata(async_profiles, saved_preferences, error) &&
+                  saved_preferences.language == Language::English && saved_preferences.log_level == 3 &&
+                  saved_preferences.retry_failed,
+              "a newer pending preference snapshot was lost");
+        for (int level = 0; level < 4; ++level) {
+            async_preferences.log_level = level;
+            check(writer.request(async_preferences, error), "preference request was rejected");
+        }
+        writer.stop();
+        check(!writer.request(async_preferences, error), "a stopped preference writer accepted more work");
+        check(async_store.load_metadata(async_profiles, saved_preferences, error) && saved_preferences.log_level == 3,
+              "writer shutdown dropped the last queued preferences");
+        check(write_atomic(async_store.directory() / L"profiles.json", "{corrupt", error),
+              "asynchronous failure fixture creation");
+        writer.start({});
+        check(writer.request(async_preferences, error), "preference request was rejected");
+        check(!writer.flush(error) && !error.empty(), "asynchronous save failure was not reported");
+        auto failed_save = writer.take_result();
+        check(failed_save && !failed_save->success && !failed_save->error.empty(),
+              "save failure completion was lost");
+        check(!writer.flush(error), "consuming a notification forgot the last save failure");
+        writer.stop();
+        unsigned save_attempts = 0;
+        PreferencesWriter throwing_writer([&](const Preferences &, std::wstring &) {
+            if (++save_attempts == 1)
+                throw std::runtime_error("synthetic save exception");
+            return true;
+        });
+        throwing_writer.start([] { throw std::runtime_error("synthetic notification exception"); });
+        check(throwing_writer.request(async_preferences, error) && !throwing_writer.flush(error),
+              "a persistence exception did not become a completed failed save");
+        check(throwing_writer.request(async_preferences, error) && throwing_writer.flush(error),
+              "the writer did not recover after a persistence or notification exception");
+        throwing_writer.stop();
         ProfileStore store(root / L"中文便携数据");
         std::vector<Profile> profiles;
         Preferences preferences;

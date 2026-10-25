@@ -76,7 +76,7 @@ def main():
         for relative in ("etc/init.d/ocserv-easy-guard", "usr/libexec/ocserv-easy-guard"):
             if not (ui_roots[0] / relative).stat().st_mode & 0o111:
                 raise RuntimeError("Guard runtime is not executable: " + relative)
-        for module in ("guard.lua", "guard_log.lua", "process.lua", "backend.lua", "logic.lua", "firewall.lua", "storage.lua", "configuration.lua"):
+        for module in ("guard.lua", "guard_log.lua", "process.lua", "backend.lua", "logic.lua", "firewall.lua", "storage.lua", "configuration.lua", "query_cache.lua", "lease.lua"):
             relative = "usr/lib/lua/luci/model/ocserv_easy/" + module
             if sha256(ui_roots[0] / relative) != sha256(ROOT / "server/openwrt/luci-app-ocserv-easy/luasrc/model/ocserv_easy" / module):
                 raise RuntimeError("Stale management module: " + module)
@@ -106,8 +106,9 @@ def main():
         (output / "BUILDINFO.json").write_text(json.dumps(info, indent=2) + "\n", encoding="utf-8")
         (output / "APK-ARCHITECTURES").write_text("\n".join(target["apk_architectures"]) + "\n", encoding="ascii")
         shutil.copyfile(sdk / "feeds.conf", output / "feeds.conf.build")
-        for filename in ("install.sh", "preflight.sh", "diagnose-n1.sh", "add-user.sh"):
+        for filename in ("install.sh", "preflight.sh", "diagnose-n1.sh", "add-user.sh", "with-lock.lua"):
             shutil.copyfile(ROOT / "server/tools" / filename, output / filename)
+        shutil.copyfile(ROOT / "server/openwrt/luci-app-ocserv-easy/luasrc/model/ocserv_easy/lease.lua", output / "lease.lua")
         for filename in ("OPENWRT-N1.md", "OPENWRT.md", "SERVER-UI.md", "VPN-ONLY-OPENCLASH.md", "WAN.md"):
             shutil.copyfile(ROOT / "docs" / filename, output / filename)
         source = output / "source"

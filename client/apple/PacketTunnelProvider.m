@@ -9,6 +9,7 @@
 #include <sys/uio.h>
 #include "ProtocolValidation.h"
 #import "ServerAddress.h"
+#import "NetworkSettingsOperation.h"
 #include <openssl/x509.h>
 
 @interface PacketTunnelProvider : NEPacketTunnelProvider
@@ -30,15 +31,39 @@
 @property(nonatomic) BOOL loopRunning, pauseRequested; // protected by @synchronized(self)
 @property(nonatomic, strong) dispatch_semaphore_t resumed;
 @property(nonatomic, strong) dispatch_semaphore_t packetClosed;
+@property(nonatomic, strong) dispatch_group_t networkSettingsPending;
 @property(nonatomic) NSUInteger authAttempts;
+@property(nonatomic) uint64_t droppedToCore; // protected by @synchronized(self)
 @property(nonatomic, strong) dispatch_queue_t packets;
 @property(nonatomic, strong) dispatch_source_t reader;
 @property(nonatomic, strong) NSMutableArray<dispatch_block_t> *stopCompletions;
 @property(nonatomic, strong) NSError *connectionError;
 - (NSError *)configureTunnel;
+- (NSError *)configureTunnelForGeneration:(NSUInteger)generation;
 - (void)recordState:(NSString *)phase;
 - (void)requestPause;
 @end
+
+// OpenConnect keeps this callback context for the lifetime of vpninfo. Binding
+// the provider to the connection generation prevents a late callback from a
+// previous core instance from mutating a newly started tunnel.
+typedef struct {
+    __unsafe_unretained PacketTunnelProvider *provider;
+    NSUInteger generation;
+} VPNCallbackContext;
+
+static PacketTunnelProvider *ProviderForContext(void *data, NSUInteger *generation) {
+    VPNCallbackContext *context = (VPNCallbackContext *)data;
+    if (!context || !context->provider)
+        return nil;
+    if (generation)
+        *generation = context->generation;
+    return context->provider;
+}
+
+static BOOL ContextIsCurrent(PacketTunnelProvider *provider, NSUInteger generation) {
+    return provider && !provider.stopping && provider.generation == generation;
+}
 
 static NSError *VPNError(NSInteger category, NSString *message) {
     return [NSError errorWithDomain:@"io.github.sck03.lansyra"
@@ -47,7 +72,10 @@ static NSError *VPNError(NSInteger category, NSString *message) {
 }
 
 static int ValidateCertificate(void *data, const char *reason) {
-    PacketTunnelProvider *provider = (__bridge PacketTunnelProvider *)data;
+    NSUInteger generation = 0;
+    PacketTunnelProvider *provider = ProviderForContext(data, &generation);
+    if (!ContextIsCurrent(provider, generation))
+        return -1;
     unsigned char *der = NULL;
     int length = openconnect_get_peer_cert_DER(provider.vpn, &der);
     const unsigned char *cursor = der;
@@ -57,7 +85,7 @@ static int ValidateCertificate(void *data, const char *reason) {
     X509_free(certificate);
     if (der)
         openconnect_free_cert_info(provider.vpn, der);
-    if (provider.stopping || !valid ||
+    if (!ContextIsCurrent(provider, generation) || !valid ||
         openconnect_check_peer_cert_hash(provider.vpn, provider.pin.UTF8String)) {
         provider.connectionError = VPNError(5, @"证书指纹或有效期验证失败");
         return -1;
@@ -66,13 +94,15 @@ static int ValidateCertificate(void *data, const char *reason) {
 }
 
 static int Authenticate(void *data, struct oc_auth_form *form) {
-    PacketTunnelProvider *provider = (__bridge PacketTunnelProvider *)data;
-    if (provider.stopping)
+    NSUInteger generation = 0;
+    PacketTunnelProvider *provider = ProviderForContext(data, &generation);
+    if (!ContextIsCurrent(provider, generation))
         return OC_FORM_RESULT_CANCELLED;
     const char *host = openconnect_get_dnsname(provider.vpn);
     NSString *expectedHost = [provider.server.host
         stringByTrimmingCharactersInSet:[NSCharacterSet characterSetWithCharactersInString:@"[]"]];
-    if (!form || !host || [expectedHost caseInsensitiveCompare:@(host)] != NSOrderedSame ||
+    if (!ContextIsCurrent(provider, generation) || !form || !host ||
+        [expectedHost caseInsensitiveCompare:@(host)] != NSOrderedSame ||
         openconnect_get_port(provider.vpn) != (provider.server.port ? provider.server.port.intValue : 443) ||
         (form->error && form->error[0]) || ++provider.authAttempts > 3 ||
         openconnect_check_peer_cert_hash(provider.vpn, provider.pin.UTF8String)) {
@@ -105,12 +135,15 @@ static void Progress(void *data, int level, const char *format, ...) {
 }
 
 static void Reconnected(void *data) {
-    PacketTunnelProvider *provider = (__bridge PacketTunnelProvider *)data;
-    if (provider.stopping)
+    NSUInteger generation = 0;
+    PacketTunnelProvider *provider = ProviderForContext(data, &generation);
+    if (!ContextIsCurrent(provider, generation))
         return;
     provider.reasserting = YES;
     [provider recordState:@"reconnecting"];
-    NSError *error = [provider configureTunnel];
+    NSError *error = [provider configureTunnelForGeneration:generation];
+    if (!ContextIsCurrent(provider, generation))
+        return;
     if (error) {
         provider.connectionError = error;
         @synchronized(provider) {
@@ -148,7 +181,9 @@ static void Reconnected(void *data) {
         self.stateGeneration = 0;
         self.phase = @"connecting";
         self.stopCompletions = [NSMutableArray array];
+        self.networkSettingsPending = dispatch_group_create();
         self.loopRunning = self.pauseRequested = NO;
+        self.droppedToCore = 0;
     }
     self.sleeping = self.established = NO;
     self.resumed = dispatch_semaphore_create(0);
@@ -166,14 +201,15 @@ static void Reconnected(void *data) {
     if (!server || !VPNServerPinValid(self.pin) ||
         !VPNCredentialValid(self.username) || !VPNCredentialValid(self.password)) {
         self.password = nil;
+        [self recordState:@"failed"];
+        completionHandler(VPNError(6, @"服务器、账号、密码或指纹无效"));
         NSArray<dispatch_block_t> *stopped;
         @synchronized(self) {
-            self.running = NO;
             stopped = self.stopCompletions.copy;
             self.stopCompletions = nil;
-            self.phase = @"failed";
+            self.networkSettingsPending = nil;
+            self.running = NO;
         }
-        completionHandler(VPNError(6, @"服务器、账号、密码或指纹无效"));
         for (dispatch_block_t callback in stopped)
             callback();
         return;
@@ -190,11 +226,12 @@ static void Reconnected(void *data) {
     NSError *failure = nil;
     BOOL started = NO;
     int coreTunFD = -1;
+    VPNCallbackContext callbacks = {self, self.generation};
     int sslResult = openconnect_init_ssl();
     @synchronized(self) {
         if (!self.stopping && !sslResult)
             self.vpn = openconnect_vpninfo_new("Lansyra-Apple", ValidateCertificate, NULL, Authenticate,
-                                               Progress, (__bridge void *)self);
+                                               Progress, &callbacks);
         if (self.vpn)
             self.commandFD = openconnect_setup_cmd_pipe(self.vpn);
     }
@@ -303,8 +340,6 @@ static void Reconnected(void *data) {
         dispatch_semaphore_wait(self.packetClosed, DISPATCH_TIME_FOREVER);
         self.packetClosed = nil;
     }
-    NSArray<dispatch_block_t> *stopped;
-    BOOL canceled;
     @synchronized(self) {
         self.commandFD = -1;
         if (self.vpn) {
@@ -313,23 +348,44 @@ static void Reconnected(void *data) {
         }
         if (coreTunFD >= 0)
             close(coreTunFD);
-        canceled = self.stopping;
-        [self recordState:canceled || !failure ? @"idle" : @"failed"];
-        // Publish completion and take every pending stop callback under the same
-        // lock. A later stop observes running == NO and completes immediately.
-        stopped = self.stopCompletions.copy;
-        self.stopCompletions = nil;
-        self.running = NO;
     }
-    if (!started)
-        completion(canceled ? VPNError(1, @"连接已取消") : failure);
-    else if (failure && !canceled)
-        [self cancelTunnelWithError:failure];
-    for (dispatch_block_t callback in stopped)
-        callback();
+    // A timeout ends the core, but does not cancel NetworkExtension's request.
+    // Keep ownership until every real completion arrives. Notification avoids
+    // parking a worker thread while the OS is still applying old settings.
+    dispatch_group_notify(self.networkSettingsPending,
+                          dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
+      NSArray<dispatch_block_t> *stopped;
+      BOOL canceled;
+      @synchronized(self) {
+          canceled = self.stopping;
+      }
+      // Report the old core's outcome before allowing a new start; a delayed
+      // cancelTunnelWithError must never cancel a replacement connection.
+      if (!started)
+          completion(canceled ? VPNError(1, @"连接已取消") : failure);
+      else if (failure && !canceled)
+          [self cancelTunnelWithError:failure];
+      @synchronized(self) {
+          canceled = self.stopping;
+          [self recordState:canceled || !failure ? @"idle" : @"failed"];
+          // Publish completion and take every stop callback under one lock.
+          stopped = self.stopCompletions.copy;
+          self.stopCompletions = nil;
+          self.networkSettingsPending = nil;
+          self.running = NO;
+      }
+      for (dispatch_block_t callback in stopped)
+          callback();
+    });
 }
 
 - (NSError *)configureTunnel {
+    return [self configureTunnelForGeneration:self.generation];
+}
+
+- (NSError *)configureTunnelForGeneration:(NSUInteger)generation {
+    if (!ContextIsCurrent(self, generation))
+        return VPNError(1, @"连接已取消");
     const struct oc_ip_info *info = NULL;
     if (openconnect_get_ip_info(self.vpn, &info, NULL, NULL) || !info || !info->addr || !info->netmask)
         return VPNError(8, @"服务器未分配 IPv4 地址");
@@ -364,16 +420,21 @@ static void Reconnected(void *data) {
         return VPNError(8, @"服务器未提供 DNS");
     settings.DNSSettings = [[NEDNSSettings alloc] initWithServers:dns];
     settings.DNSSettings.matchDomains = @[ @"" ];
-    dispatch_semaphore_t ready = dispatch_semaphore_create(0);
-    __block NSError *settingsError = nil;
-    [self setTunnelNetworkSettings:settings
-                 completionHandler:^(NSError *error) {
-                   settingsError = error;
-                   dispatch_semaphore_signal(ready);
-                 }];
+    VPNNetworkSettingsOperation *operation;
+    @synchronized(self) {
+        if (!ContextIsCurrent(self, generation))
+            return VPNError(1, @"连接已取消");
+        operation = [[VPNNetworkSettingsOperation alloc] initWithGeneration:generation
+                                                                   pending:self.networkSettingsPending];
+        [self setTunnelNetworkSettings:settings
+                     completionHandler:^(NSError *error) {
+                       [operation completeWithError:error];
+                     }];
+    }
     for (unsigned attempt = 0; attempt < 150 && !self.stopping; ++attempt) {
-        if (!dispatch_semaphore_wait(ready, dispatch_time(DISPATCH_TIME_NOW, 200 * NSEC_PER_MSEC)))
-            return settingsError;
+        if ([operation waitUntil:dispatch_time(DISPATCH_TIME_NOW, 200 * NSEC_PER_MSEC)])
+            return ContextIsCurrent(self, operation.generation) ? operation.error
+                                                               : VPNError(1, @"连接已取消");
     }
     return VPNError(self.stopping ? 1 : 3, self.stopping ? @"连接已取消" : @"应用网络设置超时");
 }
@@ -456,7 +517,10 @@ static void Reconnected(void *data) {
                     message.msg_iovlen = 2;
                     // Darwin OpenConnect expects the four-byte network-order AF prefix.
                     // Drop on backpressure, just as a bounded TUN queue does.
-                    sendmsg(provider.packetFD, &message, 0);
+                    ssize_t sent = sendmsg(provider.packetFD, &message, 0);
+                    if (sent != (ssize_t)(sizeof(family) + packets[i].length) &&
+                        provider.droppedToCore < UINT64_MAX)
+                        provider.droppedToCore++;
                 }
                 [provider readPackets];
             }
@@ -466,9 +530,9 @@ static void Reconnected(void *data) {
 
 - (void)stopTunnelWithReason:(NEProviderStopReason)reason
            completionHandler:(void (^)(void))completionHandler {
-    self.stopping = YES;
     BOOL immediate;
     @synchronized(self) {
+        self.stopping = YES;
         immediate = !self.running;
         if (!immediate) {
             [self.stopCompletions addObject:[completionHandler copy]];
@@ -515,7 +579,8 @@ static void Reconnected(void *data) {
         NSDictionary *snapshot = @{
             @"session_id" : self.sessionID ?: @"",
             @"generation" : @(self.stateGeneration),
-            @"state" : self.phase ?: @"idle"
+            @"state" : self.phase ?: @"idle",
+            @"dropped_to_core" : @(self.droppedToCore)
         };
         completionHandler([NSJSONSerialization dataWithJSONObject:snapshot options:0 error:nil]);
     }

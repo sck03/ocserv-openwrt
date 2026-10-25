@@ -4,22 +4,26 @@
 
 | 模块 | 负责内容 | 边界 |
 |---|---|---|
-| Windows `application`、`ui`、`dialogs` | 界面、交互、托盘、事件消费 | 不从 UI 线程访问活动的 OpenConnect 对象 |
+| Windows `application`、`ui`、`dialogs` | 界面、交互、托盘、事件消费；偏好保存后台合并；网络通知去重 | 不从 UI 线程访问活动的 OpenConnect 对象；偏好保存结果通过窗口消息回传 |
 | Windows `session`、`certificates` | 工作线程、认证、证书、命令管道和资源回收 | 会话 ID、状态代次及取消控制隔离晚回调；核心只由工作线程释放 |
 | Windows `profile`、`platform` | 数据格式、加密、大小限制、原子写入、受管 CA 清理 | 保存前检查与读取相同的整体上限；非凭据更新保留不透明密文 |
+| Windows `preferences_writer` | 有界单槽的偏好保存、去抖和退出刷新 | 后台串行写入最新状态；完成结果留在模块内部，窗口消息只负责唤醒 |
 | Windows `network_policy` | 全隧道识别和动态 IPv6 防绕行策略 | 策略随会话或进程结束移除；不写永久防火墙规则 |
 | Linux `main`、`agent`、`protocol` | GTK 交互、认证助手 IPC、纯校验和代次 | 系统权限、隧道、DNS 和路由归 NetworkManager 管理 |
-| Apple 应用与 `client/apple` | 应用配置/钥匙串、扩展生命周期、数据包通道 | 密码仅随启动选项传递；扩展通过完成回调报告资源回收 |
+| Apple 应用与 `client/apple` | 应用配置/钥匙串、扩展生命周期、数据包通道 | 密码仅随启动选项传递；核心回调绑定代次，停止屏障等待网络设置实际完成 |
+| Apple `NetworkSettingsOperation` | 网络设置完成状态、错误与异步屏障 | 调用超时或停止不提前释放屏障；新连接须等待旧系统设置回调 |
 | macOS `ProfilePersistence` | JSON 大小预算、原子替换和凭据更新恢复 | 编码预算先于钥匙串修改；文件替换失败恢复旧凭据 |
 | Android `SessionOwner` | 进程内唯一的启动/工作线程归属 | 超时通知不释放仍在执行的工作线程；完成回调校验身份与代次 |
 | Android `SessionControl`、`PromptWait` | 原生会话发布、异步命令、释放及可取消的认证等待 | 取消早于会话或弹窗发布仍有效；异步调用不能使用已释放核心 |
-| Android `NetworkRoutes`、`RoutePolicy` | 数字网络规则选择和双栈路由补集 | 不用 DNS 搜索域代替域名分流；输入与结果数量均有上限 |
+| Android `NetworkRoutes`、`RoutePolicy` | 数字网络规则选择和双栈路由补集 | 归并区间后顺序扫描；输入分别最多 4096 条，最终输出最多 2048 条 |
 | Android `ProfilePolicy`、`ProfileCodec` | 配置校验、来源绑定、格式和加解密失败处理 | 不依赖 Android 存储；DataStore 只负责事务持久化 |
 | Android `DiagnosticLog` | 已知秘密、认证结构和 URL 过滤 | 清理后才发布到界面或 Logcat；日志历史另有数量与字符预算 |
 | 服务端 `logic`、`firewall` | 纯校验、配置渲染、受管防火墙定义 | 无进程或文件系统副作用，可直接做 Lua 回归 |
 | 服务端 `backend`、`guard` | 普通配置事务、可恢复的 VPN-only 事务 | 写入受互斥锁、修订、待提交变更和权限检查约束 |
 | 服务端 `storage`、`configuration` | 有界原子文件 IO、候选替换和持久恢复记录 | UCI 候选在独立目录生成；恢复前检查全部文件，后续修改保留现场 |
 | 服务端 `process`、`guard_log` | 有时限的子进程执行、结构化日志 | 不经过 shell 拼接；日志不保存原始命令输出和凭据 |
+| 服务端 `lease`、安装工具 `with-lock` | LuCI、恢复和 shell 维护共用 POSIX 租约 | 锁文件不删除；同 PID exec 保留所有权，进程退出自动释放；不用不兼容的 flock 替代 |
+| 服务端 `query_cache` | 可丢弃的在线/版本/能力快照 | 仅保存有界运行期数据；显式刷新绕过缓存，配置事务不依赖缓存正确性 |
 
 ## 生成代码与上游更新
 
@@ -39,6 +43,7 @@ Windows 协议修改保持为独立 OpenConnect 补丁。下载源码不变，�
 - 普通服务设置同时提交 ocserv 与受管防火墙。项目拥有四个命名段的完整定义，其他管理员规则不属于该模块。
 - 普通服务事务使用固定目录 `/etc/ocserv/easy-transaction`，候选文件各不超过 256 KiB；后台、下次修改和启动均可恢复未完成的文件替换。服务恢复成功后才清除事务状态。
 - 安装器首次网络初始化保存候选和原始配置；VPN-only 事务另有状态、确认和恢复记录。检测到后续修改时保留现场，不用旧快照覆盖。
+- 后台偏好写入、系统网络设置等待和查询缓存各自封装为单一模块；UI/控制器负责组合，模块不依赖具体窗口或页面。新增字段、平台策略和恢复职责应沿这些边界扩展，避免复制生命周期逻辑。
 
 ## 验证与清理
 

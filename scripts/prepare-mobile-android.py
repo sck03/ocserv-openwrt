@@ -8,8 +8,8 @@ def prepare(app, root):
     gradle = app / "app/build.gradle.kts"
     value = once(gradle.read_text(encoding="utf-8"), 'applicationId = "dev.opentunnel.vpn"',
                  'applicationId = "io.github.sck03.lansyra"')
-    value = once(value, '        versionCode = 16', '        versionCode = 22')
-    value = section(value, '        versionName =', '\n\n        ndk {', '        versionName = "0.2.3"')
+    value = once(value, '        versionCode = 16', '        versionCode = 23')
+    value = section(value, '        versionName =', '\n\n        ndk {', '        versionName = "0.2.4"')
     gradle.write_text(value, encoding="utf-8")
     resources = app / "app/src/main/res"
     for resource in resources.glob("values*/strings.xml"):

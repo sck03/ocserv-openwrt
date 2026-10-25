@@ -108,6 +108,9 @@ class ServerPackageTests(unittest.TestCase):
             info = json.loads(contents.read(prefix + "BUILDINFO.json"))
             self.assertEqual(info["build_timestamp"], "2026-09-29T01:02:03Z")
             self.assertEqual(info["management_ui_release"], "2")
+            self.assertEqual(contents.read(prefix + "with-lock.lua"), (self.root / "server/tools/with-lock.lua").read_bytes())
+            self.assertEqual(contents.read(prefix + "lease.lua"),
+                             (self.root / "server/openwrt/luci-app-ocserv-easy/luasrc/model/ocserv_easy/lease.lua").read_bytes())
             self.assertFalse(any("/validation/" in name or name.endswith("ocserv-elf-dependencies.txt")
                                  for name in contents.namelist()))
             self.assertEqual(contents.getinfo(prefix + "source/ocserv-1.5.0.tar.xz").compress_type, zipfile.ZIP_STORED)
@@ -129,7 +132,7 @@ class ServerPackageTests(unittest.TestCase):
         with zipfile.ZipFile(archive) as contents:
             with tarfile.open(fileobj=io.BytesIO(contents.read(archive.stem + "/source/openwrt-recipes.tar.gz"))) as recipes:
                 self.assertIn("openwrt/ocserv/Makefile", recipes.getnames())
-                for module in ("storage.lua", "configuration.lua"):
+                for module in ("storage.lua", "configuration.lua", "query_cache.lua", "lease.lua"):
                     self.assertIn("openwrt/luci-app-ocserv-easy/luasrc/model/ocserv_easy/" + module, recipes.getnames())
                 self.assertNotIn("openwrt/ocserv/private.key", recipes.getnames())
 
@@ -157,6 +160,14 @@ class ServerPackageTests(unittest.TestCase):
         checksum = package.sha256(archive)
         (self.sdk / "dl/ocserv-1.5.0.tar.xz").write_bytes(b"corrupt")
         with self.assertRaisesRegex(RuntimeError, "source checksum"):
+            self.bundle()
+        self.assertEqual(package.sha256(archive), checksum)
+
+    def test_stale_maintenance_lease_rejects_the_bundle(self):
+        archive = self.bundle()
+        checksum = package.sha256(archive)
+        (self.ui_stage / "usr/lib/lua/luci/model/ocserv_easy/lease.lua").write_text("return {}\n")
+        with self.assertRaisesRegex(RuntimeError, "Stale management module: lease.lua"):
             self.bundle()
         self.assertEqual(package.sha256(archive), checksum)
 

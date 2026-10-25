@@ -2,6 +2,16 @@
 
 本页记录岚序（Lansyra）全新安装版本的验证证据与实机边界。以前的打包和系统升级记录见[历史版本](https://github.com/sck03/ocserv-openwrt/blob/ba903fe/docs/VALIDATION.md)。
 
+## 2026-10-25 并发维护与响应性优化
+
+本轮版本为 Windows 0.7.4、Linux/macOS 0.1.4、Android/iOS 0.2.4、管理页 0.5.5-r1，ocserv 保持 1.5.0-r7。新增独立偏好写入、Apple 系统网络设置屏障、服务端共享租约和可丢弃查询缓存；保留原数据格式、凭据来源绑定和 IPv6 防绕行策略。Android 路由补集改为区间归并与扫描，安装器和账号工具参与已有 POSIX 锁，关键原子替换补充父目录同步。版本升级说明、模块边界、构建依赖和完整测试入口已同步。
+
+本地 Windows x64 全量编译无警告，CTest 5/5；完整便携包运行检查及连接 61、配置/后台保存/DPAPI 92、UI 30、真实 WSH 7、资源 9、回环认证 35 项通过。资源测试发送 60 万事件、清空 1,000 轮，句柄保持 134，私有内存增加 299,008 字节；这只是短时测试进程，不能推导整个 VPN 的长期内存占用。包内中英文启动、版本和 PE 系统导入审计通过，本地 ZIP 位于 `dist/Lansyra-0.7.4-windows-x64.zip`。
+
+服务端实际 Lua 模块逻辑 73、守护事务 38、进程边界 9、控制器权限 6、配置渲染 4 项及真实 Chrome 页面 18、轮询 8 项通过，浏览器无脚本错误。打包 8 项验证新增锁和缓存模块进入实包/对应源码。构建参数 11、Windows 打包 13、发布元数据 6、客户端构建 13、移动构建 19 项通过，Python 45 个文件及全部工作流/Shell/管理页脚本语法检查通过。Android RoutePolicy/NetworkRoutes 的 14 项纯 JVM 回归含 4096 条输入、随机地址集对照及输出上限检查。
+
+本地证据在 `test-results/maintenance-0.7.4-windows/`、`test-results/server-regressions.json`、`test-results/guard-transactions.json`、`test-results/server-ui/` 和 `test-results/server-polling.json`。Linux 安装/POSIX 锁竞争、Windows x86/WFP/Wintun 和 Apple 实际编译由本次 GitHub 工作流单独确认；未把本地 Windows 的平台跳过当作测试通过。真实 N1、手机、Apple 签名授权和 24–72 小时运行仍需设备验收。
+
 ## 2026-10-25 事务恢复、取消与分流边界修复
 
 本次源码版本为 Windows 0.7.3、Linux/macOS 0.1.3、Android 0.2.3、iOS 0.2.3、管理页 0.5.4-r1，ocserv 仍为 1.5.0-r7。最终应用提交为 [`9e867c1`](https://github.com/sck03/ocserv-openwrt/commit/9e867c1)，服务端和管理页回归对应 [`d08a7cb`](https://github.com/sck03/ocserv-openwrt/commit/d08a7cb)，Windows 原生回归对应 [`5a38f8a`](https://github.com/sck03/ocserv-openwrt/commit/5a38f8a)。修复服务端配置超限和中断恢复、Windows CA 并发导入和路由清理错误、IPv4 全隧道的 IPv6 防绕行、管理页旧刷新覆盖、Android 取消及错误丢失、数字网络分流，以及桌面端保存失败的一致性。新增独立的持久化、网络和会话策略模块，数据格式与用户凭据上下文保持不变。

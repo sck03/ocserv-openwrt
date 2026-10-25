@@ -129,7 +129,7 @@ jobs:
           python3 -m pip install --disable-pip-version-check Pillow
       - name: Verify shared Apple validation
         run: |
-          clang -Wall -Wextra -Werror -fobjc-arc -framework Foundation tests/ios_connection_tests.m -o "$RUNNER_TEMP/apple-address-tests"
+          clang -Wall -Wextra -Werror -fobjc-arc -framework Foundation tests/ios_connection_tests.m client/apple/NetworkSettingsOperation.m -o "$RUNNER_TEMP/apple-address-tests"
           "$RUNNER_TEMP/apple-address-tests"
           swiftc -import-objc-header client/apple/ServerAddress.h -framework Foundation -framework Security desktop/macos/App/ProfilePersistence.swift tests/apple_storage_tests.swift -o "$RUNNER_TEMP/apple-storage-tests"
           "$RUNNER_TEMP/apple-storage-tests"

@@ -9,6 +9,7 @@ local firewall = require "luci.model.ocserv_easy.firewall"
 local run = require("luci.model.ocserv_easy.process").run
 local storage = require "luci.model.ocserv_easy.storage"
 local configuration = require "luci.model.ocserv_easy.configuration"
+local query_cache = require "luci.model.ocserv_easy.query_cache"
 local read, atomic, directory, random_bytes = storage.read, storage.atomic, storage.directory, storage.random
 local M = {}
 local config_path="/etc/config/ocserv"
@@ -20,7 +21,13 @@ local firewall_path="/etc/config/firewall"
 local work="/var/run/ocserv-easy"
 local occtl="/usr/bin/occtl"
 
-local function version()
+local function version(fresh)
+    if not fresh then
+        return query_cache.get("version",query_cache.identity("/usr/sbin/ocserv"),300,function()
+            local value=version(true)
+            return {version=value,cacheable=value~="unknown"}
+        end).version
+    end
     local code,output=run({"/usr/sbin/ocserv","--version"},10)
     return code==0 and (output:match("OpenConnect VPN Server%s+([^%s]+)") or output:match("ocserv%s+([^%s]+)")) or "unknown"
 end
@@ -32,10 +39,12 @@ local function running()
     return executable=="/usr/sbin/ocserv" or executable=="/usr/sbin/ocserv (deleted)"
 end
 local function capabilities()
-    local _,help=run({occtl,"--help"},3)
-    -- Some occtl releases print only switches for --help; command help is separate.
-    if not help:find("terminate user",1,true) then local _,commands=run({occtl,"help"},3); help=help..commands end
-    return {terminate=help:find("terminate user",1,true)~=nil}
+    return query_cache.get("capabilities",query_cache.identity(occtl),300,function()
+        local _,help=run({occtl,"--help"},3)
+        -- Some occtl releases print only switches for --help; command help is separate.
+        if not help:find("terminate user",1,true) then local _,commands=run({occtl,"help"},3); help=help..commands end
+        return {terminate=help:find("terminate user",1,true)~=nil}
+    end)
 end
 local function snapshot()
     local c=uci.cursor()
@@ -54,28 +63,35 @@ local function snapshot()
         revision=logic.revision(raw.."\0"..(firewall_raw or "").."\0"..template.."\0"..extra)}
 end
 local function safe(value,limit) return type(value)=="string" and value:sub(1,limit or 128) or "" end
-function M.status()
+function M.status(fresh)
     local result={running=running(),online={},recovery_pending=configuration.pending()}
     if not result.running then return result end
+    local identity=read("/var/run/ocserv.pid",64) or ""
+    local online=query_cache.get("online",identity,5,function()
     local code,output=run({occtl,"-j","show","users"},4)
     local parsed=code==0 and json.parse(output) or nil
-    if type(parsed)~="table" then result.online_error=true; return result end
+    if type(parsed)~="table" then return {online={},online_error=true} end
+    local rows={}
     for _,row in ipairs(parsed) do
         if type(row)=="table" then
             local id=tonumber(row.ID)
             if id and id>0 then
-                result.online[#result.online+1]={id=tostring(id),name=safe(row.Username,64),group=safe(row.Groupname),
+                rows[#rows+1]={id=tostring(id),name=safe(row.Username,64),group=safe(row.Groupname),
                     ip=safe(row["Remote IP"]),vpn_ip=safe(row["VPN IP"] or row["IPv4"] or row["VPN IPv4"] or row["IPv4 Address"]),
                     since=safe(row["Connected at"] or row["Connected"]),state=safe(row.State)}
             end
         end
     end
+    return {online=rows}
+    end,fresh)
+    result.online=online.online
+    result.online_error=online.online_error
     return result
 end
 function M.data(admin)
-    local s=snapshot(); local state=M.status()
+    local s=snapshot(); local state=M.status(true)
     state.version=version()
-    state.ui_version="0.5.4"
+    state.ui_version="0.5.5"
     state.supported=logic.supported_version(state.version)
     state.capabilities=capabilities()
     state.revision=s.revision
@@ -304,15 +320,14 @@ local function apply_settings(s,request)
 end
 function M.action(request,admin)
     logic.require(type(request)=="table" and type(request.action)=="string","bad_request")
-    directory(work)
-    local lock=nixio.open(work.."/lock","w","600")
-    logic.require(lock,"write_failed")
-    if not lock:lock("tlock") then lock:close(); logic.fail("busy") end
+    local lease=require "luci.model.ocserv_easy.lease"
+    local lock,code=lease.acquire()
+    logic.require(lock,code)
     local ok,result=pcall(function()
         recover_locked(false)
         local s=snapshot()
         logic.require(request.revision==s.revision,"stale_revision")
-        local current_version=version()
+        local current_version=version(true)
         logic.require(current_version~="unknown","version_unavailable")
         logic.require(logic.supported_version(current_version),"upgrade_required")
         -- Pending UCI deltas from another editor must be reviewed there first.
@@ -355,18 +370,19 @@ function M.action(request,admin)
         end
         logic.fail("bad_action")
     end)
-    lock:lock("ulock"); lock:close()
+    query_cache.invalidate("online")
+    lease.release(lock)
     if not ok then error(result,0) end
     return result
 end
 function M.recover(boot)
     if not configuration.pending() then return true end
-    directory(work)
-    local lock=nixio.open(work.."/lock","w","600")
-    logic.require(lock,"write_failed")
-    if not lock:lock("tlock") then lock:close(); return false end
+    local lease=require "luci.model.ocserv_easy.lease"
+    local lock,code=lease.acquire()
+    if not lock and code=="busy" then return false end
+    logic.require(lock,code)
     local ok,result=pcall(recover_locked,boot)
-    lock:lock("ulock"); lock:close()
+    lease.release(lock)
     if not ok then error(result,0) end
     return true
 end

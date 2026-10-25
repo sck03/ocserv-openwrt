@@ -15,8 +15,25 @@ function M.read(path, limit)
 end
 
 function M.directory(path)
-    if not fs.stat(path) then logic.require(fs.mkdir(path, "700"), "write_failed") end
+    if not fs.stat(path) then
+        logic.require(fs.mkdir(path, "700"), "write_failed")
+        M.sync_parent(path)
+    end
     logic.require(fs.chmod(path, "700"), "write_failed")
+end
+
+function M.sync_parent(path)
+    local parent = path:match("^(.*)/[^/]+$") or "."
+    local file = nixio.open(parent, "r")
+    logic.require(file, "write_failed")
+    local ok = file:sync()
+    file:close()
+    logic.require(ok, "write_failed")
+end
+
+function M.remove(path, code)
+    logic.require(fs.remove(path), code or "write_failed")
+    M.sync_parent(path)
 end
 
 function M.random(count)
@@ -28,8 +45,8 @@ function M.random(count)
     return data
 end
 
-function M.atomic(path, data)
-    logic.require(type(data) == "string" and #data <= M.limit, "file_too_large")
+function M.atomic(path, data, limit)
+    logic.require(type(data) == "string" and #data <= (limit or M.limit), "file_too_large")
     local temp = path .. ".easy-" .. nixio.bin.hexlify(M.random(16))
     local file = nixio.open(temp, nixio.open_flags("wronly", "creat", "excl"), "600")
     logic.require(file, "write_failed")
@@ -43,6 +60,8 @@ function M.atomic(path, data)
     file:close()
     if ok then ok = fs.rename(temp, path) end
     if not ok then fs.remove(temp); logic.fail("write_failed") end
+    -- fsync(file) alone does not persist the renamed directory entry.
+    M.sync_parent(path)
 end
 
 function M.keep(path, data)

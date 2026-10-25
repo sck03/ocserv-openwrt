@@ -7,7 +7,7 @@ namespace vpn {
 using namespace ui;
 namespace {
 constexpr UINT SessionMessage = WM_APP + 20, TrayMessage = WM_APP + 21, AutoConnectMessage = WM_APP + 22;
-constexpr UINT NetworkMessage = WM_APP + 23;
+constexpr UINT NetworkMessage = WM_APP + 23, PreferencesSavedMessage = WM_APP + 24;
 constexpr int ServerCaption = 510, InfoCaption = 520, InfoValue = 540;
 constexpr wchar_t ProfileFilter[] = L"VPN profiles / VPN 配置 (*.vpn)\0*.vpn\0All files / 所有文件\0*.*\0\0";
 void menu_item(HMENU menu, UINT id, const wchar_t *label, bool checked = false) {
@@ -16,27 +16,32 @@ void menu_item(HMENU menu, UINT id, const wchar_t *label, bool checked = false) 
 void submenu(HMENU menu, HMENU child, const wchar_t *label) {
     AppendMenuW(menu, MF_POPUP, reinterpret_cast<UINT_PTR>(child), label);
 }
-void upstream_changed(void *context, NET_LUID luid) {
+void upstream_changed(NetworkWatchContext *context, NET_LUID luid) {
     // Ignore our Wintun adapter and its routes to avoid a reconnect feedback loop.
     if (luid.Info.IfType != IF_TYPE_SOFTWARE_LOOPBACK && luid.Info.IfType != IF_TYPE_TUNNEL &&
-        luid.Info.IfType != IF_TYPE_PROP_VIRTUAL)
-        PostMessageW(static_cast<HWND>(context), NetworkMessage, 0, 0);
+        luid.Info.IfType != IF_TYPE_PROP_VIRTUAL && context->window &&
+        !context->message_pending.exchange(true)) {
+        // The UI timer also drains this slot if PostMessage fails under load.
+        PostMessageW(context->window, NetworkMessage, 0, 0);
+    }
 }
 void CALLBACK interface_changed(void *context, MIB_IPINTERFACE_ROW *row, MIB_NOTIFICATION_TYPE) {
     if (row)
-        upstream_changed(context, row->InterfaceLuid);
+        upstream_changed(static_cast<NetworkWatchContext *>(context), row->InterfaceLuid);
 }
 void CALLBACK address_changed(void *context, MIB_UNICASTIPADDRESS_ROW *row, MIB_NOTIFICATION_TYPE) {
     if (row)
-        upstream_changed(context, row->InterfaceLuid);
+        upstream_changed(static_cast<NetworkWatchContext *>(context), row->InterfaceLuid);
 }
 void CALLBACK route_changed(void *context, MIB_IPFORWARD_ROW2 *row, MIB_NOTIFICATION_TYPE) {
     if (row && row->DestinationPrefix.PrefixLength == 0)
-        upstream_changed(context, row->InterfaceLuid);
+        upstream_changed(static_cast<NetworkWatchContext *>(context), row->InterfaceLuid);
 }
 } // namespace
-Application::Application(std::filesystem::path directory) : store_(std::move(directory)) {}
+Application::Application(std::filesystem::path directory)
+    : store_(std::move(directory)), preferences_writer_(store_) {}
 Application::~Application() {
+    preferences_writer_.stop();
     stop_network_watch();
     if (session_) {
         session_->cancel();
@@ -90,6 +95,7 @@ int Application::run(int show, const std::string &connect_profile, bool startup)
         error(nullptr, system_error(GetLastError()));
         return 1;
     }
+    preferences_writer_.start([this] { PostMessageW(window_, PreferencesSavedMessage, 0, 0); });
     SetPropW(window_, instance_name_.c_str(), reinterpret_cast<HANDLE>(1));
     watch_network();
     ACCEL keys[] = {
@@ -230,6 +236,7 @@ const Profile *Application::selected() const {
     return nullptr;
 }
 bool Application::reload(const std::string &id) {
+    const bool pending_preferences = preferences_writer_.pending();
     std::wstring reason;
     Preferences current;
     std::vector<Profile> profiles;
@@ -238,7 +245,12 @@ bool Application::reload(const std::string &id) {
         return false;
     }
     profiles_ = std::move(profiles);
-    preferences_ = current;
+    if (!pending_preferences)
+        preferences_ = current;
+    if (!preferences_.auto_connect.empty() &&
+        std::none_of(profiles_.begin(), profiles_.end(),
+                     [this](const auto &profile) { return profile.id == preferences_.auto_connect; }))
+        preferences_.auto_connect.clear();
     SendMessageW(item(Servers), CB_RESETCONTENT, 0, 0);
     int index = -1;
     const auto &wanted = id.empty() ? preferences_.selected : id;
@@ -252,6 +264,9 @@ bool Application::reload(const std::string &id) {
     SendMessageW(item(Servers), CB_SETCURSEL, static_cast<WPARAM>(index), 0);
     if (index < 0)
         SetWindowTextW(item(Servers), L"");
+    preferences_.selected = index < 0 ? "" : profiles_[static_cast<size_t>(index)].id;
+    if (pending_preferences)
+        save_preferences();
     rebuild_menu();
     update_controls();
     return true;
@@ -307,28 +322,47 @@ void Application::update_controls() {
     EnableMenuItem(menu, RetryFailed, MF_BYCOMMAND | ((!active && !closing_) ? MF_ENABLED : MF_GRAYED));
     tray();
 }
-bool Application::save_preferences() {
+void Application::save_preferences() {
     std::wstring reason;
-    if (!store_.save_preferences(preferences_, reason)) {
+    if (!preferences_writer_.request(preferences_, reason))
+        error(window_, reason);
+}
+bool Application::flush_preferences() {
+    std::wstring reason;
+    if (!preferences_writer_.flush(reason)) {
+        preferences_writer_.take_result();
         error(window_, reason);
         return false;
     }
     return true;
 }
+void Application::preferences_saved() {
+    if (auto result = preferences_writer_.take_result(); result && !result->success)
+        error(window_, result->error.empty()
+                           ? t(L"保存偏好时发生错误。", L"Could not save preferences.")
+                           : result->error);
+}
 void Application::toggle_auto_connect() {
+    // The registry startup command and its profile binding form one operation.
+    // Drain ordinary async settings before the synchronous commit/rollback.
+    if (!flush_preferences())
+        return;
     const auto previous = preferences_.auto_connect;
     const auto *profile = selected();
     if (previous.empty() && !profile)
         return;
     preferences_.auto_connect = previous.empty() ? profile->id : "";
-    if (!save_preferences()) {
+    std::wstring reason;
+    if (!store_.save_preferences(preferences_, reason)) {
         preferences_.auto_connect = previous;
+        error(window_, reason);
         return;
     }
-    std::wstring reason;
     if (!set_login_startup(store_.directory(), !preferences_.auto_connect.empty(), reason)) {
         preferences_.auto_connect = previous;
-        save_preferences();
+        std::wstring rollback_error;
+        if (!store_.save_preferences(preferences_, rollback_error))
+            reason += L"\n" + rollback_error;
         error(window_, reason);
     }
     rebuild_menu();
@@ -347,10 +381,12 @@ void Application::export_diagnostics() {
         error(window_, reason);
 }
 void Application::watch_network() {
+    network_watch_.window = window_;
+    network_watch_.message_pending.store(false);
     ULONG results[] = {
-        NotifyIpInterfaceChange(AF_UNSPEC, interface_changed, window_, FALSE, &network_notifications_[0]),
-        NotifyUnicastIpAddressChange(AF_UNSPEC, address_changed, window_, FALSE, &network_notifications_[1]),
-        NotifyRouteChange2(AF_UNSPEC, route_changed, window_, FALSE, &network_notifications_[2])};
+        NotifyIpInterfaceChange(AF_UNSPEC, interface_changed, &network_watch_, FALSE, &network_notifications_[0]),
+        NotifyUnicastIpAddressChange(AF_UNSPEC, address_changed, &network_watch_, FALSE, &network_notifications_[1]),
+        NotifyRouteChange2(AF_UNSPEC, route_changed, &network_watch_, FALSE, &network_notifications_[2])};
     for (ULONG result : results)
         if (result != NO_ERROR) {
             log_.append(t(L"网络变化通知不可用：", L"Network change notifications unavailable: ") +
@@ -364,6 +400,13 @@ void Application::stop_network_watch() {
             CancelMibChangeNotify2(notification);
             notification = nullptr;
         }
+    network_watch_.window = nullptr;
+    network_watch_.message_pending.store(false);
+}
+void Application::drain_network_change() {
+    if (network_watch_.message_pending.exchange(false) && session_ && !cursor_.canceled() &&
+        (state_ == State::Connected || state_ == State::Reconnecting))
+        network_change_at_ = GetTickCount64() + 1000;
 }
 void Application::command(int id) {
     if (id == Quit) {
@@ -411,6 +454,8 @@ void Application::command(int id) {
         return;
     }
     if (id >= MinimizeToTray && id <= LogTrace) {
+        if (closing_)
+            return;
         if (id == MinimizeToTray)
             preferences_.minimize_to_tray = !preferences_.minimize_to_tray;
         else if (id == MinimizeOnClose)
@@ -714,9 +759,12 @@ LRESULT Application::message(UINT message, WPARAM wparam, LPARAM lparam) {
         drain_events();
         return 0;
     }
+    if (message == PreferencesSavedMessage) {
+        preferences_saved();
+        return 0;
+    }
     if (message == NetworkMessage) {
-        if (session_ && !cursor_.canceled() && (state_ == State::Connected || state_ == State::Reconnecting))
-            network_change_at_ = GetTickCount64() + 1000;
+        drain_network_change();
         return 0;
     }
     if (message == WM_POWERBROADCAST) {
@@ -753,6 +801,8 @@ LRESULT Application::message(UINT message, WPARAM wparam, LPARAM lparam) {
             return 0;
         // Also recovers a failed PostMessage when the Windows queue was full.
         drain_events();
+        preferences_saved();
+        drain_network_change();
         if (session_ && session_->finished()) {
             // The worker can publish its terminal event between the first drain
             // and finished(). Consume it before allowing a new session.
@@ -835,6 +885,9 @@ LRESULT Application::message(UINT message, WPARAM wparam, LPARAM lparam) {
         return 0;
     }
     if (message == WM_DESTROY) {
+        // Finish the latest queued update before callbacks can outlive HWND.
+        preferences_writer_.stop();
+        preferences_saved();
         stop_network_watch();
         remove_tray();
         RemovePropW(window_, instance_name_.c_str());

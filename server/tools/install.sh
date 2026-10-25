@@ -4,18 +4,61 @@ set -eu
 umask 077
 cd "$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)"
 [ "$(id -u)" = 0 ] || { echo '请以 root 运行此脚本。'; exit 1; }
-[ -f SHA256SUMS ] || { echo '请完整解压服务端套装后运行 install.sh。'; exit 1; }
-sha256sum -c SHA256SUMS
-sh ./preflight.sh
-[ -s APK-ARCHITECTURES ] || { echo '缺少套装架构清单，请重新下载完整 ZIP。'; exit 1; }
-device_arch=$(sh ./preflight.sh --architecture)
-grep -Fqx -- "$device_arch" APK-ARCHITECTURES || {
-    recommended_arch=$device_arch
-    [ "$recommended_arch" != aarch64 ] || recommended_arch=aarch64_generic
-    echo "套装与固件软件包架构不匹配：$device_arch。请选择 openwrt-25.12-$recommended_arch 的 ZIP。"
-    echo '架构以 /etc/apk/arch 为准，不能仅按 Cortex-A53 等 CPU 型号选择。'
+set -- ./*.apk
+[ "$#" -eq 2 ] || { echo '修复版套装应只包含 ocserv 和 luci-app-ocserv-easy 两个 APK。请解压到新目录，不要混入旧包。'; exit 1; }
+for package do [ -f "$package" ] || { echo "缺少安装包：$package"; exit 1; }; done
+case "$1 $2" in ./luci-app-ocserv-easy-*.apk\ ./ocserv-*.apk) ;; *) echo '安装包名称与修复版套装不符。'; exit 1;; esac
+if [ "${OCSERV_EASY_LOCK_OWNER:-}" != "$$" ]; then
+    [ -f SHA256SUMS ] || { echo '请完整解压服务端套装后运行 install.sh。'; exit 1; }
+    sha256sum -c SHA256SUMS
+    sh ./preflight.sh
+    [ -s APK-ARCHITECTURES ] || { echo '缺少套装架构清单，请重新下载完整 ZIP。'; exit 1; }
+    device_arch=$(sh ./preflight.sh --architecture)
+    grep -Fqx -- "$device_arch" APK-ARCHITECTURES || {
+        recommended_arch=$device_arch
+        [ "$recommended_arch" != aarch64 ] || recommended_arch=aarch64_generic
+        echo "套装与固件软件包架构不匹配：$device_arch。请选择 openwrt-25.12-$recommended_arch 的 ZIP。"
+        echo '架构以 /etc/apk/arch 为准，不能仅按 Cortex-A53 等 CPU 型号选择。'
+        exit 1
+    }
+    [ -f with-lock.lua ] && [ -f lease.lua ] || { echo '缺少维护锁模块，请重新解压完整套装。' >&2; exit 1; }
+    # Bootstrap only the lock runtime on a fresh LuCI installation. No VPN
+    # configuration is read or changed until the common record lock is held.
+    if ! lua -e 'require "nixio"; require "nixio.fs"' >/dev/null 2>&1; then
+        echo '正在安装 LuCI 维护锁所需的 Lua/nixio 运行库。'
+        (
+            lock_plan=$(mktemp /tmp/lansyra-lock-plan.XXXXXX)
+            trap 'rm -f "$lock_plan"' EXIT
+            trap 'exit 129' HUP
+            trap 'exit 130' INT
+            trap 'exit 143' TERM
+            apk update
+            apk add --simulate luci-lib-nixio >"$lock_plan" 2>&1 || { cat "$lock_plan"; exit 1; }
+            if grep -Ei '(installing|upgrading|downgrading|replacing).*(kernel|kmod-)' "$lock_plan" >/dev/null; then
+                cat "$lock_plan"
+                echo '维护锁运行库的安装计划涉及内核模块，已停止。请检查当前固件的软件源。' >&2
+                exit 1
+            fi
+            apk add luci-lib-nixio
+        )
+        lua -e 'require "nixio"; require "nixio.fs"' || { echo 'Lua/nixio 运行库不可用，已停止安装。' >&2; exit 1; }
+    fi
+    # exec preserves the current PID and the POSIX lock descriptor. The lock
+    # remains held throughout recovery, package hooks, service work and cleanup.
+    exec lua ./with-lock.lua /bin/sh ./install.sh
+fi
+[ ! -f /etc/ocserv/easy-transaction/state.json ] || {
+    echo '存在待恢复的管理页事务，请等待后台恢复完成，或先在 LuCI 处理恢复错误后再安装。' >&2
     exit 1
 }
+if [ -f /etc/ocserv/easy-guard/state.json ]; then
+    # A confirmed guard can survive an upgrade. Never interrupt its activation,
+    # confirmation deadline, rollback, or an invalid recovery record.
+    if ! lua -e 'local f=assert(io.open("/etc/ocserv/easy-guard/state.json","rb")); local raw=f:read(2097153); f:close(); assert(raw and #raw<=2097152); local s=require("luci.jsonc").parse(raw); assert(type(s)=="table" and s.version==1 and s.phase=="enabled" and type(s.ops)=="table" and type(s.info)=="table")' >/dev/null 2>&1; then
+        echo 'VPN 专用上网尚在应用、待确认或恢复阶段；请先在 LuCI 完成或恢复该操作后再安装。' >&2
+        exit 1
+    fi
+fi
 
 pending=/etc/ocserv/easy-install-pending
 network_journal=/etc/ocserv/easy-install-network
@@ -54,10 +97,6 @@ if [ "$fresh" = 0 ]; then
 else
     echo '未检测到已完成的 Lansyra 安装；将执行首次网络初始化。'
 fi
-set -- ./*.apk
-[ "$#" -eq 2 ] || { echo '修复版套装应只包含 ocserv 和 luci-app-ocserv-easy 两个 APK。请解压到新目录，不要混入旧包。'; exit 1; }
-for package do [ -f "$package" ] || { echo "缺少安装包：$package"; exit 1; }; done
-case "$1 $2" in ./luci-app-ocserv-easy-*.apk\ ./ocserv-*.apk) ;; *) echo '安装包名称与修复版套装不符。'; exit 1;; esac
 if [ "$fresh" = 1 ]; then
     [ -z "$(uci -q changes firewall)" ] || { echo '其他页面有未应用的防火墙修改，请先处理后重跑安装。'; exit 1; }
     for id in ocserv_vpn ocserv_vpn_to_lan ocserv_vpn_nat ocserv_vpn_entry; do
@@ -240,6 +279,6 @@ fi
 # Invalidate both older Lua and current ucode dispatcher caches.
 rm -f /tmp/luci-indexcache* /tmp/luci-modulecache/*
 echo "安装完成。安装前备份：$backup"
-echo '请重新登录 LuCI → VPN → 岚序 Lansyra（管理页 0.5.4-r1）。'
+echo '请重新登录 LuCI → VPN → 岚序 Lansyra（管理页 0.5.5-r1）。'
 echo '全新安装：添加账号，检查服务设置，然后点击「启动服务」。'
 echo '默认端口 4443，VPN 地址池 10.77.0.0/24；专用 OpenClash 开关默认关闭。'

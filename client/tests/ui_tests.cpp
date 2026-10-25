@@ -161,12 +161,25 @@ int wmain(int argc, wchar_t **argv) {
                 wait_for([&] { return SendMessageW(GetDlgItem(main, Servers), CB_GETCOUNT, 0, 0) == 1; },
                          "Profile list did not refresh");
                 check(IsWindowEnabled(GetDlgItem(main, Connect)) != FALSE, "Saved profile can connect");
+                // Hold the store lease from a different thread while the UI
+                // changes settings. Neither the first nor a superseding
+                // preference update may wait for the disk writer.
+                ProfileStore store(root / L"data");
+                Handle preference_lease(CreateMutexW(
+                    nullptr, TRUE, local_object_name(L"ProfileStore", store.directory()).c_str()));
                 command(main, RetryFailed);
                 wait_for(
                     [&] {
                         return (GetMenuState(GetMenu(main), RetryFailed, MF_BYCOMMAND) & MF_CHECKED) != 0;
                     },
                     "Retry preference was not enabled");
+                Sleep(350);
+                command(main, Chinese);
+                DWORD_PTR response = 0;
+                const bool responsive = SendMessageTimeoutW(main, WM_NULL, 0, 0, SMTO_ABORTIFHUNG,
+                                                            250, &response) != 0;
+                ReleaseMutex(preference_lease.get());
+                check(responsive, "Preference saving blocked the UI on the store lease");
                 command(main, EditSelected);
                 profile = await_window(L"Lansyra.Profile");
                 check(get(profile, ProfileName) == L"办公 VPN（测试）",
@@ -182,7 +195,6 @@ int wmain(int argc, wchar_t **argv) {
                 snapshot(profile, root / L"advanced-profile-zh.bmp");
                 command(profile, IDOK);
                 wait_for([&] { return !IsWindow(profile); }, "Advanced profile did not save");
-                ProfileStore store(root / L"data");
                 std::vector<Profile> profiles;
                 Preferences preferences;
                 std::wstring error;
@@ -230,10 +242,15 @@ int wmain(int argc, wchar_t **argv) {
                 wait_for([&] { return !IsWindowVisible(main) || IsIconic(main); }, "Minimize did not work");
                 command(main, Restore);
                 wait_for([&] { return IsWindowVisible(main) && !IsIconic(main); }, "Restore did not work");
-                check(store.load(profiles, preferences, error) && preferences.language == Language::English &&
-                          preferences.retry_failed && preferences.auto_connect.empty(),
-                      "Language preference was not saved");
-                command(main, Quit);
+                wait_for(
+                    [&] {
+                        return store.load(profiles, preferences, error) &&
+                               preferences.language == Language::English && preferences.retry_failed &&
+                               preferences.auto_connect.empty();
+                    },
+                    "Language preference was not saved");
+                command(main, LogDebug);
+                command(main, Quit); // Exit must flush this still-debounced update.
             } catch (const std::exception &exception) {
                 failure = exception.what();
                 // Close only windows owned by the current test thread.
@@ -247,6 +264,12 @@ int wmain(int argc, wchar_t **argv) {
         actions.join();
         if (status || !failure.empty())
             throw std::runtime_error(failure.empty() ? "UI event loop failed" : failure);
+        std::vector<Profile> saved_profiles;
+        Preferences saved_preferences;
+        std::wstring save_error;
+        check(ProfileStore(root / L"data").load_metadata(saved_profiles, saved_preferences, save_error) &&
+                  saved_preferences.log_level == 2,
+              "Application exit dropped a still-debounced preference update");
         std::cout << "{\"passed\":" << passed << ",\"screenshots\":\"" << utf8(root.generic_wstring())
                   << "\"}\n";
     } catch (const std::exception &exception) {

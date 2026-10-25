@@ -196,7 +196,7 @@ bool protect_secret(const std::string &value, const std::string &context, std::s
     return !encoded.empty();
 }
 bool unprotect_secret(const std::string &encoded, const std::string &context, std::string &value) {
-    value.clear();
+    erase(value);
     if (encoded.empty())
         return true;
     std::string encrypted;

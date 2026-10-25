@@ -1,4 +1,5 @@
 #import "../client/apple/ServerAddress.h"
+#import "../client/apple/NetworkSettingsOperation.h"
 #include <stdio.h>
 
 int main(void) {
@@ -42,7 +43,34 @@ int main(void) {
             VPNCredentialValid([unicodeBoundary stringByAppendingString:@"码"])) {
             fprintf(stderr, "Credential byte limits or NUL validation failed\n"); return 1;
         }
-        printf("Apple server address, canonical pin and credential policies passed\n");
+        dispatch_group_t pending = dispatch_group_create();
+        VPNNetworkSettingsOperation *operation = [[VPNNetworkSettingsOperation alloc]
+            initWithGeneration:7 pending:pending];
+        if (operation.generation != 7 || [operation waitUntil:DISPATCH_TIME_NOW] ||
+            dispatch_group_wait(pending, DISPATCH_TIME_NOW) == 0) {
+            fprintf(stderr, "Unfinished network settings did not retain the stop barrier\n"); return 1;
+        }
+        // A caller's timeout or cancellation must leave the real OS operation
+        // pending. A late failure then releases the barrier exactly once.
+        NSError *failure = [NSError errorWithDomain:@"fixture" code:8 userInfo:nil];
+        dispatch_async(dispatch_get_global_queue(QOS_CLASS_DEFAULT, 0), ^{
+            [operation completeWithError:failure];
+        });
+        dispatch_time_t deadline = dispatch_time(DISPATCH_TIME_NOW, NSEC_PER_SEC);
+        if (![operation waitUntil:deadline] || operation.error != failure ||
+            dispatch_group_wait(pending, deadline) || operation.generation != 7) {
+            fprintf(stderr, "Late network settings completion was lost\n"); return 1;
+        }
+        [operation completeWithError:nil];
+        if (operation.error != failure || dispatch_group_wait(pending, DISPATCH_TIME_NOW)) {
+            fprintf(stderr, "Duplicate network settings completion changed the outcome\n"); return 1;
+        }
+        VPNNetworkSettingsOperation *next = [[VPNNetworkSettingsOperation alloc]
+            initWithGeneration:8 pending:pending];
+        [next completeWithError:nil];
+        if (![next waitUntil:DISPATCH_TIME_NOW] || next.error ||
+            dispatch_group_wait(pending, DISPATCH_TIME_NOW)) return 1;
+        printf("Apple address, credential and asynchronous network settings policies passed\n");
     }
     return 0;
 }

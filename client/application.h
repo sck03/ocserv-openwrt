@@ -1,8 +1,15 @@
 #pragma once
 #include "ui.h"
 #include "event_queue.h"
+#include "preferences_writer.h"
+#include <atomic>
 
 namespace vpn {
+struct NetworkWatchContext {
+    HWND window = nullptr;
+    std::atomic_bool message_pending{false};
+};
+
 class Application final : public ui::Window {
 public:
     explicit Application(std::filesystem::path data_directory);
@@ -33,16 +40,20 @@ private:
     bool tray(bool add = false);
     void remove_tray();
     void tray_menu();
-    bool save_preferences();
+    void save_preferences();
+    bool flush_preferences();
+    void preferences_saved();
     void toggle_auto_connect();
     void export_diagnostics();
     void watch_network();
     void stop_network_watch();
+    void drain_network_change();
     void receive(Event event);
     void drain_events();
     void show_statistics(const Statistics &stats);
     bool claim_instance();
     ProfileStore store_;
+    PreferencesWriter preferences_writer_;
     Preferences preferences_;
     std::vector<Profile> profiles_;
     std::unique_ptr<Session> session_;
@@ -62,6 +73,7 @@ private:
     unsigned timer_tick_ = 0;
     uint64_t network_change_at_ = 0;
     HANDLE network_notifications_[3]{};
+    NetworkWatchContext network_watch_;
     UINT taskbar_created_ = 0;
     HACCEL accelerators_ = nullptr;
 };

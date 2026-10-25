@@ -397,7 +397,11 @@ final class DesktopVPN: NSObject, ObservableObject, OSSystemExtensionRequestDele
                       let phase = value["state"] as? String,
                       ["idle", "connecting", "authenticating", "connected", "reconnecting", "suspended", "disconnecting", "failed"].contains(phase) else { return }
                 var report = snapshot
-                report["tunnel"] = ["session_id": id, "generation": generation, "state": phase]
+                var tunnel: [String: Any] = ["session_id": id, "generation": generation, "state": phase]
+                if let dropped = value["dropped_to_core"] as? NSNumber, dropped.doubleValue >= 0 {
+                    tunnel["dropped_to_core"] = dropped
+                }
+                report["tunnel"] = tunnel
                 do { try JSONSerialization.data(withJSONObject: report, options: [.prettyPrinted, .sortedKeys]).write(to: url, options: .atomic) }
                 catch { self.show(error) }
             }

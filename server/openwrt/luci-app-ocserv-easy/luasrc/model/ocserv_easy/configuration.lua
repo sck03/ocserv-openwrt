@@ -42,7 +42,7 @@ function M.replace(state, name, before, after)
 end
 
 function M.finish()
-    logic.require(fs.remove(statefile), "write_failed")
+    storage.remove(statefile)
 end
 
 function M.restore()
@@ -67,7 +67,7 @@ function M.restore()
     end
     for _, item in ipairs(changes) do
         if item.current ~= item.before then
-            if item.before == false then logic.require(fs.remove(item.path), "rollback_failed")
+            if item.before == false then storage.remove(item.path, "rollback_failed")
             else storage.atomic(item.path, item.before) end
         end
     end

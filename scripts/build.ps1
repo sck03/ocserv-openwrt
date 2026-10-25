@@ -12,6 +12,10 @@ $bash = Join-Path $MsysRoot 'usr\bin\bash.exe'
 foreach ($tool in @($cmake,$ninja,$bash)) {
     if (!(Test-Path -LiteralPath $tool)) { throw "Missing build tool: $tool; see docs/BUILD.md." }
 }
+$python = Get-Command python -ErrorAction SilentlyContinue
+if (!$python) { throw 'Missing Python: install Python 3.11+ and client/tests/requirements.txt dependencies.' }
+& $python.Source -c "import importlib.util, sys; sys.exit(0 if sys.version_info >= (3, 11) and importlib.util.find_spec('cryptography') else 1)"
+if ($LASTEXITCODE) { throw 'Use Python 3.11+ with test dependencies: python -m pip install -r client/tests/requirements.txt.' }
 $targets = if ($Architecture -eq 'all') { @('x64','x86') } else { @($Architecture) }
 $parallelJobs = if ($Jobs) { $Jobs } else { [Environment]::ProcessorCount }
 $previousJobs = $env:BUILD_JOBS

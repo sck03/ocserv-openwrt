@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.24)
-project(Lansyra VERSION 0.7.3 LANGUAGES C CXX RC)
+project(Lansyra VERSION 0.7.4 LANGUAGES C CXX RC)
 if(NOT WIN32 OR MSVC)
     message(FATAL_ERROR "Use the documented MinGW Windows toolchain.")
 endif()

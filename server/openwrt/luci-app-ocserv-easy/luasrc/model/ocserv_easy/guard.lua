@@ -5,6 +5,8 @@ local fs=require "nixio.fs"
 local uci=require "luci.model.uci"
 local json=require "luci.jsonc"
 local logic=require "luci.model.ocserv_easy.logic"
+local storage=require "luci.model.ocserv_easy.storage"
+local lease=require "luci.model.ocserv_easy.lease"
 local equal=logic.equal
 local run=require("luci.model.ocserv_easy.process").run
 local log=require "luci.model.ocserv_easy.guard_log"
@@ -32,29 +34,12 @@ local function read(path)
     logic.require(not value or #value<=2097152,"guard_state_invalid")
     return value
 end
-local function directory(path)
-    if not fs.stat(path) then logic.require(fs.mkdir(path,"700"),"write_failed") end
-    logic.require(fs.chmod(path,"700"),"write_failed")
-end
+local directory=storage.directory
 local function random()
-    local f=nixio.open("/dev/urandom","r"); logic.require(f,"random_failed")
-    local value=f:read(16); f:close(); logic.require(value and #value==16,"random_failed")
-    return nixio.bin.hexlify(value)
+    return nixio.bin.hexlify(storage.random(16))
 end
 local function atomic(path,value)
-    local temp=path..".new-"..random()
-    local f=nixio.open(temp,nixio.open_flags("wronly","creat","excl"),"600")
-    logic.require(f,"write_failed")
-    local offset,ok=1,true
-    while offset<=#value do
-        local count=f:write(value:sub(offset))
-        if not count or count==0 then ok=false; break end
-        offset=offset+count
-    end
-    if ok then ok=f:sync() end
-    f:close()
-    if ok then ok=fs.rename(temp,path) end
-    if not ok then fs.remove(temp); logic.fail("write_failed") end
+    storage.atomic(path,value,2097152)
 end
 local function saved()
     local raw=read(statefile); if not raw then return nil end
@@ -306,9 +291,11 @@ local function touched(state,package)
     return false
 end
 local function commit(c,state)
+    local changed=false
     for _,package in ipairs(configs) do
-        if touched(state,package) then logic.require(c:commit(package),"write_failed") end
+        if touched(state,package) then logic.require(c:commit(package),"write_failed"); changed=true end
     end
+    if changed then storage.sync_parent("/etc/config/ocserv") end
 end
 local function reload(state,boot)
     if boot then return end
@@ -339,7 +326,7 @@ local function restore(state,boot)
     log.add("restore",boot and "boot" or "start")
     if not state.started then
         atomic(root.."/result.json",json.stringify({restored=true,preserved=0,failure=state.failure,time=os.time()}))
-        logic.require(fs.remove(statefile),"write_failed"); log.add("restore","completed"); return
+        storage.remove(statefile); log.add("restore","completed"); return
     end
     local c=uci.cursor(); local preserved=0
     pending(c)
@@ -351,7 +338,7 @@ local function restore(state,boot)
     end
     for _,file in ipairs(state.files) do
         local value=read(file.path) or false
-        if value==file.after then if file.before==false then fs.remove(file.path) else atomic(file.path,file.before) end
+        if value==file.after then if file.before==false then storage.remove(file.path) else atomic(file.path,file.before) end
         elseif value~=file.before then preserved=preserved+1 end
     end
     commit(c,state)
@@ -360,7 +347,7 @@ local function restore(state,boot)
     reload(state,boot)
     atomic(root.."/last-backup.json",json.stringify(state))
     atomic(root.."/result.json",json.stringify({restored=true,preserved=preserved,failure=state.failure,time=os.time()}))
-    logic.require(fs.remove(statefile),"write_failed")
+    storage.remove(statefile)
     log.add("restore","completed")
 end
 local function apply(state)
@@ -391,13 +378,10 @@ local function apply(state)
     log.add("apply","pending")
 end
 local function locked(operation)
-    directory(work)
-    local lock=nixio.open(work.."/lock","w","600"); logic.require(lock,"write_failed")
-    local acquired=false
-    for _=1,100 do if lock:lock("tlock") then acquired=true; break end; nixio.poll({},100) end
-    if not acquired then lock:close(); logic.fail("busy") end
+    local lock,code=lease.acquire(100,100)
+    logic.require(lock,code)
     local ok,result=pcall(operation)
-    lock:lock("ulock"); lock:close()
+    lease.release(lock)
     if not ok then error(result,0) end
     return result
 end

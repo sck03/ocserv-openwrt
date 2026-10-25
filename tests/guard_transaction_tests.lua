@@ -101,6 +101,7 @@ local nixio={bin={},open_flags=function()return 1 end}
 nixio.bin.hexlify=function(v)return (v:gsub(".",function(ch)return string.format("%02x",ch:byte())end))end
 function nixio.open(path,flags,permissions)
     if path=="/dev/urandom" then return {read=function(_,n)S.counter=S.counter+1;return string.rep(string.char(S.counter%255),n)end,close=function()end} end
+    if flags=="r" then return {sync=function()return true end,close=function()end} end
     mode(permissions)
     S.files[path]=""
     return {write=function(_,v)S.files[path]=S.files[path]..v;return #v end,sync=function()return true end,close=function()end,lock=function()return not S.locked end}
@@ -177,6 +178,12 @@ test("legacy host-form VPN pool is normalized for guard rules",function()
 end)
 test("enable queues work without blocking the LuCI request",function()
     reset(); local before=clone(S.cfg); guard.begin("enable",admin); check(guard.status(admin).phase=="queued" and equal(before,S.cfg) and not S.nft)
+end)
+test("the guard worker honors the common maintenance lease",function()
+    reset();local before=clone(S.cfg);guard.begin("enable",admin);S.locked=true
+    expect("busy",function()guard.work(false)end)
+    check(equal(before,S.cfg) and guard.status(admin).phase=="queued")
+    S.locked=false;guard.work(false);check(guard.status(admin).phase=="enabled")
 end)
 test("enabling configures real interface guard and VPN-only proxy whitelist",function()
     reset(); S.cfg.openclash.config.enable_redirect_dns="1"; local before=clone(S.cfg)

@@ -1,28 +1,70 @@
 #pragma once
 #include "platform.h"
 #include <functional>
+#include <utility>
 
 namespace vpn {
-struct Profile {
-    Profile() = default;
-    Profile(const Profile &) = default;
-    Profile(Profile &&) noexcept = default;
-    Profile &operator=(const Profile &) = default;
-    Profile &operator=(Profile &&) noexcept = default;
-    ~Profile() {
+// Keep credential ownership separate so adding an ordinary Profile field does
+// not require maintaining a hand-written list of copy/move operations.
+struct ProfileSecrets {
+    ProfileSecrets() = default;
+    ProfileSecrets(const ProfileSecrets &) = default;
+    ProfileSecrets(ProfileSecrets &&other) noexcept {
+        *this = std::move(other);
+    }
+    ProfileSecrets &operator=(const ProfileSecrets &other) {
+        if (this != &other) {
+            clear();
+            password = other.password;
+            token = other.token;
+            password_blob = other.password_blob;
+            token_blob = other.token_blob;
+        }
+        return *this;
+    }
+    ProfileSecrets &operator=(ProfileSecrets &&other) noexcept {
+        if (this != &other) {
+            move_secret(password, other.password);
+            move_secret(token, other.token);
+            move_secret(password_blob, other.password_blob);
+            move_secret(token_blob, other.token_blob);
+        }
+        return *this;
+    }
+    ~ProfileSecrets() {
+        clear();
+    }
+    std::string password, token, password_blob, token_blob;
+
+private:
+    void clear() noexcept {
         erase(password);
         erase(token);
+        erase(password_blob);
+        erase(token_blob);
     }
+    static void move_secret(std::string &target, std::string &source) noexcept {
+        erase(target);
+        char *const original = source.data();
+        const auto size = source.size();
+        target = std::move(source);
+        // A short-string move can leave the previous bytes in the source's
+        // inline storage even though its size is already zero.
+        if (source.data() == original && size)
+            SecureZeroMemory(source.data(), size);
+        source.clear();
+    }
+};
+struct Profile : ProfileSecrets {
     std::string id;
     std::wstring name;
     std::wstring gateway;
     std::string protocol = "anyconnect";
-    std::string username, group, password;
+    std::string username, group;
     std::wstring ca_file, certificate_file, key_file;
     std::string server_pin;
     bool fixed_pin = false;
     int token_type = -1;
-    std::string token;
     std::wstring interface_name, script;
     int reconnect_timeout = 300;
     int dtls_period = 25;
@@ -32,7 +74,6 @@ struct Profile {
     bool disable_udp = false;
     bool use_proxy = false;
     bool secret_unavailable = false;
-    std::string password_blob, token_blob;
 };
 struct Preferences {
     Language language = Language::Chinese;

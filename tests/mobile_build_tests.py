@@ -139,7 +139,11 @@ class SourceTests(unittest.TestCase):
             ]):
                 build_common.download_verified(archive, "https://example.invalid", checksum)
             self.assertEqual(archive.read_bytes(), b"expected")
-            self.assertEqual(list(Path(directory).iterdir()), [archive])
+            # MSYS Python can preserve a mixed separator returned by iterdir;
+            # compare filesystem identity instead of the lexical Path spelling.
+            remaining = list(Path(directory).iterdir())
+            self.assertEqual(len(remaining), 1)
+            self.assertTrue(remaining[0].samefile(archive))
 
     def test_download_rejects_unsafe_archive_names(self):
         for name in ("../source.tar.gz", "..\\source.tar.gz", ".", "", "/source.tar.gz"):

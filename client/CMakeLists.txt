@@ -1,4 +1,4 @@
-add_library(client_model STATIC platform.cpp profile.cpp diagnostics.cpp network_policy.cpp)
+add_library(client_model STATIC platform.cpp profile.cpp preferences_writer.cpp diagnostics.cpp network_policy.cpp)
 target_include_directories(client_model PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}" "${VPN_GENERATED_DIR}")
 target_compile_definitions(client_model PUBLIC
     UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX WINVER=0x0A00 _WIN32_WINNT=0x0A00
