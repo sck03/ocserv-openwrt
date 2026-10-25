@@ -26,6 +26,7 @@ public:
     bool request(const Preferences &preferences, std::wstring &error);
     bool flush(std::wstring &error);
     void stop();
+    bool ready() const;
     bool pending() const;
     std::optional<Result> take_result();
 

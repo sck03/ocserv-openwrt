@@ -57,6 +57,10 @@ bool PreferencesWriter::pending() const {
     std::lock_guard<std::mutex> lock(mutex_);
     return dirty_ || writing_;
 }
+bool PreferencesWriter::ready() const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return started_ && !stopping_;
+}
 std::optional<PreferencesWriter::Result> PreferencesWriter::take_result() {
     std::lock_guard<std::mutex> lock(mutex_);
     if (!result_pending_ || !result_ || result_->generation != generation_)

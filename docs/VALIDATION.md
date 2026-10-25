@@ -6,11 +6,11 @@
 
 本轮版本为 Windows 0.7.4、Linux/macOS 0.1.4、Android/iOS 0.2.4、管理页 0.5.5-r1，ocserv 保持 1.5.0-r7。新增独立偏好写入、Apple 系统网络设置屏障、服务端共享租约和可丢弃查询缓存；保留原数据格式、凭据来源绑定和 IPv6 防绕行策略。Android 路由补集改为区间归并与扫描，安装器和账号工具参与已有 POSIX 锁，关键原子替换补充父目录同步。版本升级说明、模块边界、构建依赖和完整测试入口已同步。
 
-本地 Windows x64 全量编译无警告，CTest 5/5；完整便携包运行检查及连接 61、配置/后台保存/DPAPI 92、UI 30、真实 WSH 7、资源 9、回环认证 35 项通过。资源测试发送 60 万事件、清空 1,000 轮，句柄保持 134，私有内存增加 299,008 字节；这只是短时测试进程，不能推导整个 VPN 的长期内存占用。包内中英文启动、版本和 PE 系统导入审计通过，本地 ZIP 位于 `dist/Lansyra-0.7.4-windows-x64.zip`。
+本地 Windows x64 全量编译无警告，CTest 5/5；连接 61、配置/后台保存/DPAPI 92、UI 51、真实 WSH 7、资源 9、回环认证 35 项通过。最终 UI 回归包含已完成的旧快照、删除自动连接目标后的失败恢复、存储恢复后的关键保存重试，以及注销通知返回前的写入。资源测试发送 60 万事件、清空 1,000 轮，句柄保持 134，私有内存保持 2,297,856 字节；这只是短时测试进程，不能推导整个 VPN 的长期内存占用。便携包的中英文启动、版本和 PE 系统导入审计另有独立检查。
 
-服务端实际 Lua 模块逻辑 73、守护事务 38、进程边界 9、控制器权限 6、配置渲染 4 项及真实 Chrome 页面 18、轮询 8 项通过，浏览器无脚本错误。打包 8 项验证新增锁和缓存模块进入实包/对应源码。构建参数 11、Windows 打包 13、发布元数据 6、客户端构建 13、移动构建 19 项通过，Python 45 个文件及全部工作流/Shell/管理页脚本语法检查通过。Android RoutePolicy/NetworkRoutes 的 14 项纯 JVM 回归含 4096 条输入、随机地址集对照及输出上限检查。
+服务端实际 Lua 模块逻辑 74、守护事务 38、进程边界 9、控制器权限 6、配置渲染 4 项及真实 Chrome 页面 18、轮询 8 项通过，浏览器无脚本错误；新增回归确认临时 occtl 帮助查询失败不会被缓存为不支持能力。打包 8 项验证新增锁和缓存模块进入实包/对应源码。构建参数 11、Windows 打包 13、发布元数据 6、客户端构建 13、移动构建 19 项通过，Python 45 个文件及全部工作流/Shell/管理页脚本语法检查通过。Android RoutePolicy/NetworkRoutes 的 14 项纯 JVM 回归含 4096 条输入、随机地址集对照及输出上限检查。
 
-本地证据在 `test-results/maintenance-0.7.4-windows/`、`test-results/server-regressions.json`、`test-results/guard-transactions.json`、`test-results/server-ui/` 和 `test-results/server-polling.json`。Linux 安装/POSIX 锁竞争、Windows x86/WFP/Wintun 和 Apple 实际编译由本次 GitHub 工作流单独确认；未把本地 Windows 的平台跳过当作测试通过。真实 N1、手机、Apple 签名授权和 24–72 小时运行仍需设备验收。
+本地最终证据在 `test-results/windows-maintenance-final/`、`test-results/server-regressions.json`、`test-results/guard-transactions.json`、`test-results/server-ui/` 和 `test-results/server-polling.json`。Linux 安装/POSIX 锁竞争、Windows x86/WFP/Wintun 和 Apple 实际编译由本次 GitHub 工作流单独确认；未把本地 Windows 的平台跳过当作测试通过。真实 N1、手机、Apple 签名授权和 24–72 小时运行仍需设备验收。
 
 ## 2026-10-25 事务恢复、取消与分流边界修复
 

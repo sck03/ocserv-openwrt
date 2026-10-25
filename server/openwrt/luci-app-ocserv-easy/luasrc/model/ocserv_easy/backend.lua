@@ -40,10 +40,14 @@ local function running()
 end
 local function capabilities()
     return query_cache.get("capabilities",query_cache.identity(occtl),300,function()
-        local _,help=run({occtl,"--help"},3)
+        local code,help=run({occtl,"--help"},3)
         -- Some occtl releases print only switches for --help; command help is separate.
-        if not help:find("terminate user",1,true) then local _,commands=run({occtl,"help"},3); help=help..commands end
-        return {terminate=help:find("terminate user",1,true)~=nil}
+        if not help:find("terminate user",1,true) then
+            local commands; code,commands=run({occtl,"help"},3); help=help..commands
+        end
+        local terminate=help:find("terminate user",1,true)~=nil
+        -- A temporary process failure is not evidence of an unsupported server.
+        return {terminate=terminate,cacheable=terminate or code==0}
     end)
 end
 local function snapshot()

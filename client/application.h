@@ -17,6 +17,7 @@ public:
     int run(int show, const std::string &connect_profile, bool startup = false);
 
 private:
+    friend struct ApplicationTestAccess;
     LRESULT message(UINT message, WPARAM wparam, LPARAM lparam) override;
     const wchar_t *t(const wchar_t *zh, const wchar_t *en) const {
         return tr(preferences_.language, zh, en);
@@ -41,7 +42,7 @@ private:
     void remove_tray();
     void tray_menu();
     void save_preferences();
-    bool flush_preferences();
+    bool flush_preferences(std::wstring &error);
     void preferences_saved();
     void toggle_auto_connect();
     void export_diagnostics();

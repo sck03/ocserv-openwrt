@@ -265,7 +265,10 @@ bool Application::reload(const std::string &id) {
     if (index < 0)
         SetWindowTextW(item(Servers), L"");
     preferences_.selected = index < 0 ? "" : profiles_[static_cast<size_t>(index)].id;
-    if (pending_preferences)
+    // A prior snapshot can finish after a profile transaction and before this
+    // reload samples pending(). Always publish the final reconciled selection
+    // and a fresh generation, including after an obsolete save failed.
+    if (preferences_writer_.ready())
         save_preferences();
     rebuild_menu();
     update_controls();
@@ -327,14 +330,12 @@ void Application::save_preferences() {
     if (!preferences_writer_.request(preferences_, reason))
         error(window_, reason);
 }
-bool Application::flush_preferences() {
-    std::wstring reason;
-    if (!preferences_writer_.flush(reason)) {
-        preferences_writer_.take_result();
-        error(window_, reason);
+bool Application::flush_preferences(std::wstring &reason) {
+    // A critical operation also provides one explicit retry after an earlier
+    // save failure. Ordinary background completion never retries on its own.
+    if (preferences_writer_.ready() && !preferences_writer_.request(preferences_, reason))
         return false;
-    }
-    return true;
+    return preferences_writer_.flush(reason);
 }
 void Application::preferences_saved() {
     if (auto result = preferences_writer_.take_result(); result && !result->success)
@@ -345,14 +346,17 @@ void Application::preferences_saved() {
 void Application::toggle_auto_connect() {
     // The registry startup command and its profile binding form one operation.
     // Drain ordinary async settings before the synchronous commit/rollback.
-    if (!flush_preferences())
+    std::wstring reason;
+    if (!flush_preferences(reason)) {
+        preferences_writer_.take_result();
+        error(window_, reason);
         return;
+    }
     const auto previous = preferences_.auto_connect;
     const auto *profile = selected();
     if (previous.empty() && !profile)
         return;
     preferences_.auto_connect = previous.empty() ? profile->id : "";
-    std::wstring reason;
     if (!store_.save_preferences(preferences_, reason)) {
         preferences_.auto_connect = previous;
         error(window_, reason);
@@ -881,11 +885,18 @@ LRESULT Application::message(UINT message, WPARAM wparam, LPARAM lparam) {
         return TRUE;
     }
     if (message == WM_ENDSESSION && wparam) {
+        // Windows can terminate the process as soon as this handler returns,
+        // even while the VPN worker is still disconnecting.
+        if (preferences_writer_.ready())
+            save_preferences();
+        preferences_writer_.stop();
         shutdown();
         return 0;
     }
     if (message == WM_DESTROY) {
         // Finish the latest queued update before callbacks can outlive HWND.
+        if (preferences_writer_.ready())
+            save_preferences();
         preferences_writer_.stop();
         preferences_saved();
         stop_network_watch();

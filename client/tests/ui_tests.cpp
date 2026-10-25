@@ -5,17 +5,96 @@
 #include <fstream>
 #include <iostream>
 #include <stdexcept>
+#include <exception>
+
+namespace vpn {
+// The bridge below invokes these operations on this test's UI thread. It lets
+// the regression control persistence ordering without a real VPN connection.
+struct ApplicationTestAccess {
+    static PreferencesWriter &writer(Application &application) {
+        return application.preferences_writer_;
+    }
+    static void queue(Application &application, const Preferences &preferences) {
+        application.preferences_ = preferences;
+        application.save_preferences();
+    }
+    static bool reload(Application &application, const std::string &selected = {}) {
+        return application.reload(selected);
+    }
+    static bool flush(Application &application, std::wstring &error) {
+        return application.flush_preferences(error);
+    }
+    static void hold_session(Application &application) {
+        Profile profile;
+        profile.name = L"Shutdown fixture";
+        profile.gateway = L"https://vpn.example.test";
+        Session::Options options;
+        options.authentication_only = true;
+        // Deliberately do not start a worker: cancellation cannot finish this
+        // controlled session or destroy the window before the assertion.
+        application.session_ = std::make_unique<Session>(
+            std::move(profile), &application.store_, Language::Chinese, [](Event) {}, options);
+    }
+    static void finish_shutdown(Application &application) {
+        application.session_.reset();
+        DestroyWindow(application.handle());
+    }
+};
+} // namespace vpn
 
 using namespace vpn;
 using namespace vpn::ui;
 namespace {
 unsigned passed = 0;
 DWORD ui_thread = 0;
+constexpr UINT TestTaskMessage = WM_APP + 120;
+WNDPROC main_procedure = nullptr;
+struct UITask {
+    std::function<void()> run;
+    std::exception_ptr error;
+};
+LRESULT CALLBACK test_procedure(HWND window, UINT message, WPARAM wparam, LPARAM lparam) {
+    if (message == TestTaskMessage) {
+        auto &task = *reinterpret_cast<UITask *>(lparam);
+        try {
+            task.run();
+        } catch (...) {
+            task.error = std::current_exception();
+        }
+        return 0;
+    }
+    return CallWindowProcW(main_procedure, window, message, wparam, lparam);
+}
+void on_ui(HWND window, std::function<void()> action) {
+    UITask task{std::move(action), {}};
+    SendMessageW(window, TestTaskMessage, 0, reinterpret_cast<LPARAM>(&task));
+    if (task.error)
+        std::rethrow_exception(task.error);
+}
 void check(bool condition, const char *message) {
     if (!condition)
         throw std::runtime_error(message);
     ++passed;
 }
+void install_bridge(HWND window) {
+    main_procedure = reinterpret_cast<WNDPROC>(GetWindowLongPtrW(window, GWLP_WNDPROC));
+    check(main_procedure != nullptr, "Could not install this process's UI regression bridge");
+    check(SetWindowLongPtrW(window, GWLP_WNDPROC, reinterpret_cast<LONG_PTR>(test_procedure)) != 0,
+          "Could not attach this process's UI regression bridge");
+}
+class TestStoreLease {
+public:
+    explicit TestStoreLease(const ProfileStore &store)
+        : mutex_(CreateMutexW(nullptr, FALSE, local_object_name(L"ProfileStore", store.directory()).c_str())) {
+        const DWORD result = mutex_ ? WaitForSingleObject(mutex_.get(), 5000) : WAIT_FAILED;
+        check(result == WAIT_OBJECT_0 || result == WAIT_ABANDONED, "Could not hold the test store lease");
+    }
+    ~TestStoreLease() {
+        ReleaseMutex(mutex_.get());
+    }
+private:
+    Handle mutex_;
+};
 HWND find_window(const wchar_t *type) {
     struct Search {
         const wchar_t *type;
@@ -140,6 +219,7 @@ int wmain(int argc, wchar_t **argv) {
         std::thread actions([&] {
             try {
                 HWND main = await_window(L"Lansyra.Main");
+                install_bridge(main);
                 check(read_window_text(main) == Product, "Main window product name is incorrect");
                 check(get(main, Connect) == L"连接" && !IsWindowEnabled(GetDlgItem(main, Connect)),
                       "Empty gateway cannot connect");
@@ -249,6 +329,51 @@ int wmain(int argc, wchar_t **argv) {
                                preferences.auto_connect.empty();
                     },
                     "Language preference was not saved");
+                on_ui(main, [&] {
+                    auto &writer = ApplicationTestAccess::writer(application);
+                    check(writer.flush(error), "Could not settle settings before the reload regressions");
+                    check(store.load_metadata(profiles, preferences, error) && profiles.size() == 1,
+                          "Could not load the reload regression fixture");
+                    const auto original_id = profiles.front().id;
+                    Profile added;
+                    added.name = L"Reload order fixture";
+                    added.gateway = L"https://reload.example.test";
+                    {
+                        TestStoreLease lease(store);
+                        ApplicationTestAccess::queue(application, preferences);
+                        check(store.save(added, error), "Could not create the new selected profile");
+                    }
+                    // Complete the older snapshot after the profile transaction
+                    // but before reload samples pending(). Its selection is old.
+                    check(writer.flush(error) && store.load_metadata(profiles, preferences, error) &&
+                              preferences.selected == original_id,
+                          "The stale completed snapshot fixture did not reproduce the ordering");
+                    check(ApplicationTestAccess::reload(application, added.id) && writer.flush(error) &&
+                              store.load_metadata(profiles, preferences, error) && preferences.selected == added.id,
+                          "Reload failed to persist the final selection after an older snapshot completed");
+                    {
+                        TestStoreLease lease(store);
+                        preferences.auto_connect = added.id;
+                        ApplicationTestAccess::queue(application, preferences);
+                        check(store.remove(added.id, error), "Could not remove the obsolete automatic profile");
+                    }
+                    check(!writer.flush(error), "An obsolete automatic profile snapshot unexpectedly saved");
+                    writer.take_result(); // Handle the expected failure before the message loop resumes.
+                    check(ApplicationTestAccess::reload(application) && writer.flush(error) &&
+                              store.load_metadata(profiles, preferences, error) && profiles.size() == 1 &&
+                              preferences.auto_connect.empty() && preferences.selected == original_id,
+                          "Reload left the writer stuck on an obsolete failed automatic-profile snapshot");
+                    std::string intact_store;
+                    const auto path = store.directory() / L"profiles.json";
+                    check(read_file(path, intact_store, error) && write_atomic(path, "{invalid", error),
+                          "Could not create the temporary preference-save failure");
+                    ApplicationTestAccess::queue(application, preferences);
+                    check(!writer.flush(error), "The temporary preference-save failure did not occur");
+                    writer.take_result();
+                    check(write_atomic(path, intact_store, error), "Could not restore the preference store");
+                    check(ApplicationTestAccess::flush(application, error),
+                          "A critical preference flush did not retry after the store became writable again");
+                });
                 command(main, LogDebug);
                 command(main, Quit); // Exit must flush this still-debounced update.
             } catch (const std::exception &exception) {
@@ -270,6 +395,36 @@ int wmain(int argc, wchar_t **argv) {
         check(ProfileStore(root / L"data").load_metadata(saved_profiles, saved_preferences, save_error) &&
                   saved_preferences.log_level == 2,
               "Application exit dropped a still-debounced preference update");
+        Application ending_application(root / L"end-session");
+        failure.clear();
+        std::thread ending_actions([&] {
+            try {
+                HWND main = await_window(L"Lansyra.Main");
+                install_bridge(main);
+                on_ui(main, [&] {
+                    ApplicationTestAccess::hold_session(ending_application);
+                    SendMessageW(main, WM_COMMAND, LogTrace, 0);
+                    SendMessageW(main, WM_ENDSESSION, FALSE, 0);
+                    check(ApplicationTestAccess::writer(ending_application).ready(),
+                          "A cancelled Windows end-session notification stopped preference saving");
+                    SendMessageW(main, WM_ENDSESSION, TRUE, 0);
+                    check(IsWindow(main) != FALSE,
+                          "The shutdown fixture did not retain its still-disconnecting session");
+                    check(ProfileStore(root / L"end-session").load_metadata(
+                              saved_profiles, saved_preferences, save_error) && saved_preferences.log_level == 3,
+                          "Windows end-session returned before persisting preferences of an active session");
+                    ApplicationTestAccess::finish_shutdown(ending_application);
+                });
+            } catch (const std::exception &exception) {
+                failure = exception.what();
+                if (HWND main = find_window(L"Lansyra.Main"))
+                    on_ui(main, [&] { ApplicationTestAccess::finish_shutdown(ending_application); });
+            }
+        });
+        status = ending_application.run(SW_SHOWNORMAL, {});
+        ending_actions.join();
+        if (status || !failure.empty())
+            throw std::runtime_error(failure.empty() ? "Windows end-session event loop failed" : failure);
         std::cout << "{\"passed\":" << passed << ",\"screenshots\":\"" << utf8(root.generic_wstring())
                   << "\"}\n";
     } catch (const std::exception &exception) {

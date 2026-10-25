@@ -297,7 +297,10 @@ local function run(argv)
         return 0,(S.legacy_banner and "ocserv " or "OpenConnect VPN Server ")..S.version.."\n"
     end
     if command:find("--test-config",1,true)then S.candidate=S.files[argv[4]];return S.bad_config and 1 or 0,""end
-    if command:find("occtl --help",1,true)or command:find("occtl help",1,true)then return 0,"terminate user\nshow sessions all"end
+    if command:find("occtl --help",1,true)or command:find("occtl help",1,true)then
+        if S.capabilities_timeout then return 124,"" end
+        return 0,"terminate user\nshow sessions all"
+    end
     if command:find("occtl -j show users",1,true)then return 0,"ONLINE"end
     if command:find("occtl -j show sessions all",1,true)then return S.bad_sessions and 1 or 0,"SESSIONS"end
     if command:find("occtl terminate user",1,true)then return S.fail_terminate and 1 or 0,""end
@@ -388,6 +391,13 @@ end)
 test("both actual and legacy ocserv version banners enable the page",function()
     reset();check(backend.data().supported and backend.data().version=="1.5.0")
     S.legacy_banner=true;check(backend.data().supported)
+end)
+test("temporary capability query failures are not cached as an obsolete server",function()
+    reset();S.capabilities_timeout=true
+    check(not backend.data().capabilities.terminate)
+    S.capabilities_timeout=nil
+    check(backend.data().capabilities.terminate)
+    check(request(edit("FixturePassword")).effect=="terminated")
 end)
 test("a failed version query is not misreported as an outdated server",function()
     reset();S.version_timeout=true
