@@ -12,6 +12,22 @@
 
 本地最终证据在 `test-results/windows-maintenance-final/`、`test-results/server-regressions.json`、`test-results/guard-transactions.json`、`test-results/server-ui/` 和 `test-results/server-polling.json`。Linux 安装/POSIX 锁竞争、Windows x86/WFP/Wintun 和 Apple 实际编译由本次 GitHub 工作流单独确认；未把本地 Windows 的平台跳过当作测试通过。真实 N1、手机、Apple 签名授权和 24–72 小时运行仍需设备验收。
 
+运行代码分为 [`da88316`](https://github.com/sck03/ocserv-openwrt/commit/da88316) 和补充边界修复 [`acd4dae`](https://github.com/sck03/ocserv-openwrt/commit/acd4dae)。补充提交仅改变 Windows 偏好、服务端能力缓存及对应回归/说明；已核对 Apple、Android、Linux 和 macOS 应用源码在两次提交间没有变化。
+
+| 平台 | 本轮 GitHub 验证 |
+|---|---|
+| Windows x86/x64，acd4dae | [运行 40164066006](https://github.com/sck03/ocserv-openwrt/actions/runs/40164066006)：双架构编译、PE/源码包审计、UI 51 项与全部原生认证/配置/资源回归通过；x64 另通过 WFP 4、真实 Wintun 8 项 |
+| Linux/macOS，da88316 | [运行 40162926261](https://github.com/sck03/ocserv-openwrt/actions/runs/40162926261)：Linux 双架构构建、四组 Debian 13/Ubuntu 26.04 安装与启动，以及 macOS Universal unsigned 全部通过 |
+| Android，da88316 | [运行 40162928395](https://github.com/sck03/ocserv-openwrt/actions/runs/40162928395)：三种 ABI、完整策略 JUnit、debug APK、16 KB 对齐与签名验证通过 |
+| iOS，da88316 | [运行 40162931026](https://github.com/sck03/ocserv-openwrt/actions/runs/40162931026)：地址/凭据/数据包及迟到网络设置完成回归、应用与扩展 unsigned archive 通过 |
+| 服务端，acd4dae | [运行 40164069173](https://github.com/sck03/ocserv-openwrt/actions/runs/40164069173)：逻辑 74、守护 38、安装/POSIX 竞争 49、密码文件 9、真实证书和隔离网络、页面 18 与轮询 8 项通过；armsr/armv8、ramips/mt7621、x86/64、mediatek/filogic、ipq806x/generic、ath79/generic 的六架构 APK/ELF 审计、源码和安装套装打包全部通过 |
+
+最终 Windows CI 的资源回归中，x64 私有内存保持 2,093,056 字节、句柄保持 118；x86 私有内存增加 81,920 字节、句柄保持 135。两者均处理 60 万事件并清空 1,000 轮。这些短时计数没有显示无界增长，但不替代实际流量和长期设备观测。
+
+下载的测试附件按 GitHub artifact digest 和 ZIP CRC 校验，首轮与最终结果分别保存在 `artifacts/validation/2026-10-25-maintenance/` 和其 `final/` 子目录。两轮本地清理累计移除约 250 MiB 构建及 Python 生成物，并移除被忽略的旧 GitHub 本机助手，保留工具链、锁定上游归档、许可证、发行包和验证记录。新模块和历史导入/导出功能均核对实际引用；仍被 CMake 导出元数据引用的 zlib 库文件不作为无效文件删除。
+
+N1 的最终 `aarch64_generic` 套装已下载至 `dist/`，核对外层 artifact digest、ZIP CRC 和内部 19 项 SHA-256；实际 BUILDINFO 为 OpenWrt SDK 25.12.6、ocserv 1.5.0-r7、管理页 0.5.5-r1、提交 acd4dae。六架构包审计附件也分别校验后保存。Windows 本地最终便携包及对应源码分别为 `dist/Lansyra-0.7.4-windows-x64.zip` 和 `dist/Lansyra-0.7.4-source.zip`；已验证新模块在源码包中与工作区逐字节一致，包不携带本机辅助工具或虚拟环境。本轮全部构建关闭 Release 发布；Android 为 debug、Apple 为 unsigned，不等同于设备安装或长时间转发验收。
+
 ## 2026-10-25 事务恢复、取消与分流边界修复
 
 本次源码版本为 Windows 0.7.3、Linux/macOS 0.1.3、Android 0.2.3、iOS 0.2.3、管理页 0.5.4-r1，ocserv 仍为 1.5.0-r7。最终应用提交为 [`9e867c1`](https://github.com/sck03/ocserv-openwrt/commit/9e867c1)，服务端和管理页回归对应 [`d08a7cb`](https://github.com/sck03/ocserv-openwrt/commit/d08a7cb)，Windows 原生回归对应 [`5a38f8a`](https://github.com/sck03/ocserv-openwrt/commit/5a38f8a)。修复服务端配置超限和中断恢复、Windows CA 并发导入和路由清理错误、IPv4 全隧道的 IPv6 防绕行、管理页旧刷新覆盖、Android 取消及错误丢失、数字网络分流，以及桌面端保存失败的一致性。新增独立的持久化、网络和会话策略模块，数据格式与用户凭据上下文保持不变。
