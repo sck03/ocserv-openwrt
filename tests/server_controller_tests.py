@@ -8,6 +8,8 @@ lua = LuaRuntime(unpack_returned_tuples=True)
 model = ROOT / "server/openwrt/luci-app-ocserv-easy/luasrc/model/ocserv_easy"
 lua.execute('package.preload[...] = assert(loadstring(select(2,...)))',
             "luci.model.ocserv_easy.logic", (model / "logic.lua").read_text(encoding="utf-8"))
+lua.execute('package.preload[...] = assert(loadstring(select(2,...)))',
+            "luci.model.ocserv_easy.proxy_registry", (model / "proxy_registry.lua").read_text(encoding="utf-8"))
 lua.execute('''
 permissions={ocserv=true}; payload={action="settings"}; calls=0
 package.loaded["luci.dispatcher"]={context={authsession="fixture"}}

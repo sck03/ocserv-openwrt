@@ -22,7 +22,9 @@ local root="/etc/ocserv/easy-guard"
 local statefile=root.."/state.json"
 local rulefile=root.."/guard.nft"
 local work="/var/run/ocserv-easy"
-local configs={"firewall","dhcp","openclash","nikki","momo","ocserv"}
+local configs={"firewall","dhcp"}
+for _,name in ipairs(proxy.names(true)) do configs[#configs+1]=name end
+configs[#configs+1]="ocserv"
 local phases={queued=true,applying=true,pending=true,enabled=true,restoring=true,recovery_failed=true}
 local function monotonic()
     local info=nixio.sysinfo and nixio.sysinfo()
@@ -46,7 +48,7 @@ local function saved()
     local raw=read(statefile); if not raw then return nil end
     local state=json.parse(raw)
     logic.require(type(state)=="table" and state.version==2 and phases[state.phase] and type(state.ops)=="table" and type(state.info)=="table" and type(state.files)=="table" and type(state.before)=="table","guard_state_invalid")
-    logic.require(state.info.proxy=="openclash" or state.info.proxy=="nikki" or state.info.proxy=="momo","guard_state_invalid")
+    logic.require(proxy.supports(state.info.proxy),"guard_state_invalid")
     return state
 end
 local function save(state) atomic(statefile,json.stringify(state)) end

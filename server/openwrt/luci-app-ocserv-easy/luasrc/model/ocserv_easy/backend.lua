@@ -96,7 +96,7 @@ end
 function M.data(admin)
     local s=snapshot(); local state=M.status(true)
     state.version=version()
-    state.ui_version="0.6.3"
+    state.ui_version="0.6.4"
     state.supported=logic.supported_version(state.version)
     state.capabilities=capabilities()
     state.revision=s.revision
@@ -395,6 +395,7 @@ function M.sync_proxy()
         if (s.config.auth or "plain")~="plain" or s.config.proxy_arp=="1" then return {effect="unchanged"} end
         local selected=proxy.select(s.cursor)
         if not selected or selected=="openclash" then return {effect="unchanged"} end
+        logic.require(proxy.supports(selected),"guard_proxy_unsupported")
         local detected,name=pcall(proxy.detect,s.cursor)
         if not detected then
             -- Enabled but not running yet is transient, not successful sync.

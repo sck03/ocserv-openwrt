@@ -59,7 +59,10 @@ function action()
         logic.require(type(raw)=="string" and #raw<=65536,"bad_request")
         local request=require("luci.jsonc").parse(raw)
         if type(request)=="table" then
-            local packages=request.action=="guard" and {"firewall","dhcp","openclash","nikki","momo"} or request.action=="settings" and {"firewall"} or {}
+            local packages=request.action=="guard" and {"firewall","dhcp"} or request.action=="settings" and {"firewall"} or {}
+            if request.action=="guard" then
+                for _,name in ipairs(require("luci.model.ocserv_easy.proxy_registry").names(true)) do packages[#packages+1]=name end
+            end
             for _,package in ipairs(packages) do
                 logic.require(can_write(package),"forbidden")
             end

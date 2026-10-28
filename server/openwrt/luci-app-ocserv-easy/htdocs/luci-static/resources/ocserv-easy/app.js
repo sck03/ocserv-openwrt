@@ -31,6 +31,7 @@
         recovery_pending:t('上次服务设置尚需恢复，请稍后刷新；恢复记录位于 /etc/ocserv/easy-transaction。','A previous configuration transaction needs recovery. Refresh shortly; records are in /etc/ocserv/easy-transaction.'),
         guard_requires_fw4:t('需要 Firewall4 和 nftables。','Firewall4 and nftables are required.'),
         guard_requires_proxy:t('请先安装、配置并运行 OpenClash、Nikki 或 Momo 中的一款。','Install, configure and run one of OpenClash, Nikki or Momo first.'),
+        guard_proxy_unsupported:t('检测到运行中的其他代理，但尚未提供经过验证的 VPN 接入适配。请切换到已支持的代理。','Another proxy is running without a verified VPN ingress adapter. Select a supported proxy.'),
         guard_proxy_conflict:t('检测到多款代理同时启用。请只保留一款启用，再开启专用上网。','Multiple proxy services are enabled. Leave only one enabled before using VPN-only access.'),
         guard_proxy_mode:t('Nikki/Momo 需要关闭仅核心模式，并配置 TCP 与 UDP 透明代理。','Disable core-only mode and configure TCP and UDP transparent proxying in Nikki/Momo.'),
         guard_proxy_template:t('此版本的代理入口模板不兼容或已被修改，未应用设置。请先关闭专用上网再升级代理。','The proxy ingress template is unsupported or modified. No settings were applied. Disable VPN-only access before upgrading the proxy.'),
@@ -311,8 +312,9 @@
             if(loading)return; loading=true; output.textContent=t('正在检查…','Checking…');
             try{
                 var p=await request('proxy-status');
-                var lines=[t('代理：','Proxy: ')+p.proxy,t('核心进程：','Core process: ')+status(p.running)];
-                if(p.proxy!=='openclash'){
+                var lines=[t('代理：','Proxy: ')+(p.label || p.proxy),t('核心进程：','Core process: ')+status(p.running)];
+                if(p.supported===false)lines.push(errors.guard_proxy_unsupported);
+                else if(p.proxy!=='openclash'){
                     lines.push(t('VPN 入口：','VPN ingress: ')+status(p.ingress_ready));
                     if(!p.ingress_ready)lines.push(t('VPN 流量尚未接入代理，请查看接入日志。','VPN traffic is not connected to the proxy. Check the integration log.'));
                     lines.push('TCP: '+p.tcp_mode+'; UDP: '+p.udp_mode);
@@ -417,7 +419,7 @@
             }),
             mutationButton(state.autostart?t('关闭开机启动','Disable autostart'):t('开机自动启动','Enable autostart'),function(){complete({action:'service',command:state.autostart?'disable':'enable'}).catch(function(e){notice(errorText(e),true);});})
         ]);
-        root.appendChild(element('div',{className:'easy-heading'},[element('div',{},[element('h2',{text:'岚序 Lansyra'}),element('span',{className:'easy-muted',text:t('管理页 ','UI ')+(state.ui_version || '0.6.3')+' · ocserv '+state.version})]),actions]));
+        root.appendChild(element('div',{className:'easy-heading'},[element('div',{},[element('h2',{text:'岚序 Lansyra'}),element('span',{className:'easy-muted',text:t('管理页 ','UI ')+(state.ui_version || '0.6.4')+' · ocserv '+state.version})]),actions]));
         messageBox=element('div',{className:'easy-notice',hidden:true});root.appendChild(messageBox);
         statusBox=element('div',{className:'easy-summary'});statusKey=null;root.appendChild(statusBox);renderStatus();
         if(state.installation_pending)root.appendChild(element('p',{className:'easy-notice error',text:t('安装尚未完成。请在完整服务端套装目录重新运行 sh install.sh，完成证书和 VPN 网络初始化。','Installation is incomplete. Run sh install.sh again from the complete server bundle to finish certificate and VPN network initialization.')}));

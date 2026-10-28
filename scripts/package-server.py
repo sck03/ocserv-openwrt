@@ -76,7 +76,7 @@ def main():
         for relative in ("etc/init.d/ocserv-easy-guard", "usr/libexec/ocserv-easy-guard"):
             if not (ui_roots[0] / relative).stat().st_mode & 0o111:
                 raise RuntimeError("Guard runtime is not executable: " + relative)
-        for module in ("guard.lua", "proxy.lua", "guard_log.lua", "process.lua", "backend.lua", "logic.lua", "firewall.lua", "storage.lua", "configuration.lua", "query_cache.lua", "lease.lua"):
+        for module in ("guard.lua", "proxy.lua", "proxy_registry.lua", "guard_log.lua", "process.lua", "backend.lua", "logic.lua", "firewall.lua", "storage.lua", "configuration.lua", "query_cache.lua", "lease.lua"):
             relative = "usr/lib/lua/luci/model/ocserv_easy/" + module
             if sha256(ui_roots[0] / relative) != sha256(ROOT / "server/openwrt/luci-app-ocserv-easy/luasrc/model/ocserv_easy" / module):
                 raise RuntimeError("Stale management module: " + module)

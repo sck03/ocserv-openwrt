@@ -59,6 +59,8 @@ class ProxyRuntimeTests(unittest.TestCase):
         ''')
         self.lua.execute('package.loaded["luci.model.ocserv_easy.logic"]=assert(loadstring(...))()',
                          (MODEL / "logic.lua").read_text(encoding="utf-8"))
+        self.lua.execute('package.loaded["luci.model.ocserv_easy.proxy_registry"]=assert(loadstring(...))()',
+                         (MODEL / "proxy_registry.lua").read_text(encoding="utf-8"))
         self.proxy = self.lua.execute((MODEL / "proxy.lua").read_text(encoding="utf-8"))
 
     def target(self, name, table, port, kind="redirect"):
@@ -135,6 +137,53 @@ class ProxyRuntimeTests(unittest.TestCase):
         state = self.proxy.diagnostics(self.lua.globals().cursor, "momo")
         self.assertIsNone(state.tun.table)
         self.assertFalse(any(args[0] == "/sbin/ip" for args in self.commands))
+
+    def test_openclash_running_requires_its_own_named_procd_instance(self):
+        self.lua.globals().run_fixture = lambda argv, timeout: (0, json.dumps({
+            "nikki": {"instances": {"nikki": {"running": True}}}}))
+        self.lua.execute('package.loaded["luci.model.ocserv_easy.process"].run=run_fixture')
+        proxy = self.lua.execute((MODEL / "proxy.lua").read_text(encoding="utf-8"))
+        self.assertFalse(proxy.running("openclash"))
+
+    def test_managed_services_wait_for_valid_generated_dns_targets(self):
+        for name in ("openclash", "nikki", "momo"):
+            table = "fw4" if name == "openclash" else name
+            chain_name = "openclash_dns_redirect" if name == "openclash" else "lan_dns_hijack"
+            with self.subTest(provider=name):
+                self.assertTrue(self.proxy.ready(name, False))
+                self.assertFalse(self.proxy.ready(name, True))
+                self.target(table, chain_name, {"map": "dns_ports"})
+                self.assertFalse(self.proxy.ready(name, True))
+                self.target(table, chain_name, 15053)
+                self.assertFalse(self.proxy.ready(name, True))
+                self.files["/proc/net/tcp"] = socket_row(15053)
+                self.assertFalse(self.proxy.ready(name, True))
+                self.files["/proc/net/udp"] = socket_row(15053, "07")
+                self.assertTrue(self.proxy.ready(name, True))
+                self.files["/proc/net/tcp"] = socket_row(15053, "01")
+                self.assertFalse(self.proxy.ready(name, True))
+                self.files["/proc/net/tcp"] = "header\n"
+                self.files["/proc/net/udp"] = "header\n"
+
+    def test_stopped_momo_does_not_report_nikkis_shared_tun(self):
+        self.lua.globals().run_fixture = lambda argv, timeout: (0, json.dumps({
+            "momo": {"instances": {"momo": {"running": False}}}}))
+        self.lua.execute('package.loaded["luci.model.ocserv_easy.process"].run=run_fixture')
+        proxy = self.lua.execute((MODEL / "proxy.lua").read_text(encoding="utf-8"))
+        state = proxy.diagnostics(self.lua.globals().cursor, "momo")
+        self.assertFalse(state.running)
+        self.assertIsNone(state.tun)
+        self.assertEqual(len(state.targets), 0)
+
+    def test_detected_providers_without_adapters_are_explicitly_unsupported(self):
+        for name, label in (("passwall", "PassWall"), ("passwall2", "PassWall 2"),
+                            ("homeproxy", "HomeProxy"), ("shadowsocksr", "SSR Plus+")):
+            state = self.proxy.diagnostics(self.lua.globals().cursor, name)
+            self.assertEqual(state.label, label)
+            self.assertTrue(state.running)
+            self.assertFalse(state.supported)
+            self.assertIsNone(state.ingress_ready)
+            self.assertEqual(len(state.targets), 0)
 
 
 if __name__ == "__main__":

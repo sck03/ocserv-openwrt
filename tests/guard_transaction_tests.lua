@@ -21,7 +21,7 @@ local function encode(v) serial=serial+1; local key="JSON-"..serial; objects[key
 local function decode(v) return clone(objects[v]) end
 local function row(kind,values) values=values or {}; values[".type"]=kind; return values end
 local function reset()
-    S={files={},dirs={},commands={},now=1000,auto_confirm=true,nft=false,counter=0,running=true,openclash_process="clash"}
+    S={files={},dirs={},commands={},now=1000,auto_confirm=true,nft=false,counter=0,running=true,proxy_running="openclash"}
     S.cfg={
         network={lan=row("interface",{proto="static",device="br-lan",ipaddr="192.168.19.253",netmask="255.255.255.0"})},
         firewall={defaults=row("defaults",{flow_offloading="1",flow_offloading_hw="1"}),lan=row("zone",{name="lan",device={"br-lan","vpns+"},input="ACCEPT",output="ACCEPT",forward="ACCEPT"})},
@@ -37,6 +37,8 @@ local function reset()
     S.files["/etc/ocserv/ocserv.conf.template"]=TEST_TEMPLATE
     S.files["/usr/share/ocserv-easy/guard.nft.in"]=TEST_GUARD
     S.files["/var/run/ocserv.pid"]="101\n"
+    S.files["/proc/net/tcp"]=" 0: 00000000:041D 00000000:0000 0A\n"
+    S.files["/proc/net/udp"]=" 0: 00000000:041D 00000000:0000 07\n"
     for _,path in ipairs({"/sbin/fw4","/usr/sbin/nft","/etc/init.d/openclash"}) do S.files[path]="executable" end
 end
 local function cursor(directory,savedir)
@@ -147,9 +149,6 @@ local function run(args)
             else S.running=true; S.files["/var/run/ocserv.pid"]="101\n" end
         end
     end
-    if args[1]=="/bin/pidof" then
-        return S.openclash_process==args[2] and 0 or 1,""
-    end
     if args[1]=="/bin/ubus" then
         if args[3]=="service" then
             local name=decode(args[5]).name
@@ -165,6 +164,9 @@ local function run(args)
         if S.proxy_table_absent then return 1,"No such file or directory" end
         local template=S.files["/etc/"..args[5].."/ucode/hijack.ut"] or ""
         return 0,not S.proxy_rules_missing and template:find('"vpns*"',1,true) and 'elements = { "vpns*" }' or "elements = { }"
+    end
+    if args[2]=="-j" and args[3]=="list" and args[4]=="chain" then
+        return 0,encode({nftables={{rule={expr=S.proxy_dns_missing and {} or {{redirect={port=1053}}}}}}})
     end
     if args[2]=="restart" and (args[1]=="/etc/init.d/nikki" or args[1]=="/etc/init.d/momo") then
         S.proxy_table_absent=false
@@ -195,10 +197,15 @@ end)
 test("default is off and detection writes no router configuration",function()
     reset(); local before=clone(S.cfg); check(guard.status(admin).phase=="disabled" and guard.status(admin).available); check(equal(before,S.cfg) and not S.nft)
 end)
-test("Meta/Mihomo OpenClash core is accepted",function()
-    reset(); S.openclash_process="mihomo"; local before=clone(S.cfg)
-    check(guard.status(admin).phase=="disabled" and guard.status(admin).available)
-    check(equal(before,S.cfg) and not S.nft); enable(); check(S.nft); disable()
+test("OpenClash core alone cannot complete activation before DNS rules exist",function()
+    reset(); S.proxy_dns_missing=true; local before=clone(S.cfg)
+    guard.begin("enable",admin); guard.work(false)
+    check(equal(before,S.cfg) and not S.nft and guard.status(admin).last.failure=="guard_proxy_failed")
+end)
+test("OpenClash DNS rules cannot complete activation before the core binds its sockets",function()
+    reset(); S.files["/proc/net/udp"]=nil; local before=clone(S.cfg)
+    guard.begin("enable",admin); guard.work(false)
+    check(equal(before,S.cfg) and not S.nft and guard.status(admin).last.failure=="guard_proxy_failed")
 end)
 test("a host address cannot be used as the VPN pool network",function()
     reset(); S.cfg.ocserv.config.ipaddr="192.168.100.1"; local before=clone(S.cfg)
@@ -445,7 +452,7 @@ for _,name in ipairs({"nikki","momo"}) do
         disable(); check(equal(before,S.cfg) and S.files[path]==template)
     end)
     test(name.." readiness cannot be satisfied by another core process",function()
-        reset(); use_proxy(name); S.proxy_running=nil; S.openclash_process="mihomo"
+        reset(); use_proxy(name); S.proxy_running="openclash"
         expect("guard_requires_proxy",function()guard.begin("enable",admin)end)
         check(not guard.active())
     end)
@@ -508,6 +515,17 @@ test("multiple enabled proxies are rejected without changing configuration",func
     expect("guard_proxy_conflict",function()guard.begin("enable",admin)end)
     check(equal(before,S.cfg) and not guard.active())
 end)
+for _,name in ipairs({"passwall","passwall2","homeproxy","shadowsocksr"}) do
+    test(name.." is detected without borrowing another adapter or changing UCI",function()
+        reset(); S.cfg.openclash.config.enable="0"; S.files["/etc/init.d/"..name]="executable"; S.proxy_running=name
+        local before=clone(S.cfg)
+        expect("guard_proxy_unsupported",function()guard.begin("enable",admin)end)
+        check(equal(before,S.cfg) and not guard.active())
+        S.cfg.openclash.config.enable="1"
+        expect("guard_proxy_conflict",function()guard.begin("enable",admin)end)
+        S.proxy_running="openclash";check(guard.status(admin).available)
+    end)
+end
 local backend=require "luci.model.ocserv_easy.backend"
 local function normal_proxy(name)
     reset();use_proxy(name)
@@ -531,6 +549,14 @@ for _,name in ipairs({"nikki","momo"}) do
         for i=count+1,#S.commands do check(S.commands[i]~="/etc/init.d/"..name.." restart") end
         check(S.flash_writes==writes)
         S.proxy_table_absent=false;check(connect().effect=="unchanged")
+    end)
+    test(name.." ingress set alone cannot complete sync before DNS rules exist",function()
+        normal_proxy(name);connect();S.proxy_dns_missing=true
+        local count=#S.commands;local writes=S.flash_writes
+        check(connect()==false)
+        check(S.flash_writes==writes)
+        for i=count+1,#S.commands do check(S.commands[i]~="/etc/init.d/"..name.." restart") end
+        S.proxy_dns_missing=false;check(connect().effect=="unchanged")
     end)
     test(name.." enabled proxy still starting is retried instead of silently skipped",function()
         normal_proxy(name);S.proxy_running=nil;local before=clone(S.cfg)

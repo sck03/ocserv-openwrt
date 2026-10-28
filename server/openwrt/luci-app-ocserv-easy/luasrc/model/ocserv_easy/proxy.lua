@@ -4,28 +4,30 @@ local fs=require "nixio.fs"
 local json=require "luci.jsonc"
 local logic=require "luci.model.ocserv_easy.logic"
 local run=require("luci.model.ocserv_easy.process").run
+local registry=require "luci.model.ocserv_easy.proxy_registry"
 local M={}
-local supported={openclash="enable",nikki="enabled",momo="enabled"}
+M.names=registry.names
+function M.supports(name) local entry=registry.get(name); return entry and entry.adapter~=nil or false end
 function M.running(name)
-    logic.require(supported[name],"guard_state_invalid")
-    if name=="openclash" then
-        for _,core in ipairs({"clash","mihomo","clash_meta","clash-meta","mihomo-alpha"}) do
-            if run({"/bin/pidof",core},3)==0 then return true end
-        end
-        return false
-    end
-    -- Nikki shares Mihomo with OpenClash. A global pidof cannot identify
-    -- which service owns the process; use its named procd instance.
+    local entry=logic.require(registry.get(name),"guard_state_invalid")
+    -- OpenClash and Nikki share Mihomo; Momo and HomeProxy share sing-box.
+    -- Only a running instance owned by this procd service counts.
     local code,out=run({"/bin/ubus","call","service","list",json.stringify({name=name})},3)
     local data=code==0 and json.parse(out)
     local instances=type(data)=="table" and type(data[name])=="table" and data[name].instances
     local instance=type(instances)=="table" and instances[name]
-    return type(instance)=="table" and instance.running==true
+    if entry.adapter then return type(instance)=="table" and instance.running==true end
+    for _,owned in pairs(type(instances)=="table" and instances or {}) do
+        if type(owned)=="table" and owned.running==true then return true end
+    end
+    return false
 end
 function M.select(c)
     local selected
-    for _,name in ipairs({"openclash","nikki","momo"}) do
-        if c:get(name,"config",supported[name])=="1" then
+    for _,name in ipairs(M.names()) do
+        local entry=registry.get(name)
+        local enabled=entry.option and c:get(name,"config",entry.option)=="1"
+        if enabled or not entry.adapter and fs.access("/etc/init.d/"..name) and M.running(name) then
             logic.require(not selected,"guard_proxy_conflict")
             selected=name
         end
@@ -34,6 +36,7 @@ function M.select(c)
 end
 function M.detect(c)
     local selected=M.select(c)
+    logic.require(not selected or M.supports(selected),"guard_proxy_unsupported")
     logic.require(selected and fs.access("/etc/init.d/"..selected) and M.running(selected),"guard_requires_proxy")
     if selected~="openclash" then
         logic.require(c:get(selected,"config","core_only")~="1" and c:get(selected,"proxy"),"guard_proxy_mode")
@@ -48,18 +51,23 @@ local function ingress_ready(name)
     local code,out=run({"/usr/sbin/nft","list","set","inet",name,"lan_inbound_device"},3)
     return code==0 and (out or ""):find('"vpns*"',1,true)~=nil
 end
-function M.ready(name,managed)
-    return M.running(name) and (not managed or ingress_ready(name))
+local function target_ports(data,kind)
+    local ports,seen={},{}
+    for _,item in ipairs(type(data)=="table" and type(data.nftables)=="table" and data.nftables or {}) do
+        local rule=type(item)=="table" and item.rule
+        for _,expr in ipairs(type(rule)=="table" and type(rule.expr)=="table" and rule.expr or {}) do
+            local value=type(expr)=="table" and expr[kind]
+            local raw=type(value)=="table" and value.port
+            local port=(type(raw)=="number" or type(raw)=="string") and tonumber(raw)
+            if port and port>=1 and port<=65535 and port%1==0 and not seen[port] then
+                seen[port]=true; ports[#ports+1]=port
+            end
+        end
+    end
+    table.sort(ports)
+    return ports
 end
--- On-demand diagnostics only: use generated nft targets, never mixed-port,
--- subscription contents or defaults that would become stale after a port edit.
-function M.diagnostics(c,name)
-    logic.require(supported[name],"guard_state_invalid")
-    local running=M.running(name)
-    local result={running=running,ingress_ready=running and ingress_ready(name),targets={}}
-    if name=="openclash" then return result end
-    result.tcp_mode=c:get(name,"proxy","tcp_mode")
-    result.udp_mode=c:get(name,"proxy","udp_mode")
+local function listeners()
     local read=require("luci.model.ocserv_easy.storage").read
     local sockets={}
     for _,protocol in ipairs({"tcp","udp"}) do
@@ -76,29 +84,52 @@ function M.diagnostics(c,name)
         end
         sockets[protocol].known=known
     end
+    return sockets
+end
+function M.ready(name,managed)
+    if not M.running(name) then return false end
+    if not managed then return true end
+    if name~="openclash" and not ingress_ready(name) then return false end
+    -- The interface set can exist before DNS rules finish generating.
+    -- OpenClash also starts its core before installing firewall DNS hijacking.
+    local table_name=name=="openclash" and "fw4" or name
+    local chain=name=="openclash" and "openclash_dns_redirect" or "lan_dns_hijack"
+    local code,out=run({"/usr/sbin/nft","-j","list","chain","inet",table_name,chain},3)
+    local data=code==0 and json.parse(out)
+    local ports=target_ports(data,"redirect")
+    if #ports==0 then return false end
+    local sockets=listeners()
+    for _,port in ipairs(ports) do
+        if not sockets.tcp[port] or not sockets.udp[port] then return false end
+    end
+    return true
+end
+-- On-demand diagnostics only: use generated nft targets, never mixed-port,
+-- subscription contents or defaults that would become stale after a port edit.
+function M.diagnostics(c,name)
+    local entry=logic.require(registry.get(name),"guard_state_invalid")
+    local running=M.running(name)
+    local result={running=running,label=entry.label,supported=M.supports(name),targets={}}
+    if not result.supported then return result end
+    result.ingress_ready=running and ingress_ready(name)
+    if name=="openclash" then return result end
+    result.tcp_mode=c:get(name,"proxy","tcp_mode")
+    result.udp_mode=c:get(name,"proxy","udp_mode")
+    -- A stopped service cannot own the other provider's TUN in a shared table.
+    if not running then return result end
+    local sockets=listeners()
     local function targets(chain,kind)
         local code,out=run({"/usr/sbin/nft","-j","list","chain","inet",name,chain},3)
         local data=code==0 and json.parse(out)
         local target={available=type(data)=="table" and type(data.nftables)=="table",ports={}}
-        local seen={}
-        for _,item in ipairs(target.available and data.nftables or {}) do
-            local rule=type(item)=="table" and item.rule
-            for _,expr in ipairs(type(rule)=="table" and type(rule.expr)=="table" and rule.expr or {}) do
-                local value=type(expr)=="table" and expr[kind]
-                local raw=type(value)=="table" and value.port
-                local port=(type(raw)=="number" or type(raw)=="string") and tonumber(raw)
-                if port and port>=1 and port<=65535 and port%1==0 and not seen[port] then
-                    seen[port]=true
-                    local entry={port=port}
-                    for _,protocol in ipairs({"tcp","udp"}) do
-                        if sockets[protocol][port] then entry[protocol]=true
-                        elseif sockets[protocol].known then entry[protocol]=false end
-                    end
-                    target.ports[#target.ports+1]=entry
-                end
+        for _,port in ipairs(target_ports(data,kind)) do
+            local entry={port=port}
+            for _,protocol in ipairs({"tcp","udp"}) do
+                if sockets[protocol][port] then entry[protocol]=true
+                elseif sockets[protocol].known then entry[protocol]=false end
             end
+            target.ports[#target.ports+1]=entry
         end
-        table.sort(target.ports,function(a,b)return a.port<b.port end)
         result.targets[chain]=target
     end
     targets("lan_dns_hijack","redirect")

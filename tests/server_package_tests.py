@@ -132,7 +132,7 @@ class ServerPackageTests(unittest.TestCase):
         with zipfile.ZipFile(archive) as contents:
             with tarfile.open(fileobj=io.BytesIO(contents.read(archive.stem + "/source/openwrt-recipes.tar.gz"))) as recipes:
                 self.assertIn("openwrt/ocserv/Makefile", recipes.getnames())
-                for module in ("storage.lua", "configuration.lua", "query_cache.lua", "lease.lua", "proxy.lua"):
+                for module in ("storage.lua", "configuration.lua", "query_cache.lua", "lease.lua", "proxy.lua", "proxy_registry.lua"):
                     self.assertIn("openwrt/luci-app-ocserv-easy/luasrc/model/ocserv_easy/" + module, recipes.getnames())
                 self.assertNotIn("openwrt/ocserv/private.key", recipes.getnames())
 

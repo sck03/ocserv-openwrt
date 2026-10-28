@@ -15,6 +15,8 @@
 
 如果普通 VPN 只能访问国内网站，先点击 **检查代理**。Nikki/Momo 的 VPN 入口需要包含 `vpns*`，访问控制需要覆盖实际 VPN 地址池；只显示代理进程运行不能确认接入。透明代理使用生成规则中的 Redirect/TPROXY/DNS 端口，不使用 HTTP/SOCKS 的 mixed-port 代替。Momo 还需要有效的 sing-box JSON；Clash YAML 订阅不能直接作为 Momo 配置使用，新增订阅须先保存再更新。
 
+管理页 0.6.4 使用 procd 的服务归属核对核心，避免把 Nikki 的 Mihomo 误认成 OpenClash；停止的服务不再显示其他软件共用的 TUN。三款代理的隔离启用检查等待有效 DNS 重定向目标和实际 TCP/UDP 监听，Nikki/Momo 还需 VPN 接口集合。后台普通接入同样检查 Nikki/Momo 的规则和监听。切换期间服务和防火墙会重建，待状态完成后重新连接 VPN。
+
 | 访问方式 | 开启后的行为 |
 |---|---|
 | 普通电脑通过主路由上网 | 保持原有行为 |
@@ -58,6 +60,10 @@
 模式开启期间，服务设置页暂时禁止更改 VPN 网络参数。可继续管理账号；需要改地址池、DNS或端口时，先关闭本模式，调整后再开启。
 
 ## 适用范围
+
+代理登记表 `proxy_registry.lua` 统一维护软件名、服务身份与适配能力，事务包列表、权限检查和恢复校验均读取该表。OpenClash、Nikki、Momo 已有接入适配；PassWall、PassWall 2、HomeProxy、SSR Plus+ 目前可以检测其 procd 运行实例并提示尚未适配，同时运行会提示冲突。检测到进程不代表支持自动接入或隔离，不会套用另一款软件的配置。没有 procd 实例的软件需要专门的归属检测器。
+
+增加代理时，先登记身份，再实现该软件的模式校验、VPN 入口和 DNS 接入、运行规则就绪检查、可恢复的配置计划；同时更新 rpcd ACL 和打包审计，补充开启/关闭、外部修改保护和真实软件报文验证。nftables 的隔离表与软件无关，软件专有配置仍需明确的适配配方。这样可以复用隔离和事务模块，而无需为每款软件复制恢复逻辑。
 
 需要 fw4、dnsmasq、工作中的 ocserv 1.6.0+ 和一款已配置的代理。OpenClash 支持 Clash 与 Meta/Mihomo 内核；Nikki/Momo 需要完整代理模式，TCP 使用 redirect、tproxy 或 tun，UDP 使用 tproxy 或 tun。从同一 LAN 的 IPv4 管理地址开启；检测到活跃 WAN 的主路由不应用此旁路由规则。地址池必须填写网络地址。本版按全新安装重新配置，不复用旧规则或事务目录。
 
