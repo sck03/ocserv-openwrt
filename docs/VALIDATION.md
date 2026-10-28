@@ -14,6 +14,8 @@
 
 Python 46 文件、5 份工作流 YAML、14 份 Shell 及管理页 JS 语法检查通过；构建参数、客户端/移动端构建、发布和清理回归通过。服务端真实 Linux 安装、证书及 nftables 检查由 GitHub 验证确认；本地 Windows 平台跳过不计为通过。尚未连接用户的 N1、真实 Nikki/Momo 核心或进行长期转发验收。安装更新的 0.6.1 APK 套装后才生效，仅推送源码不会更新路由器。
 
+应用提交 [`c81659a`](https://github.com/sck03/ocserv-openwrt/commit/c81659a) 的 [GitHub 验证 40635028793](https://github.com/sck03/ocserv-openwrt/actions/runs/40635028793) 全部通过：Linux 安装/锁竞争 49、证书 14、密码文件 9、真实 nftables 报文 22 项。新增报文回归确认 Nikki/Momo 的普通模式允许 LAN/VPN 代理和 DNS，开启隔离后 VPN 可用、普通 LAN 被拦截。逻辑 75、事务 76、三款代理各 18 项页面流程与轮询 8 项也由 CI 再次确认。下载的验证附件已核对 GitHub SHA-256 与 ZIP CRC，保存在 `artifacts/validation/2026-10-28-save-proxy/`。本次运行仅验证，未编译六架构 APK 或发布 Release；最后的记录补充不改变应用源码。
+
 ## 2026-10-28 ocserv 1.6.0 与三款代理联动
 
 服务端从 ocserv 1.6.0-r1 开始，管理页为 0.6.0-r1，客户端版本不变。新增统一的 OpenClash/Nikki/Momo 配置模块；Nikki/Momo 使用原生 nft 接口集合覆盖动态 VPN 设备，不新增常驻轮询。事务应用前新增附加文件变化检查，并清除专用模式下冲突的手工排除路由。删除旧 guard 状态、地址池和版本输出兼容分支，以及上游已提供正式选项的测试关闭补丁。专用上网说明合并为 `VPN-ONLY-PROXY.md`。
