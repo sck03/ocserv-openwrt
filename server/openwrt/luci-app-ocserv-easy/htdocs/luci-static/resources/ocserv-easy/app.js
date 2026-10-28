@@ -143,8 +143,8 @@
     effects.guard_restoring=t('正在关闭并恢复启用前的设置…','Disabling and restoring the previous settings…');
     effects.guard_enabled=t('已开启，仅 VPN 用户可通过 N1 使用代理上网。','Enabled. Only VPN clients can access the proxy through this N1.');
     effects.guard_disabled=t('已关闭，已恢复启用前的设置。','Disabled. Previous settings restored.');
-    async function complete(payload) {
-        var result=await mutate(payload); if(!await load())return;
+    async function complete(payload,preserveDialog) {
+        var result=await mutate(payload); if(!await load(preserveDialog))return;
         if(payload.action==='guard' && state.guard && state.guard.phase==='disabled' && payload.command==='disable')result.effect='guard_disabled';
         notice(effects[result.effect] || t('操作完成。','Done.'));
     }
@@ -435,8 +435,7 @@
                 if(!await load(guardLogOpen))return;
                 if(state.guard && state.guard.phase==='pending' && state.guard.token) {
                     var confirmation={action:'guard',command:'confirm',token:state.guard.token};
-                    if(guardLogOpen){await mutate(confirmation);await load(true);}
-                    else await complete(confirmation);
+                    await complete(confirmation,guardLogOpen);
                 }
             } else if(previous!== (state.guard && state.guard.phase) && !modal) {
                 if(activeTab==='guard')renderTab();

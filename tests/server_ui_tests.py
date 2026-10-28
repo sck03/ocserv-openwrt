@@ -94,6 +94,7 @@ with sync_playwright() as pw:
         expect(dialog).to_contain_text('最多 256 条日志')
         # The log dialog stays open while background polling confirms activation.
         expect(page.get_by_text('已开启',exact=True)).to_be_visible(timeout=15000)
+        expect(page.get_by_text('已开启，仅 VPN 用户可通过 N1 使用代理上网。',exact=True)).to_be_visible()
         dialog.get_by_role('button',name='刷新日志',exact=True).click()
         expect(dialog.locator('pre')).to_contain_text('管理连接确认：已开启')
         page.screenshot(path=str(args.output/'vpn-only-log.png'),full_page=True)
