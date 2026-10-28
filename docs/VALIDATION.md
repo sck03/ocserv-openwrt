@@ -12,7 +12,17 @@
 
 Windows x64 原生连接 61、配置/DPAPI 92、UI 51、真实 WSH 7、资源 9、回环 TLS 认证 35 项通过；600,000 个事件、1,000 轮清空前后私有内存均为 2,293,760 字节，句柄均为 134。该短时检查不代表实际设备的长期占用。本地证据保存在 `test-results/windows-continuation/`、`test-results/server-ui-OpenClash/`、`test-results/server-ui-Nikki/`、`test-results/server-ui-Momo/` 和对应 JSON/日志。
 
-Linux 专属安装、证书及 nftables 报文检查和实际跨架构构建由本轮 GitHub 工作流确认。没有将 Windows 上的平台跳过计为通过；实际 N1/OPL、真实代理核心、手机和长期转发仍需设备验收。远程构建结果在完成后补充。
+Windows [运行 40622651476](https://github.com/sck03/ocserv-openwrt/actions/runs/40622651476) 对提交 `a2dbc17` 完成 x86/x64 编译、PE/源码包审计、两架构原生回归；x64 另通过 4 项动态 WFP 和 8 项真实 Wintun 隧道检查。之后的 `a64f61e` 只修复服务端日志窗口开启时未更新完成提示，客户端代码和工作流未变。
+
+服务端最终提交 `a64f61e` 的 [运行 40623432797](https://github.com/sck03/ocserv-openwrt/actions/runs/40623432797) 已通过 Linux 安装/锁竞争 49、证书 14、密码文件 9、nftables 报文 21 项，以及三款代理各 18 项浏览器流程和 8 项轮询检查。新增报文检查使用真实 ifname interval 集合验证重命名接口后的 TCP、UDP、DNS；模拟代理监听器不等同于真实代理核心。此前的服务端构建由本轮主动取消，避免生成缺少提示修复的产物。
+
+已下载的 Windows 双架构及服务端验证附件均通过 GitHub artifact SHA-256 和 ZIP CRC 校验，保存在 `artifacts/validation/2026-10-28-proxies/`。本地清理约 101.7 MiB 构建/缓存；删除临时参考目录被自动审查阻止后，按用户要求将三个目录（约 5.77 MiB）集中移动到 `.reference/待手动删除-20261028/`，由用户手动删除。保留发行包、验证记录、锁定源码和工具链。
+
+服务端运行已成功完成六个目标的 APK 编译、ELF 审计和源码/安装套装打包：armsr/armv8、ramips/mt7621、x86/64、mediatek/filogic、ipq806x/generic、ath79/generic。实际 SDK 为 25.12.6，六份已校验审计附件中的压缩后管理页 JS/CSS 摘要一致。SDK 会压缩 JS，因此发布 JS 的摘要与未压缩源码不同；N1 APK 解压内容已确认包含最终日志窗口提示修复与代理适配。
+
+N1 最终套装保存在 `dist/Lansyra-server-ocserv-1.6.0-r1-openwrt-25.12.6-aarch64_generic-ui-0.6.0-r1-20261028-105320.zip`。已核对外层 artifact digest、ZIP CRC、套装外部校验及内部全部 19 项 SHA-256；对应源码归档中的 app.js、proxy.lua、guard.lua 与当前源码逐字节一致。套装 SHA-256 为 `8e6534cd3ccb637e1af1df4856208bf3ea5bd219d1dfa065ed4b4967eaead42e`，BUILDINFO 记录提交 `a64f61e`。
+
+没有将 Windows 上的平台跳过计为通过；实际 N1/OPL、真实代理核心、手机和长期转发仍需设备验收。本轮 `publish_release=false`，没有创建 Release。
 
 ## 2026-10-25 并发维护与响应性优化
 
