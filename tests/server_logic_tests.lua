@@ -19,9 +19,9 @@ local old_hash="$6$existingSalt$"..string.rep("a",86)
 local test_pin="pin-sha256:"..TEST_BASE64(string.rep("a",32))
 local function hasher() return "$6$newSalt$"..string.rep("b",86) end
 local original={{id="employee",name="employee01",group="*",password=old_hash}}
-test("1.5 minimum and future versions",function()
-    for _,v in ipairs({"1.5.0","1.5.0-r1","1.6.0","2.0.0"}) do check(logic.supported_version(v)) end
-    for _,v in ipairs({"1.3.0","1.4.9","unknown","1.5","invalid"}) do check(not logic.supported_version(v)) end
+test("1.6 minimum and future versions",function()
+    for _,v in ipairs({"1.6.0","1.6.0-r1","1.7.0","2.0.0"}) do check(logic.supported_version(v)) end
+    for _,v in ipairs({"1.5.0","1.5.9","unknown","1.6","invalid"}) do check(not logic.supported_version(v)) end
 end)
 test("revision respects OpenWrt signed 32-bit formatting",function()
     local native_format=string.format
@@ -190,7 +190,7 @@ local function set_running(value)
 end
 local function reset()
     local cfg=logic.validate_settings(fixture_settings());cfg[".name"]="config";cfg[".type"]="ocserv"
-    S={files={},dirs={},history={},commands={},disk_events={},version="1.5.0",counter=0,online={},sessions={}}
+    S={files={},dirs={},history={},commands={},disk_events={},version="1.6.0",counter=0,online={},sessions={}}
     S.db={cfg,{[".name"]="employee",[".type"]="ocservusers",name="employee01",group="*",password=old_hash},
         {[".name"]="dns1",[".type"]="dns",ip="10.77.0.1"}}
     S.firewall={
@@ -294,7 +294,7 @@ local function run(argv)
     end
     if command=="/usr/sbin/ocserv --version"then
         if S.version_timeout then return 124,"" end
-        return 0,(S.legacy_banner and "ocserv " or "OpenConnect VPN Server ")..S.version.."\n"
+        return 0,"OpenConnect VPN Server "..S.version.."\n"
     end
     if command:find("--test-config",1,true)then S.candidate=S.files[argv[4]];return S.bad_config and 1 or 0,""end
     if command:find("occtl --help",1,true)or command:find("occtl help",1,true)then
@@ -388,9 +388,8 @@ test("frequent online snapshots avoid repeated occtl and explicit refresh stays 
     request(edit("FixturePassword"));count=#S.commands
     backend.status();check(#S.commands==count+1)
 end)
-test("both actual and legacy ocserv version banners enable the page",function()
-    reset();check(backend.data().supported and backend.data().version=="1.5.0")
-    S.legacy_banner=true;check(backend.data().supported)
+test("the official ocserv version banner enables the page",function()
+    reset();check(backend.data().supported and backend.data().version=="1.6.0")
 end)
 test("temporary capability query failures are not cached as an obsolete server",function()
     reset();S.capabilities_timeout=true

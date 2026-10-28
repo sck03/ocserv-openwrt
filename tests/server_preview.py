@@ -118,4 +118,7 @@ class Handler(BaseHTTPRequestHandler):
 
 parser=argparse.ArgumentParser()
 parser.add_argument('--port',type=int,default=22881)
-HTTPServer(('127.0.0.1',parser.parse_args().port),Handler).serve_forever()
+parser.add_argument('--proxy',choices=('openclash','nikki','momo'),default='openclash')
+args=parser.parse_args()
+if args.proxy!='openclash':guard_fixture.use_proxy(args.proxy)
+HTTPServer(('127.0.0.1',args.port),Handler).serve_forever()

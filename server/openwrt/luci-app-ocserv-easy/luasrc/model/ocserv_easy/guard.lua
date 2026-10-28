@@ -7,6 +7,7 @@ local json=require "luci.jsonc"
 local logic=require "luci.model.ocserv_easy.logic"
 local storage=require "luci.model.ocserv_easy.storage"
 local lease=require "luci.model.ocserv_easy.lease"
+local proxy=require "luci.model.ocserv_easy.proxy"
 local equal=logic.equal
 local run=require("luci.model.ocserv_easy.process").run
 local log=require "luci.model.ocserv_easy.guard_log"
@@ -21,7 +22,7 @@ local root="/etc/ocserv/easy-guard"
 local statefile=root.."/state.json"
 local rulefile=root.."/guard.nft"
 local work="/var/run/ocserv-easy"
-local configs={"firewall","dhcp","openclash","ocserv"}
+local configs={"firewall","dhcp","openclash","nikki","momo","ocserv"}
 local phases={queued=true,applying=true,pending=true,enabled=true,restoring=true,recovery_failed=true}
 local function monotonic()
     local info=nixio.sysinfo and nixio.sysinfo()
@@ -44,7 +45,8 @@ end
 local function saved()
     local raw=read(statefile); if not raw then return nil end
     local state=json.parse(raw)
-    logic.require(type(state)=="table" and state.version==1 and phases[state.phase] and type(state.ops)=="table","guard_state_invalid")
+    logic.require(type(state)=="table" and state.version==2 and phases[state.phase] and type(state.ops)=="table" and type(state.info)=="table" and type(state.files)=="table" and type(state.before)=="table","guard_state_invalid")
+    logic.require(state.info.proxy=="openclash" or state.info.proxy=="nikki" or state.info.proxy=="momo","guard_state_invalid")
     return state
 end
 local function save(state) atomic(statefile,json.stringify(state)) end
@@ -81,20 +83,9 @@ local function address(n)
     return table.concat(parts,".")
 end
 local function list(value) return type(value)=="table" and value or value and {value} or {} end
--- OpenClash can run different core implementations.  The legacy Clash core
--- uses a `clash` process name, while the Meta/Mihomo core shown in current
--- OpenClash releases is commonly exposed as `mihomo` (some releases keep a
--- `clash_meta`/`clash-meta` name).  Treat any of the supported core names as
--- proof that the enabled OpenClash service is actually running.
-local function openclash_running()
-    for _,name in ipairs({"clash","mihomo","clash_meta","clash-meta","mihomo-alpha"}) do
-        if run({"/bin/pidof",name},3)==0 then return true end
-    end
-    return false
-end
 local function detect(c,admin)
     logic.require(fs.access("/sbin/fw4") and fs.access("/usr/sbin/nft"),"guard_requires_fw4")
-    logic.require(c:get("openclash","config","enable")=="1" and fs.access("/etc/init.d/openclash") and openclash_running(),"guard_requires_openclash")
+    local selected=proxy.detect(c)
     logic.require((c:get("ocserv","config","auth") or "plain")=="plain" and c:get("ocserv","config","proxy_arp")~="1","guard_requires_routed_vpn")
     local code,out=run({"/bin/ubus","call","network.interface.lan","status"},4)
     local lan=code==0 and json.parse(out) or nil
@@ -117,14 +108,10 @@ local function detect(c,admin)
     if pool=="" then pool="10.77.0.0" end
     local bits=logic.prefix(c:get("ocserv","config","netmask") or "255.255.255.0")
     local poolnum=logic.ipv4(pool)
-    logic.require(poolnum and bits and bits>=8 and bits<=30,"invalid_pool")
-    -- Older ocserv configurations in the wild use the first assigned VPN
-    -- address (for example 10.77.0.1) in `ipaddr` instead of the network
-    -- address.  Keep that value for ocserv and rollback, but normalize it for
-    -- overlap checks and the nft/OpenClash source-range rules.
+    logic.require(poolnum and poolnum>0 and poolnum<3758096384 and math.floor(poolnum/16777216)~=127 and bits and bits>=8 and bits<=30,"invalid_pool")
     local pool_size=2^(32-bits)
-    local pool_network=math.floor(poolnum/pool_size)*pool_size
-    logic.require(pool_network+pool_size-1<network or pool_network>network+size-1,"guard_pool_overlap")
+    logic.require(poolnum%pool_size==0,"pool_not_network")
+    logic.require(poolnum+pool_size-1<network or poolnum>network+size-1,"guard_pool_overlap")
     local port=tonumber(c:get("ocserv","config","port") or "4443")
     -- The LuCI UCI bridge returns false, error for an absent option. Do not
     -- pass the error string as tonumber()'s optional numeric-base argument.
@@ -140,7 +127,7 @@ local function detect(c,admin)
     local management={}; for p in pairs(ports) do management[#management+1]=p end; table.sort(management)
     logic.require(not ports[port],"guard_port_conflict")
     return {lan=value.address,device=device,admin=admin,lan_network=address(network),lan_mask=logic.mask(prefix),
-        pool=pool,pool_network=address(pool_network),prefix=bits,dns=address(pool_network+1),port=port,udp_port=udp,management=management}
+        pool=pool,prefix=bits,dns=address(poolnum+1),port=port,udp_port=udp,management=management,proxy=selected}
 end
 local function running()
     local pid=(read("/var/run/ocserv.pid") or ""):match("^%s*(%d+)%s*$")
@@ -148,7 +135,7 @@ local function running()
     return executable=="/usr/sbin/ocserv" or executable=="/usr/sbin/ocserv (deleted)"
 end
 local function plan(c,info)
-    local state={version=1,phase="queued",ops={},before={},files={},info=info,token=random(),deadline=monotonic()+240,was_running=running()}
+    local state={version=2,phase="queued",ops={},before={},files={},info=info,token=random(),deadline=monotonic()+240,was_running=running()}
     logic.require(state.was_running,"guard_requires_ocserv")
     pending(c)
     for _,package in ipairs(configs) do state.before[package]=read("/etc/config/"..package) or false end
@@ -208,21 +195,11 @@ local function plan(c,info)
     c:foreach("ocserv","routes",function(s) whole("ocserv",s[".name"],false) end)
     logic.require(not c:get("ocserv","lansyra_guard_dns"),"guard_section_conflict")
     whole("ocserv","lansyra_guard_dns",{[".type"]="dns",ip=info.dns})
-    -- OpenClash's firewall redirect (mode 2) catches VPN DNS traffic before
-    -- it reaches dnsmasq.  Do not broaden dnsmasq's listeners or rewrite its
-    -- upstream servers; keeping that package untouched makes this high-risk
-    -- switch safe for the rest of the OpenWrt network.
+    -- The proxy intercepts VPN DNS before dnsmasq; retain its listeners/upstreams.
     logic.require(c:get_first("dhcp","dnsmasq"),"guard_requires_dnsmasq")
-    option("openclash","config","lan_ac_mode","1")
-    option("openclash","config","lan_ac_white_ips",{info.pool_network.."/"..info.prefix})
-    option("openclash","config","lan_ac_white_macs",false)
-    -- OpenClash requires firewall DNS redirection for LAN access control in
-    -- Fake-IP mode.  Dnsmasq redirection (1) cannot reliably associate a
-    -- query with the VPN source address, so the white-list would be bypassed.
-    option("openclash","config","enable_redirect_dns","2")
     local extra=read("/etc/ocserv/ocserv.conf.local")
     local lines={}
-    local managed={["listen-host"]=true,dns=true,route=true,["tunnel-all-dns"]=true,device=true,["ipv4-network"]=true,["ipv4-netmask"]=true,["ipv6-network"]=true}
+    local managed={["listen-host"]=true,dns=true,route=true,["no-route"]=true,["tunnel-all-dns"]=true,device=true,["ipv4-network"]=true,["ipv4-netmask"]=true,["ipv6-network"]=true}
     for line in ((extra or "").."\n"):gmatch("([^\n]*)\n") do
         local key=line:match("^%s*([a-z0-9-]+)%s*=")
         if not managed[key] then lines[#lines+1]=line end
@@ -235,17 +212,18 @@ local function plan(c,info)
     state.files[1]={path="/etc/ocserv/ocserv.conf.local",before=extra or false,after=table.concat(lines,"\n").."\n"}
     local template=read("/usr/share/ocserv-easy/guard.nft.in")
     logic.require(template and not fs.stat(rulefile),"guard_section_conflict")
-    local substitutions={LAN_DEVICE=info.device,LAN_ADDRESS=info.lan,ADMIN_ADDRESS=info.admin,VPN_POOL=info.pool_network.."/"..info.prefix,VPN_DNS=info.dns,
+    local substitutions={LAN_DEVICE=info.device,LAN_ADDRESS=info.lan,ADMIN_ADDRESS=info.admin,VPN_POOL=info.pool.."/"..info.prefix,VPN_DNS=info.dns,
         VPN_TCP_PORT=tostring(info.port),VPN_UDP_PORT=tostring(info.udp_port),ADMIN_PORTS=table.concat(info.management,", ")}
     local rules=template:gsub("@([A-Z_]+)@",function(key) return logic.require(substitutions[key],"guard_state_invalid") end)
     state.files[2]={path=rulefile,before=false,after=rules}
+    state.files[3]=proxy.plan(c,info,option,whole,read)
     return state
 end
 function M.status(admin,probe)
     local ok,state=pcall(saved)
     if not ok then return {phase="recovery_failed",enabled=true,reason="guard_state_invalid"} end
     if state then
-        return {phase=state.phase,enabled=true,lan=state.info.lan,admin=state.info.admin,pool=state.info.pool.."/"..state.info.prefix,
+        return {phase=state.phase,enabled=true,proxy=state.info.proxy,lan=state.info.lan,admin=state.info.admin,pool=state.info.pool.."/"..state.info.prefix,
             deadline=state.deadline,token=state.phase=="pending" and state.info.admin==admin and state.token or nil,reason=state.failure}
     end
     -- The frequent status endpoint only needs transaction state. Full page
@@ -253,7 +231,7 @@ function M.status(admin,probe)
     if probe==false then return {phase="disabled",enabled=false} end
     local success,info=pcall(function() return detect(uci.cursor(),admin) end)
     local result={phase="disabled",enabled=false,available=success and running()}
-    if success then result.lan=info.lan; result.admin=info.admin; result.pool=info.pool.."/"..info.prefix; if not result.available then result.reason="guard_requires_ocserv" end
+    if success then result.proxy=info.proxy; result.lan=info.lan; result.admin=info.admin; result.pool=info.pool.."/"..info.prefix; if not result.available then result.reason="guard_requires_ocserv" end
     else result.reason=type(info)=="table" and info.code or "guard_unavailable" end
     local last=read(root.."/result.json"); last=last and json.parse(last)
     if type(last)=="table" then result.last=last end
@@ -297,18 +275,19 @@ local function commit(c,state)
     end
     if changed then storage.sync_parent("/etc/config/ocserv") end
 end
-local function reload(state,boot)
+local function reload(state,boot,managed)
     if boot then return end
     logic.require(command("firewall_reload",{"/etc/init.d/firewall","reload"},20)==0,"guard_firewall_failed")
     if touched(state,"dhcp") then logic.require(command("dns_restart",{"/etc/init.d/dnsmasq","restart"},20)==0,"guard_dns_failed") end
-    logic.require(command("openclash_restart",{"/etc/init.d/openclash","restart"},90)==0,"guard_openclash_failed")
+    local name=state.info.proxy
+    logic.require(command(name.."_restart",{"/etc/init.d/"..name,"restart"},90)==0,"guard_proxy_failed")
     local ready=false
     for _=1,30 do
-        if openclash_running() then ready=true; break end
+        if proxy.ready(name,managed) then ready=true; break end
         nixio.poll({},1000)
     end
-    log.add("openclash_ready",ready and "running" or "timeout")
-    logic.require(ready,"guard_openclash_failed")
+    log.add(name.."_ready",ready and "running" or "timeout")
+    logic.require(ready,"guard_proxy_failed")
     if state.was_running then
         logic.require(command("ocserv_restart",{"/etc/init.d/ocserv","restart"},20)==0,"restart_failed")
         -- procd returns before ocserv creates its pidfile. Both activation
@@ -353,7 +332,8 @@ end
 local function apply(state)
     log.add("apply","start")
     local c=uci.cursor(); pending(c)
-    for _,package in ipairs(configs) do logic.require((read("/etc/config/"..package) or false)==state.before[package],"stale_revision") end
+    for package,before in pairs(state.before) do logic.require((read("/etc/config/"..package) or false)==before,"stale_revision") end
+    for _,file in ipairs(state.files) do logic.require((read(file.path) or false)==file.before,"stale_revision") end
     state.phase="applying"; state.started=true; save(state)
     for _,op in ipairs(state.ops) do put(c,op,op.after) end
     for _,file in ipairs(state.files) do atomic(file.path,file.after) end
@@ -372,7 +352,7 @@ local function apply(state)
     commit(c,state)
     logic.require(command("firewall_check",{"/sbin/fw4","check"},10)==0,"guard_firewall_failed")
     logic.require(command("nft_apply",{"/usr/sbin/nft","-f",rulefile},10)==0,"guard_firewall_failed")
-    reload(state,false)
+    reload(state,false,true)
     logic.require(run({"/usr/sbin/nft","list","table","inet","lansyra_guard"},5)==0,"guard_firewall_failed")
     state.phase="pending"; state.deadline=monotonic()+120; save(state)
     log.add("apply","pending")

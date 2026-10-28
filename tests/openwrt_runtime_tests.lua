@@ -28,7 +28,7 @@ end
 local fixture_password="Fixture:pass' $6$ 2026"
 check(#logic.revision(string.rep("overflow-fixture",100))==24,"revision supports the real OpenWrt integer ABI")
 local initial=backend.data()
-check(initial.supported and initial.version=="1.5.0","real ocserv version output enables management")
+check(initial.supported and initial.version=="1.6.0","real ocserv version output enables management")
 action({action="save_user",name="runtime-fixture",group="*",password=fixture_password,enabled=true})
 local first_hash=hash("runtime-fixture")
 check(logic.password_hash(first_hash) and nixio.crypt(fixture_password,first_hash)==first_hash,"account creation writes a correct SHA-512 crypt hash")

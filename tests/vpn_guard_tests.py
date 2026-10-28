@@ -172,7 +172,7 @@ class GuardTests(unittest.TestCase):
             (cls.router, "br-lan", "192.168.19.254/24", "2001:db8:19::254/64"),
             (cls.lan, "eth0", "192.168.19.20/24", "2001:db8:19::20/64"),
             (cls.upstream, "eth0", "192.168.19.1/24", "2001:db8:19::1/64"),
-            (cls.router, "vpns0", "10.77.0.1/24", "fd77::1/64"),
+            (cls.router, "vpns0", "10.77.0.1/24", "fd77::/64"),
             (cls.vpn, "vpn0", "10.77.0.2/24", "fd77::2/64"),
         ]
         for namespace, device, ipv4, ipv6 in addresses:
@@ -184,7 +184,7 @@ class GuardTests(unittest.TestCase):
         nsrun(cls.upstream, "ip", "addr", "add", "2001:db8:2::10/128", "dev", "lo", "nodad")
         for namespace, gateway, gateway6 in ((cls.router, "192.168.19.1", "2001:db8:19::1"),
                                               (cls.lan, "192.168.19.254", "2001:db8:19::254"),
-                                              (cls.vpn, "10.77.0.1", "fd77::1")):
+                                              (cls.vpn, "10.77.0.1", "fd77::")):
             nsrun(namespace, "ip", "route", "add", "default", "via", gateway)
             nsrun(namespace, "ip", "-6", "route", "add", "default", "via", gateway6)
         nsrun(cls.router, "sysctl", "-qw", "net.ipv4.ip_forward=1", "net.ipv6.conf.all.forwarding=1")
@@ -193,7 +193,7 @@ class GuardTests(unittest.TestCase):
                   f"net.ipv4.conf.{device}.send_redirects=0")
         # Static IPv6 neighbour: veth normally needs ND, unlike a real TUN.
         link = json.loads(nsrun(cls.router, "ip", "-j", "link", "show", "vpns0").stdout)[0]
-        nsrun(cls.vpn, "ip", "-6", "neigh", "replace", "fd77::1", "lladdr", link["address"],
+        nsrun(cls.vpn, "ip", "-6", "neigh", "replace", "fd77::", "lladdr", link["address"],
               "dev", "vpn0", "nud", "permanent")
         nsrun(cls.router, "ip", "rule", "add", "fwmark", "354", "lookup", "100")
         nsrun(cls.router, "ip", "route", "add", "local", "0.0.0.0/0", "dev", "lo", "table", "100")
@@ -359,6 +359,40 @@ table inet simulated_openclash {
         nsrun(self.router, "nft", "-f", "-", input=self.proxy_rules)
         self.denied("lan", "203.0.113.11", 80)
         self.allowed("vpn", "203.0.113.11", 80, "redirect")
+
+    def test_nikki_momo_ingress_sets_cover_reconnect_and_dns(self):
+        # Use real nft ifname interval sets and packet traffic. These are the
+        # upstream ingress/ACL semantics, not a running Mihomo/sing-box core.
+        nsrun(self.router, "nft", "delete", "table", "inet", "simulated_openclash")
+        try:
+            for name in ("nikki", "momo"):
+                rules = self.proxy_rules.replace("simulated_openclash", name).replace("priority -100", "priority -99")
+                rules = rules.replace("    chain mangle", '    set lan_inbound_device { type ifname; flags interval; auto-merge; elements = { "vpns*" }; }\n    chain mangle')
+                rules = rules.replace("        ip daddr", "        iifname @lan_inbound_device ip saddr 10.77.0.0/24 ip daddr")
+                rules = rules.replace("        meta l4proto", "        iifname @lan_inbound_device ip saddr 10.77.0.0/24 meta l4proto")
+                nsrun(self.router, "nft", "-f", "-", input=rules)
+                try:
+                    for device in ("vpns0", "vpns23"):
+                        if device == "vpns23":
+                            nsrun(self.router, "ip", "link", "set", "vpns0", "down")
+                            nsrun(self.router, "ip", "link", "set", "vpns0", "name", device)
+                            nsrun(self.router, "ip", "link", "set", device, "up")
+                        try:
+                            with self.subTest(proxy=name, device=device):
+                                self.allowed("vpn", "203.0.113.11", 80, "redirect")
+                                self.allowed("vpn", "203.0.113.11", 443, "tproxy", "udp")
+                                for protocol in ("tcp", "udp"):
+                                    self.allowed("vpn", "10.77.0.1", 53, "dns", protocol)
+                                self.denied("lan", "203.0.113.11", 80)
+                        finally:
+                            if device == "vpns23":
+                                nsrun(self.router, "ip", "link", "set", device, "down")
+                                nsrun(self.router, "ip", "link", "set", device, "name", "vpns0")
+                                nsrun(self.router, "ip", "link", "set", "vpns0", "up")
+                finally:
+                    nsrun(self.router, "nft", "delete", "table", "inet", name, check=False)
+        finally:
+            nsrun(self.router, "nft", "-f", "-", input=self.proxy_rules)
 
     def test_bad_reload_is_atomic_and_keeps_existing_guard(self):
         result = nsrun(self.router, "nft", "-f", "-", check=False,

@@ -58,7 +58,7 @@ function action()
         logic.require(type(raw)=="string" and #raw<=65536,"bad_request")
         local request=require("luci.jsonc").parse(raw)
         if type(request)=="table" then
-            local packages=request.action=="guard" and {"firewall","dhcp","openclash"} or request.action=="settings" and {"firewall"} or {}
+            local packages=request.action=="guard" and {"firewall","dhcp","openclash","nikki","momo"} or request.action=="settings" and {"firewall"} or {}
             for _,package in ipairs(packages) do
                 logic.require(can_write(package),"forbidden")
             end

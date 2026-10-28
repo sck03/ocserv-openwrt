@@ -19,7 +19,7 @@ table inet lansyra_guard {
         iifname $VPN_DEVICE meta nfproto ipv6 counter drop comment "VPN IPv6 disabled"
         iifname $VPN_DEVICE ip saddr != $VPN_POOL counter drop comment "Unexpected VPN source"
     }
-    chain before_openclash {
+    chain before_proxy {
         type filter hook prerouting priority -190; policy accept;
         iifname $LAN_DEVICE jump lan_services
         iifname $VPN_DEVICE fib daddr type local jump vpn_services

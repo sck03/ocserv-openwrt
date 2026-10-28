@@ -8,13 +8,9 @@ on:
         type: string
         default: ""
       openconnect_version:
-        description: OpenConnect 官方协议核心版本
+        description: OpenConnect 官方版本（至少 9.21；自动校验源码）
         type: string
         default: "9.21"
-      openconnect_sha256:
-        description: 更换核心版本时必填官方源码 tar.gz 的 SHA-256
-        type: string
-        default: ""
       build_jobs:
         description: 并行任务数，auto 使用运行器全部可用 CPU
         type: string
@@ -44,6 +40,8 @@ jobs:
     outputs:
       release_version: ${{ steps.metadata.outputs.release_version }}
       build_timestamp: ${{ steps.metadata.outputs.build_timestamp }}
+      source_version: ${{ steps.source.outputs.version }}
+      source_sha256: ${{ steps.source.outputs.sha256 }}
     steps:
       - uses: actions/checkout@v7.0.1
         with:
@@ -63,9 +61,6 @@ jobs:
           RELEASE_VERSION: ${{ inputs.release_version }}
         run: python3 scripts/release_metadata.py --github-output
       - name: Validate inputs and release scripts
-        env:
-          CORE_VERSION: ${{ inputs.openconnect_version }}
-          CORE_SHA256: ${{ inputs.openconnect_sha256 }}
         run: |
           [[ "$BUILD_JOBS" == auto || "$BUILD_JOBS" =~ ^[1-9][0-9]*$ ]] || { echo 'Invalid build_jobs'; exit 2; }
           python3 -m compileall -q scripts tests client/tests
@@ -74,8 +69,14 @@ jobs:
           python3 tests/release_metadata_tests.py
           python3 tests/client_build_tests.py
           node client/tests/script_tests.js
-          python3 scripts/prepare-build.py client --version "$CORE_VERSION" --sha256 "$CORE_SHA256"
           bash -n scripts/build-client-linux.sh scripts/build-dependencies.sh scripts/publish-release.sh
+      - name: Resolve and verify official OpenConnect source
+        id: source
+        env:
+          CORE_VERSION: ${{ inputs.openconnect_version }}
+        run: |
+          command -v gpg >/dev/null || { sudo apt-get update && sudo apt-get install -y --no-install-recommends gnupg; }
+          python3 scripts/prepare-build.py client --version "$CORE_VERSION" --github-output
 
   client:
     name: Windows ${{ matrix.arch }}（Linux 编译）
@@ -99,9 +100,9 @@ jobs:
           check-latest: true
       - name: Select official OpenConnect source
         env:
-          CORE_VERSION: ${{ inputs.openconnect_version }}
-          CORE_SHA256: ${{ inputs.openconnect_sha256 }}
-        run: python3 scripts/prepare-build.py client --version "$CORE_VERSION" --sha256 "$CORE_SHA256"
+          CORE_VERSION: ${{ needs.validate.outputs.source_version }}
+          CORE_SHA256: ${{ needs.validate.outputs.source_sha256 }}
+        run: python3 scripts/prepare-build.py client --version "$CORE_VERSION" --resolved-sha256 "$CORE_SHA256"
       - name: Install MSVCRT cross toolchain
         run: |
           sudo apt-get update
@@ -252,10 +253,10 @@ jobs:
           check-latest: true
       - name: Bundle checksum-pinned sources
         env:
-          CORE_VERSION: ${{ inputs.openconnect_version }}
-          CORE_SHA256: ${{ inputs.openconnect_sha256 }}
+          CORE_VERSION: ${{ needs.validate.outputs.source_version }}
+          CORE_SHA256: ${{ needs.validate.outputs.source_sha256 }}
         run: |
-          python3 scripts/prepare-build.py client --version "$CORE_VERSION" --sha256 "$CORE_SHA256"
+          python3 scripts/prepare-build.py client --version "$CORE_VERSION" --resolved-sha256 "$CORE_SHA256"
           python3 scripts/fetch-sources.py --download-only
           python3 scripts/package-source.py
       - uses: actions/upload-artifact@v7.0.1

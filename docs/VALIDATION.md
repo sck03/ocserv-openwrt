@@ -2,6 +2,18 @@
 
 本页记录岚序（Lansyra）全新安装版本的验证证据与实机边界。以前的打包和系统升级记录见[历史版本](https://github.com/sck03/ocserv-openwrt/blob/ba903fe/docs/VALIDATION.md)。
 
+## 2026-10-28 ocserv 1.6.0 与三款代理联动
+
+服务端从 ocserv 1.6.0-r1 开始，管理页为 0.6.0-r1，客户端版本不变。新增统一的 OpenClash/Nikki/Momo 配置模块；Nikki/Momo 使用原生 nft 接口集合覆盖动态 VPN 设备，不新增常驻轮询。事务应用前新增附加文件变化检查，并清除专用模式下冲突的手工排除路由。删除旧 guard 状态、地址池和版本输出兼容分支，以及上游已提供正式选项的测试关闭补丁。专用上网说明合并为 `VPN-ONLY-PROXY.md`。
+
+源码切换只需版本号。实际下载的 ocserv 1.6.0 归档匹配官网 SHA-256；OpenConnect 9.21 分离签名通过固定官方密钥验证，计算摘要与仓库锁定值一致。Windows/MSYS GnuPG 路径调用已实际验证。官方 1.6.0 的 IPv6 服务端地址变更为网络地址；客户端使用下发参数，未增加旧地址适配代码。
+
+本地通过 Lua 逻辑 74、guard 事务 61、控制器权限 8、配置生成 4、构建参数 13、服务端打包 8 项。真实 Chrome 针对三款代理分别通过 18 项页面流程，另通过 8 项轮询检查，浏览器无脚本错误。Python 45 个文件、工作流 YAML、Shell 和管理页 JS 语法检查通过。客户端构建、移动构建、发布及网络脚本检查通过。
+
+Windows x64 原生连接 61、配置/DPAPI 92、UI 51、真实 WSH 7、资源 9、回环 TLS 认证 35 项通过；600,000 个事件、1,000 轮清空前后私有内存均为 2,293,760 字节，句柄均为 134。该短时检查不代表实际设备的长期占用。本地证据保存在 `test-results/windows-continuation/`、`test-results/server-ui-OpenClash/`、`test-results/server-ui-Nikki/`、`test-results/server-ui-Momo/` 和对应 JSON/日志。
+
+Linux 专属安装、证书及 nftables 报文检查和实际跨架构构建由本轮 GitHub 工作流确认。没有将 Windows 上的平台跳过计为通过；实际 N1/OPL、真实代理核心、手机和长期转发仍需设备验收。远程构建结果在完成后补充。
+
 ## 2026-10-25 并发维护与响应性优化
 
 本轮版本为 Windows 0.7.4、Linux/macOS 0.1.4、Android/iOS 0.2.4、管理页 0.5.5-r1，ocserv 保持 1.5.0-r7。新增独立偏好写入、Apple 系统网络设置屏障、服务端共享租约和可丢弃查询缓存；保留原数据格式、凭据来源绑定和 IPv6 防绕行策略。Android 路由补集改为区间归并与扫描，安装器和账号工具参与已有 POSIX 锁，关键原子替换补充父目录同步。版本升级说明、模块边界、构建依赖和完整测试入口已同步。

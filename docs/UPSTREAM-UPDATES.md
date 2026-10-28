@@ -1,6 +1,19 @@
 # 上游版本与 SDK 更新
 
-Windows 协议核心默认 OpenConnect 9.21，服务端默认 ocserv 1.5.0。手动 Actions 中可以填写新的官方版本号；更改源码版本时须同时提供对应官方归档的 SHA-256。默认版本留空校验值时使用仓库锁定记录。脚本拒绝路径、命令片段和低于当前最低 API 要求的版本。
+Windows 协议核心默认 OpenConnect 9.21，服务端默认且最低为 ocserv 1.6.0。手动 Actions 只需填写正式源码版本号：ocserv 自动读取官网对应 `.tar.xz.sha256sum`；OpenConnect 自动下载归档及分离签名，使用固定官方主密钥指纹 `BE07D9FD54809AB2C4B0FF5F63762CDA67E2F359` 校验后计算 SHA-256。默认版本复用仓库锁定值。解析只在验证任务中执行一次，构建与源码包共用结果，实际下载仍校验摘要。不存在、预发布、低于最低版本或签名不匹配的源码不会进入编译。
+
+本地可运行 `python3 scripts/prepare-build.py server --version 1.6.0` 或 `python3 scripts/prepare-build.py client --version 9.21`。脚本修改当前检出的配方/源码清单；切换其他 OpenConnect 版本需要 GnuPG。内部参数 `--resolved-sha256` 仅供同一工作流的后续任务复用已解析结果。
+
+## ocserv 1.6.0 基线
+
+官方于 2026-10-16 发布 1.6.0。本项目按全新安装配置，不迁移 1.5 的事务、旧地址池格式或旧规则。删除关闭测试的源码补丁，使用正式 Meson 选项 `-Dtests=false`。
+
+- IPv6 隧道服务端地址现在是 `ipv6-network` 的网络地址，例如 `fd77::/64` 对应 `fd77::`。自行设置隧道 DNS 或脚本时应使用该地址。普通局域网网关和公网服务器地址不受这项变化影响。
+- IPv4 `/31` 和 IPv6 `/127` 是新增的点对点分配能力；管理页仍面向多用户地址池，不自动改为点对点部署。
+- TLS 1.3 的 `rekey-method=ssl` 使用 KeyUpdate；当前 OpenConnect/GnuTLS 处理协议更新，客户端未写死服务端 IPv6 `::1`，无需增加地址修补或迁移代码。
+- 默认用户/组配置文件缺失或错误现在会拒绝相应会话；本项目使用生成的标准 plain 认证文件。RADIUS 和 OIDC 的上游变化不改变默认账号流程；浏览器 OIDC 尚未在本项目客户端启用。
+
+VPN 专用代理模式仍提供 IPv4 隧道并阻止通过 N1 的 IPv6 绕行，外层 VPN 连接可使用 IPv6。三款代理的配置和适用范围见 [专用上网](VPN-ONLY-PROXY.md)。
 
 ## OpenWrt SDK
 
@@ -31,4 +44,4 @@ python3 scripts/package-server.py /tmp/sdk-25.12
 
 显式配置的 Python 使用 3.14，JavaScript 检查使用 Node.js 26；`check-latest` 获取该系列最新补丁。管理页浏览器回归使用 Playwright 1.63.0，Lua 回归使用 lupa 2.8。Android JDK 17、NDK 和系统运行器保持现有构建兼容要求。
 
-本次核对的官方最新核心仍为 [OpenConnect 9.21](https://www.infradead.org/openconnect/download/)、[ocserv 1.5.0](https://www.infradead.org/ocserv/download/) 和 [OpenWrt 25.12.5](https://downloads.openwrt.org/releases/)。源码归档继续使用 SHA-256 锁定；不自动替换协议核心或随意跨工具链版本。
+2026-10-28 核对的官方核心为 [OpenConnect 9.21](https://www.infradead.org/openconnect/download/) 和 [ocserv 1.6.0](https://www.infradead.org/ocserv/download/)。[OpenWrt SDK](https://downloads.openwrt.org/releases/) 继续在每次运行时解析 25.12 系列最新稳定版。填写未来版本只负责可靠地选取官方源码，仍须通过项目的编译、测试和实际设备验收。

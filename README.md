@@ -1,6 +1,6 @@
 # 岚序（Lansyra）
 
-岚序（Lansyra）提供 Windows 10/11 原生客户端 0.7.4、macOS 13+ Universal 和 Linux amd64/arm64 桌面客户端 0.1.4，以及 Android 0.2.4 / iOS 0.2.4 移动客户端。配套 ocserv 1.5.0-r7 服务端和中文管理页 0.5.5-r1。Windows 提供 x86/x64 便携包；Linux 支持 Debian 13 / Ubuntu 26.04，macOS 实际连接需要有效的 Apple 系统扩展签名。桌面安装方式见[桌面客户端说明](docs/DESKTOP.md)。服务端支持 **OpenWrt 25.12 / APK** 的六个目标，具体架构见 [OpenWrt 多架构说明](docs/OPENWRT.md)。
+岚序（Lansyra）提供 Windows 10/11 原生客户端 0.7.4、macOS 13+ Universal 和 Linux amd64/arm64 桌面客户端 0.1.4，以及 Android 0.2.4 / iOS 0.2.4 移动客户端。配套 ocserv 1.6.0-r1 服务端和中文管理页 0.6.0-r1。Windows 提供 x86/x64 便携包；Linux 支持 Debian 13 / Ubuntu 26.04，macOS 实际连接需要有效的 Apple 系统扩展签名。桌面安装方式见[桌面客户端说明](docs/DESKTOP.md)。服务端支持 **OpenWrt 25.12 / APK** 的六个目标，具体架构见 [OpenWrt 多架构说明](docs/OPENWRT.md)。
 
 客户端界面名称统一为 **岚序 Lansyra**，Windows 程序为 `Lansyra.exe`，Linux 包和命令为 `lansyra`，Android / iOS 默认安装 ID 为 `io.github.sck03.lansyra`，macOS 为 `io.github.sck03.lansyra.macos`。首次安装需填写服务器、账号、证书指纹并设置启动项；Apple 签名描述文件须匹配应用标识。本次维护沿用同名 Lansyra 的数据格式：升级前退出客户端并备份配置，同一用户、相同安装标识和签名下可保留现有配置。其他旧产品的数据、加密凭据和系统连接不自动迁移。
 
@@ -38,11 +38,11 @@ sh install.sh
 
 默认端口 `4443`、VPN 网段 `10.77.0.0/24`、每个账号同时一台设备。没有预设账号或密码。初始 DNS 为 `1.1.1.1`，需按实际部署检查连通性。
 
-## OpenClash 专用上网开关
+## VPN 专用代理开关
 
-管理页新增 **VPN 专用上网**。默认关闭；OpenClash 由管理员正常安装并配置。点击开启后，程序读取实际 LAN 地址和当前管理电脑地址，自动处理 VPN DNS、OpenClash 白名单、防火墙和标准流量卸载。普通 LAN 设备不能借 N1 的网关、DNS 或代理端口上网；通过主路由的普通上网保持原有行为。
+管理页提供 **VPN 专用上网**，支持 **OpenClash、Nikki、Momo**，自动识别唯一启用的代理。默认关闭；代理由管理员先安装并配置。开启后自动处理 VPN 入口、DNS、访问控制、防火墙和标准流量卸载。普通 LAN 设备不能借 N1 的网关、DNS 或代理端口上网；通过主路由的普通上网保持原有行为。升级 Nikki/Momo 或切换代理前先关闭本开关。
 
-开关适用于已确认的 **N1 单网口旁路由**。关闭后恢复本功能改动的设置；后来添加的账号、修改的订阅等保留。服务操作失败或应用后管理页面无法重新确认访问，会尝试自动恢复。订阅、节点及分流规则不由本开关修改。详见 [开关说明](docs/VPN-ONLY-OPENCLASH.md)。
+开关适用于已确认的 **N1 单网口旁路由**。关闭后恢复本功能改动的设置；后来添加的账号、修改的订阅等保留。服务操作失败或应用后管理页面无法重新确认访问，会尝试自动恢复。订阅、节点及分流规则不由本开关修改。详见 [开关说明](docs/VPN-ONLY-PROXY.md)。
 
 ## 构建与发行
 
@@ -53,6 +53,7 @@ sh install.sh
 - [macOS / Linux 桌面工作流](https://github.com/sck03/ocserv-openwrt/actions/workflows/build-desktop.yml)：macOS Universal 系统扩展编译，Linux 两种架构的原生构建、图形启动测试和 DEB 打包；使用方法见[桌面客户端说明](docs/DESKTOP.md)。
 - Windows 交叉编译、服务端和 Android 使用 `ubuntu-26.04`，iOS 使用 `macos-15`。Actions/管理页脚本检查使用 Node.js 26。运行器系统版本与 N1 固件版本是不同概念。
 - Windows 和服务端工作流均可填写 `release_version` 设置发行套装版本，留空使用北京时间日期和时分秒；标题始终显示真实构建时间。`publish_release=false` 可只构建，两端仅允许 main 发布。
+- Windows 和服务端切换官方源码时只需填写版本号，自动获取/验证官方校验值；服务端最低 1.6.0，按全新安装配置。IPv6 变更及客户端影响见 [上游说明](docs/UPSTREAM-UPDATES.md)。
 - Windows 和服务端手动工作流全部检查成功后发布独立 Pre-release；[Releases](https://github.com/sck03/ocserv-openwrt/releases) 附件长期保留，Actions artifacts 保留 7 天。移动端工作流目前仅上传 artifacts。
 - 客户端下载附件包含应用、必要运行文件、许可资料和少量版本/校验信息。Windows 包不再附带完整 `WAN.md`，使用说明提供在线文档链接；`BUILDINFO.json` 不参与运行，但保留用于核对组件和构建来源。`licenses/` 和第三方声明属于发行许可资料，不能当作无用代码删除。对应源码单独放在 `corresponding-source`（Windows）或 `linux-source`、`macos-source`、`android-source`、`ios-source` 附件中；测试程序和报告单独上传，安装时无需下载。再分发时仍须提供匹配的对应源码和许可证。
 - Linux DEB 使用系统 GTK、NetworkManager 和 OpenConnect 插件，包本身只有几十 KB 是正常的；首次安装所需依赖由 `apt` 下载。工作流检查真实 ELF、动态库依赖和安装内容，并在干净 Debian 13 / Ubuntu 26.04 环境验证两种架构的安装与启动。

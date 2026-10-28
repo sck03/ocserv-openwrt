@@ -8,14 +8,14 @@
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=ocserv
-PKG_VERSION:=1.5.0
-PKG_RELEASE:=7
+PKG_VERSION:=1.6.0
+PKG_RELEASE:=1
 PKG_BUILD_PARALLEL:=1
 PKG_BUILD_FLAGS:=no-mips16
 
 PKG_SOURCE:=$(PKG_NAME)-$(PKG_VERSION).tar.xz
 PKG_SOURCE_URL:=https://www.infradead.org/ocserv/download/
-PKG_HASH:=42ced08958b9576ab134fcb7bdc7f8df5e13214fd147855f99021fedcf0eedbe
+PKG_HASH:=2d3303a0d9e06eabfa08694b9dca3c558fef36418857bebf1b8de57ece5f9f32
 
 PKG_LICENSE:=GPL-2.0-or-later
 PKG_LICENSE_FILES:=COPYING
@@ -57,6 +57,7 @@ define Package/ocserv/description
 endef
 
 MESON_ARGS += \
+	-Dtests=false \
 	-Dpager='' \
 	-Dlibnl=disabled \
 	-Dgssapi=disabled \

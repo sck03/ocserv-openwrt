@@ -4,17 +4,13 @@ on:
   workflow_dispatch:
     inputs:
       release_version:
-        description: 发布版本号（如 1.5.0）；留空使用北京时间日期和时分秒
+        description: 发布版本号（如 1.6.0）；留空使用北京时间日期和时分秒
         type: string
         default: ""
       ocserv_version:
-        description: ocserv 官方源码版本（至少 1.5.0）
+        description: ocserv 官方源码版本（至少 1.6.0；自动获取官方 SHA-256）
         type: string
-        default: "1.5.0"
-      ocserv_sha256:
-        description: 改用其他版本时必填：官方源码 tar.xz 的 SHA-256；默认版本可留空
-        type: string
-        default: ""
+        default: "1.6.0"
       sdk_version:
         description: OpenWrt 25.12.x SDK 版本；填 auto 选择 25.12 系列最新稳定版
         type: string
@@ -54,6 +50,8 @@ jobs:
       build_timestamp: ${{ steps.metadata.outputs.build_timestamp }}
       sdk_version: ${{ steps.sdk.outputs.version }}
       matrix: ${{ steps.sdk.outputs.matrix }}
+      source_version: ${{ steps.source.outputs.version }}
+      source_sha256: ${{ steps.source.outputs.sha256 }}
     steps:
       - uses: actions/checkout@v7.0.1
         with:
@@ -79,9 +77,6 @@ jobs:
           package-manager-cache: false
       - run: python -m pip install lupa==2.8
       - name: Validate source and service transactions
-        env:
-          OCSERV_VERSION: ${{ inputs.ocserv_version }}
-          OCSERV_SHA256: ${{ inputs.ocserv_sha256 }}
         run: |
           [[ "$BUILD_JOBS" == auto || "$BUILD_JOBS" =~ ^[1-9][0-9]*$ ]] || { echo 'Invalid build_jobs'; exit 2; }
           python -m compileall -q scripts tests
@@ -89,7 +84,6 @@ jobs:
           python tests/release_tests.py
           python tests/release_metadata_tests.py
           python tests/server_package_tests.py
-          python scripts/prepare-build.py server --version "$OCSERV_VERSION" --sha256 "$OCSERV_SHA256"
           python tests/server_integration.py
           python tests/server_controller_tests.py
           python tests/server_config_tests.py
@@ -100,6 +94,11 @@ jobs:
           node --check server/openwrt/luci-app-ocserv-easy/htdocs/luci-static/resources/ocserv-easy/app.js
           for script in server/tools/*.sh; do bash -n "$script"; done
           bash -n scripts/publish-release.sh
+      - name: Resolve official ocserv source checksum
+        id: source
+        env:
+          OCSERV_VERSION: ${{ inputs.ocserv_version }}
+        run: python3 scripts/prepare-build.py server --version "$OCSERV_VERSION" --github-output
       - name: Validate VPN-only firewall in isolated network namespaces
         run: |
           sudo apt-get update
@@ -119,16 +118,21 @@ jobs:
             python -m playwright install --with-deps chromium
             browser_channel=chromium
           fi
-          python tests/server_preview.py --port 22981 > test-results/server-preview.log 2>&1 &
-          preview_pid=$!
-          trap 'kill "$preview_pid" 2>/dev/null || true' EXIT
-          for attempt in $(seq 1 50); do
-            if curl -fsS http://127.0.0.1:22981/ >/dev/null 2>&1; then break; fi
-            sleep 0.2
+          for proxy in OpenClash Nikki Momo; do
+            python tests/server_preview.py --port 22981 --proxy "${proxy,,}" > "test-results/server-preview-$proxy.log" 2>&1 &
+            preview_pid=$!
+            trap 'kill "$preview_pid" 2>/dev/null || true' EXIT
+            for attempt in $(seq 1 50); do
+              if curl -fsS http://127.0.0.1:22981/ >/dev/null 2>&1; then break; fi
+              sleep 0.2
+            done
+            curl -fsS http://127.0.0.1:22981/ >/dev/null || { cat "test-results/server-preview-$proxy.log"; exit 1; }
+            python tests/server_ui_tests.py --browser-channel "$browser_channel" --proxy "$proxy" --output "test-results/server-ui/$proxy"
+            if [[ "$proxy" == OpenClash ]]; then python tests/server_polling_tests.py --browser-channel "$browser_channel"; fi
+            kill "$preview_pid"
+            wait "$preview_pid" || true
+            trap - EXIT
           done
-          curl -fsS http://127.0.0.1:22981/ >/dev/null || { cat test-results/server-preview.log; exit 1; }
-          python tests/server_ui_tests.py --browser-channel "$browser_channel"
-          python tests/server_polling_tests.py --browser-channel "$browser_channel"
       - uses: actions/upload-artifact@v7.0.1
         if: always()
         with:
@@ -142,7 +146,7 @@ jobs:
             test-results/vpn-guard-tests.log
             test-results/server-ui/
             test-results/server-polling.json
-            test-results/server-preview.log
+            test-results/server-preview-*.log
           if-no-files-found: error
           retention-days: 7
 
@@ -173,9 +177,9 @@ jobs:
           key: openwrt-sdk-${{ needs.validate.outputs.sdk_version }}-${{ matrix.target }}-${{ hashFiles('scripts/sdk_config.py', 'server/openwrt/targets.json') }}
       - name: Select official ocserv source
         env:
-          OCSERV_VERSION: ${{ inputs.ocserv_version }}
-          OCSERV_SHA256: ${{ inputs.ocserv_sha256 }}
-        run: python3 scripts/prepare-build.py server --version "$OCSERV_VERSION" --sha256 "$OCSERV_SHA256"
+          OCSERV_VERSION: ${{ needs.validate.outputs.source_version }}
+          OCSERV_SHA256: ${{ needs.validate.outputs.source_sha256 }}
+        run: python3 scripts/prepare-build.py server --version "$OCSERV_VERSION" --resolved-sha256 "$OCSERV_SHA256"
       - name: Install SDK build prerequisites
         run: |
           sudo apt-get update

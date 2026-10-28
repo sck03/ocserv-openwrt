@@ -88,7 +88,7 @@ elif name=='apk':
             sys.exit(0)
         assert '--upgrade' in args
         if '--simulate' in args:
-            print('(1/2) Installing '+('kmod-tun (6.12)' if os.environ.get('INSTALL_KERNEL') else 'ocserv (1.5.0-r3)'))
+            print('(1/2) Installing '+('kmod-tun (6.12)' if os.environ.get('INSTALL_KERNEL') else 'ocserv (1.6.0-r3)'))
         else:
             if fail('fail_apk'): sys.exit(1)
             packages=json.loads((root/'installed').read_text()) if (root/'installed').exists() else []
@@ -239,7 +239,7 @@ with tempfile.TemporaryDirectory(prefix='lansyra-install-test-') as temporary:
         (root/'tun.available').touch()
         (root / 'bundle/preflight.sh').write_text(preflight,encoding='utf-8')
         (root / 'bundle/APK-ARCHITECTURES').write_text(architectures)
-        for package in ('ocserv-1.5.0-r3.apk', 'luci-app-ocserv-easy-0.4.1-r1.apk'):
+        for package in ('ocserv-1.6.0-r3.apk', 'luci-app-ocserv-easy-0.4.1-r1.apk'):
             (root / 'bundle' / package).write_bytes(b'local test APK')
         manifest = ''.join(hashlib.sha256(path.read_bytes()).hexdigest() + '  ' + path.name + '\n'
                            for path in (root / 'bundle').iterdir())
@@ -462,7 +462,7 @@ with tempfile.TemporaryDirectory(prefix='lansyra-install-test-') as temporary:
     checks.append('missing firmware TUN support fails before changes')
 
     root = fixture('checksum')
-    (root / 'bundle/ocserv-1.5.0-r3.apk').write_bytes(b'corrupted')
+    (root / 'bundle/ocserv-1.6.0-r3.apk').write_bytes(b'corrupted')
     assert run(root).returncode != 0 and not (root / 'installed').exists()
     checks.append('a corrupted bundle is rejected before installing packages')
 

@@ -7,8 +7,7 @@
 | 客户端参数 | 默认值 | 用途 |
 |---|---|---|
 | release_version | 空 | 发行套装版本，例如 0.5.1 或 v0.5.1-rc.1；留空使用北京时间日期和时分秒 |
-| openconnect_version | 9.21 | 官方协议核心版本 |
-| openconnect_sha256 | 空 | 默认使用锁定值，改版本时须提供官方源码 SHA-256 |
+| openconnect_version | 9.21 | 官方协议核心版本，自动验证官方签名并计算 SHA-256 |
 | build_jobs | auto | 使用全部可用 CPU，也可指定正整数 |
 | publish_release | true | 检查成功后发布 Pre-release，仅 main 生效 |
 
@@ -17,6 +16,8 @@
 Actions 使用官方 checkout、cache、setup-node、setup-python、upload-artifact 和 download-artifact。JavaScript 检查用 Node.js 26，Windows 测试用 Python 3.14；用户运行客户端无需这些工具。
 
 服务端同样提供 `release_version` 和 `publish_release`，关闭后只生成构建附件；发布仅在 main 上执行。`build_jobs=auto` 通过 nproc 使用可用 CPU，GNU Make 和 SDK 的 Ninja 共用额度。`sdk_version` 默认 `auto`，在参数检查阶段解析为 25.12 系列最新稳定补丁版，后续全部架构使用同一版本。SDK 放在 Git 仓库之外，仅构建 ocserv 和独立中文管理页两个 APK。详见 [上游更新](UPSTREAM-UPDATES.md)。
+
+服务端的 `ocserv_version` 默认 `1.6.0`，只需填写正式版本号，脚本自动读取官网对应归档的 SHA-256。Windows 客户端也只需填写 `openconnect_version`；其他版本先通过固定官方签名密钥验证，再计算 SHA-256。默认版本复用仓库锁定值。验证任务解析一次校验值，编译和对应源码任务使用同一结果；下载归档时仍验证摘要，无需手填校验值。
 
 服务端按 SDK 版本、目标及解析配方缓存下载归档，每次取用仍校验官方 SHA-256；解压和构建继续使用独立干净目录。Windows 构建在耗时编译前检查 Python 版本及认证测试依赖，缺失时给出安装命令。
 

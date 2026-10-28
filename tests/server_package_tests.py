@@ -36,15 +36,15 @@ class ServerPackageTests(unittest.TestCase):
         (self.sdk / "sdk-info.json").write_text(json.dumps({"version": "25.12.5", "target": "armsr/armv8"}))
         (self.sdk / ".config").write_text('CONFIG_USE_APK=y\nCONFIG_TARGET_armsr_armv8=y\nCONFIG_TARGET_ARCH_PACKAGES="aarch64_generic"\n')
         (self.sdk / "feeds.conf").write_text("fixture feeds\n")
-        self.write("dl/ocserv-1.5.0.tar.xz", b"synthetic upstream archive")
+        self.write("dl/ocserv-1.6.0.tar.xz", b"synthetic upstream archive")
         recipe = self.root / "server/openwrt/ocserv/Makefile"
-        recipe.write_text("PKG_VERSION:=1.5.0\nPKG_RELEASE:=3\nPKG_HASH:=" +
-                          package.sha256(self.sdk / "dl/ocserv-1.5.0.tar.xz") + "\n")
+        recipe.write_text("PKG_VERSION:=1.6.0\nPKG_RELEASE:=3\nPKG_HASH:=" +
+                          package.sha256(self.sdk / "dl/ocserv-1.6.0.tar.xz") + "\n")
         (self.root / "server/openwrt/luci-app-ocserv-easy/Makefile").write_text(
             "PKG_VERSION:=0.4.1\nPKG_RELEASE:=2\n")
-        for name in ("ocserv-1.5.0-r3.apk", "luci-app-ocserv-easy-0.4.1-r2.apk"):
+        for name in ("ocserv-1.6.0-r3.apk", "luci-app-ocserv-easy-0.4.1-r2.apk"):
             self.write("bin/packages/aarch64/fixture/" + name, b"synthetic APK")
-        server_root = self.sdk / "build_dir/target-fixture/ocserv-1.5.0/.pkgdir/ocserv"
+        server_root = self.sdk / "build_dir/target-fixture/ocserv-1.6.0/.pkgdir/ocserv"
         self.binary = server_root / "usr/sbin/ocserv"
         header = bytearray(64)
         header[:6] = b"\x7fELF\x02\x01"
@@ -93,7 +93,7 @@ class ServerPackageTests(unittest.TestCase):
             return result
 
         with patch.object(package, "ROOT", self.root), patch.object(sys, "argv", ["package-server", str(self.sdk)]), \
-                patch.dict(os.environ, RELEASE_VERSION="1.5.0", BUILD_TIMESTAMP="2026-09-29T01:02:03Z"), \
+                patch.dict(os.environ, RELEASE_VERSION="1.6.0", BUILD_TIMESTAMP="2026-09-29T01:02:03Z"), \
                 patch.object(package.subprocess, "check_output", side_effect=command_output), \
                 patch.object(package.subprocess, "run", side_effect=command), patch.object(Path, "stat", sdk_stat):
             package.main()
@@ -101,8 +101,8 @@ class ServerPackageTests(unittest.TestCase):
 
     def test_package_includes_revisions_metadata_and_verified_file_list(self):
         archive = self.bundle()
-        self.assertIn("ocserv-1.5.0-r3-openwrt-", archive.name)
-        self.assertIn("ui-0.4.1-r2-1.5.0", archive.name)
+        self.assertIn("ocserv-1.6.0-r3-openwrt-", archive.name)
+        self.assertIn("ui-0.4.1-r2-1.6.0", archive.name)
         with zipfile.ZipFile(archive) as contents:
             prefix = archive.stem + "/"
             info = json.loads(contents.read(prefix + "BUILDINFO.json"))
@@ -113,7 +113,7 @@ class ServerPackageTests(unittest.TestCase):
                              (self.root / "server/openwrt/luci-app-ocserv-easy/luasrc/model/ocserv_easy/lease.lua").read_bytes())
             self.assertFalse(any("/validation/" in name or name.endswith("ocserv-elf-dependencies.txt")
                                  for name in contents.namelist()))
-            self.assertEqual(contents.getinfo(prefix + "source/ocserv-1.5.0.tar.xz").compress_type, zipfile.ZIP_STORED)
+            self.assertEqual(contents.getinfo(prefix + "source/ocserv-1.6.0.tar.xz").compress_type, zipfile.ZIP_STORED)
             for line in contents.read(prefix + "SHA256SUMS").decode().splitlines():
                 checksum, filename = line.split("  ", 1)
                 self.assertEqual(hashlib.sha256(contents.read(prefix + filename)).hexdigest(), checksum)
@@ -132,7 +132,7 @@ class ServerPackageTests(unittest.TestCase):
         with zipfile.ZipFile(archive) as contents:
             with tarfile.open(fileobj=io.BytesIO(contents.read(archive.stem + "/source/openwrt-recipes.tar.gz"))) as recipes:
                 self.assertIn("openwrt/ocserv/Makefile", recipes.getnames())
-                for module in ("storage.lua", "configuration.lua", "query_cache.lua", "lease.lua"):
+                for module in ("storage.lua", "configuration.lua", "query_cache.lua", "lease.lua", "proxy.lua"):
                     self.assertIn("openwrt/luci-app-ocserv-easy/luasrc/model/ocserv_easy/" + module, recipes.getnames())
                 self.assertNotIn("openwrt/ocserv/private.key", recipes.getnames())
 
@@ -158,7 +158,7 @@ class ServerPackageTests(unittest.TestCase):
     def test_failed_source_verification_preserves_previous_bundle(self):
         archive = self.bundle()
         checksum = package.sha256(archive)
-        (self.sdk / "dl/ocserv-1.5.0.tar.xz").write_bytes(b"corrupt")
+        (self.sdk / "dl/ocserv-1.6.0.tar.xz").write_bytes(b"corrupt")
         with self.assertRaisesRegex(RuntimeError, "source checksum"):
             self.bundle()
         self.assertEqual(package.sha256(archive), checksum)

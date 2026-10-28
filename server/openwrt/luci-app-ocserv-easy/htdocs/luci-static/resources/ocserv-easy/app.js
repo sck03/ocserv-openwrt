@@ -30,7 +30,10 @@
         file_too_large:t('配置超过大小上限，原配置已保留。请减少配置内容后重试。','The configuration exceeds its size limit. Previous settings were preserved.'),
         recovery_pending:t('上次服务设置尚需恢复，请稍后刷新；恢复记录位于 /etc/ocserv/easy-transaction。','A previous configuration transaction needs recovery. Refresh shortly; records are in /etc/ocserv/easy-transaction.'),
         guard_requires_fw4:t('需要 Firewall4 和 nftables。','Firewall4 and nftables are required.'),
-        guard_requires_openclash:t('请先安装、配置并启用 OpenClash。','Install, configure and enable OpenClash first.'),
+        guard_requires_proxy:t('请先安装、配置并运行 OpenClash、Nikki 或 Momo 中的一款。','Install, configure and run one of OpenClash, Nikki or Momo first.'),
+        guard_proxy_conflict:t('检测到多款代理同时启用。请只保留一款启用，再开启专用上网。','Multiple proxy services are enabled. Leave only one enabled before using VPN-only access.'),
+        guard_proxy_mode:t('Nikki/Momo 需要关闭仅核心模式，并配置 TCP 与 UDP 透明代理。','Disable core-only mode and configure TCP and UDP transparent proxying in Nikki/Momo.'),
+        guard_proxy_template:t('此版本的代理入口模板不兼容或已被修改，未应用设置。请先关闭专用上网再升级代理。','The proxy ingress template is unsupported or modified. No settings were applied. Disable VPN-only access before upgrading the proxy.'),
         guard_requires_ocserv:t('请先完成账号和证书设置，并启动 VPN 服务。','Set up accounts and certificates, then start VPN first.'),
         guard_requires_routed_vpn:t('此功能需要普通账号认证和独立 VPN 地址池，请关闭代理 ARP。','Use password authentication and a separate VPN pool with proxy ARP disabled.'),
         guard_requires_lan:t('无法读取 LAN 的 IPv4 地址、设备或防火墙区域。','Cannot read the LAN IPv4 address, device or firewall zone.'),
@@ -44,7 +47,7 @@
         guard_worker_failed:t('后台配置进程未启动，请重试或查看系统日志。','The background configuration process did not start. Retry or check the system log.'),
         guard_firewall_failed:t('防火墙校验或应用失败，正在恢复原配置。','Firewall validation or apply failed. Restoring the previous configuration.'),
         guard_dns_failed:t('DNS 服务重启失败，正在恢复原配置。','DNS restart failed. Restoring the previous configuration.'),
-        guard_openclash_failed:t('OpenClash 重启失败，正在恢复原配置。','OpenClash restart failed. Restoring the previous configuration.'),
+        guard_proxy_failed:t('代理服务或 VPN 入口规则未就绪，正在恢复原配置。','The proxy service or VPN ingress rules are not ready. Restoring the previous configuration.'),
         guard_confirmation_expired:t('应用后未能确认管理页面可访问，已尝试自动恢复。','The page could not confirm connectivity after applying. Automatic restoration was attempted.'),
         guard_state_invalid:t('恢复记录无法读取，请检查 /etc/ocserv/easy-guard 中的备份。','Cannot read the recovery record. Check /etc/ocserv/easy-guard.'),
         guard_settings_locked:t('请先关闭 VPN-only 开关，再修改 VPN 网络设置。账号仍可正常管理。','Disable VPN-only mode before changing VPN networking. Account management remains available.'),
@@ -60,7 +63,7 @@
         stale_revision:t('配置已被其他页面修改。请关闭此对话框，刷新页面后重试。','Configuration changed in another page. Close this dialog, refresh and try again.'),
         pending_changes:t('其他页面有尚未提交的 VPN 或防火墙修改，请先应用或撤销。','Another editor has pending VPN or firewall changes. Apply or discard them first.'),
         busy:t('另一个操作正在进行，请稍后重试。','Another operation is in progress. Try again shortly.'),
-        upgrade_required:t('请先升级到 ocserv 1.5.0 或后续版本。','Upgrade to ocserv 1.5.0 or later first.'),
+        upgrade_required:t('请先升级到 ocserv 1.6.0 或后续版本。','Upgrade to ocserv 1.6.0 or later first.'),
         version_unavailable:t('暂时无法读取 ocserv 版本。请稍后刷新重试，或运行诊断脚本检查服务。','The ocserv version could not be read. Refresh and retry, or run the diagnostic script.'),
         plain_auth_required:t('账号管理需要使用 plain 用户名密码认证。','Account management requires plain username/password authentication.'),
         custom_auth_file:t('正在使用自定义认证文件；请先恢复标准 UCI 账号配置。','A custom authentication file is active. Restore standard UCI account management first.'),
@@ -138,7 +141,7 @@
     effects.unchanged=t('内容没有变化，无需重复保存。','Nothing changed; no update was needed.');
     effects.guard_queued=t('正在配置，仅需稍候。页面会自动检查管理连接；无法连接时会自动恢复。','Applying settings. This page checks connectivity automatically and restores settings if it cannot reconnect.');
     effects.guard_restoring=t('正在关闭并恢复启用前的设置…','Disabling and restoring the previous settings…');
-    effects.guard_enabled=t('已开启，仅 VPN 用户可通过 N1 使用 OpenClash。','Enabled. Only VPN clients can use OpenClash through this N1.');
+    effects.guard_enabled=t('已开启，仅 VPN 用户可通过 N1 使用代理上网。','Enabled. Only VPN clients can access the proxy through this N1.');
     effects.guard_disabled=t('已关闭，已恢复启用前的设置。','Disabled. Previous settings restored.');
     async function complete(payload) {
         var result=await mutate(payload); if(!await load())return;
@@ -279,7 +282,7 @@
     function showGuardLog() {
         var output=element('pre',{className:'easy-guard-log',tabindex:'0',text:t('正在读取日志…','Loading log…')});
         var loading=false;
-        var steps={request:t('操作请求','Request'),confirmation:t('管理连接确认','Management confirmation'),apply:t('启用配置','Apply'),restore:t('恢复配置','Restore'),operation_failed:t('操作失败','Operation failed'),restore_failed:t('恢复失败','Restore failed'),firewall_reload:t('重载防火墙','Reload firewall'),firewall_check:t('检查防火墙','Check firewall'),dns_restart:t('重启 DNS','Restart DNS'),openclash_restart:t('重启 OpenClash','Restart OpenClash'),openclash_ready:t('等待 OpenClash','Wait for OpenClash'),ocserv_restart:t('重启 VPN 服务','Restart VPN'),ocserv_ready:t('等待 VPN 服务','Wait for VPN'),ocserv_config_check:t('检查 VPN 配置','Check VPN configuration'),nft_check:t('检查隔离规则','Check isolation rules'),nft_apply:t('应用隔离规则','Apply isolation rules')};
+        var steps={request:t('操作请求','Request'),confirmation:t('管理连接确认','Management confirmation'),apply:t('启用配置','Apply'),restore:t('恢复配置','Restore'),operation_failed:t('操作失败','Operation failed'),restore_failed:t('恢复失败','Restore failed'),firewall_reload:t('重载防火墙','Reload firewall'),firewall_check:t('检查防火墙','Check firewall'),dns_restart:t('重启 DNS','Restart DNS'),openclash_restart:t('重启 OpenClash','Restart OpenClash'),openclash_ready:t('等待 OpenClash','Wait for OpenClash'),nikki_restart:t('重启 Nikki','Restart Nikki'),nikki_ready:t('等待 Nikki','Wait for Nikki'),momo_restart:t('重启 Momo','Restart Momo'),momo_ready:t('等待 Momo','Wait for Momo'),ocserv_restart:t('重启 VPN 服务','Restart VPN'),ocserv_ready:t('等待 VPN 服务','Wait for VPN'),ocserv_config_check:t('检查 VPN 配置','Check VPN configuration'),nft_check:t('检查隔离规则','Check isolation rules'),nft_apply:t('应用隔离规则','Apply isolation rules')};
         var codes={start:t('开始','Started'),completed:t('完成','Completed'),running:t('已运行','Running'),timeout:t('等待超时','Timed out'),pending:t('等待管理连接确认','Awaiting management confirmation'),enabled:t('已开启','Enabled'),enable:t('开启','Enable'),disable:t('关闭并恢复','Disable and restore'),confirm:t('确认','Confirm'),boot:t('开机恢复','Boot recovery')};
         async function refresh() {
             if(loading)return; loading=true;
@@ -302,15 +305,17 @@
     }
     function renderGuard() {
         var g=state.guard || {phase:'disabled'}, labels={disabled:t('已关闭','Disabled'),queued:t('等待应用…','Queued…'),applying:t('正在应用…','Applying…'),pending:t('正在确认管理连接…','Checking management connectivity…'),enabled:t('已开启','Enabled'),restoring:t('正在恢复…','Restoring…'),recovery_failed:t('恢复需要重试','Restoration needs a retry')};
+        var proxyName={openclash:'OpenClash',nikki:'Nikki',momo:'Momo'}[g.proxy];
         var switching=['queued','applying','pending','restoring'].includes(g.phase);
         var toggle=mutationButton(g.enabled?t('关闭并恢复','Disable and restore'):t('开启','Enable'),function(){
             if(g.enabled)complete({action:'guard',command:'disable'}).catch(function(e){notice(errorText(e),true);});
-            else confirm(t('开启仅 VPN 上网','Enable VPN-only access'),t('此功能适用于 N1 旁路由。将自动设置防火墙、VPN DNS、OpenClash 防火墙 DNS 重定向和访问控制，不改写 dnsmasq 的监听及上游配置，并短暂重启相关服务。保留当前电脑的管理访问；关闭时恢复启用前的设置。','For an N1 side router. Sets the firewall, VPN DNS and OpenClash firewall DNS redirect and access controls without rewriting dnsmasq listeners or upstream servers, then briefly restarts related services. Management access from this computer is retained; disabling restores the previous settings.'),{action:'guard',command:'enable'});
+            else confirm(t('开启仅 VPN 上网','Enable VPN-only access'),t('将为 ','Configure ')+(proxyName || '')+t(' 设置 VPN 入口、DNS 重定向、访问控制和隔离防火墙，并短暂重启相关服务。适用于 N1 旁路由，保留当前电脑的管理访问；关闭时恢复原设置。Nikki/Momo 升级前须先关闭本开关。',' with VPN ingress, DNS redirection, access controls and an isolation firewall, then briefly restart related services. For N1 side routers; retains management access and restores settings on disable. Disable this switch before upgrading Nikki/Momo.'),{action:'guard',command:'enable'});
         },g.enabled?'cbi-button-reset':'cbi-button-apply');
         toggle.disabled=!writable() || switching || (!g.enabled && !g.available);
-        var children=[element('div',{className:'easy-heading'},[element('h3',{text:t('仅 VPN 用户可使用 OpenClash','Only VPN clients may use OpenClash')}),element('strong',{className:g.phase==='enabled'?'easy-good':'easy-muted',text:labels[g.phase] || g.phase})]),
+        var children=[element('div',{className:'easy-heading'},[element('h3',{text:t('仅 VPN 用户可使用代理','Only VPN clients may use the proxy')}),element('strong',{className:g.phase==='enabled'?'easy-good':'easy-muted',text:labels[g.phase] || g.phase})]),
             element('p',{text:t('开启后，未登录 VPN 的局域网设备不能把 N1 当作网关、DNS 或代理服务器使用。普通设备通过主路由上网不受影响。','When enabled, LAN devices without VPN cannot use this N1 as a gateway, DNS or proxy server. Internet access through the main router continues normally.')}),
-            element('p',{className:'easy-muted',text:t('默认关闭；不会自动开启或安装 OpenClash，也不修改订阅、节点和分流规则。','Disabled by default. Does not install or enable OpenClash or change subscriptions, nodes or routing rules.')})];
+            element('p',{className:'easy-muted',text:t('支持 OpenClash、Nikki、Momo，自动识别唯一启用的代理。默认关闭，不修改订阅、节点和分流规则。','Supports OpenClash, Nikki and Momo; detects the single enabled proxy. Disabled by default; keeps subscriptions, nodes and routing rules.')})];
+        if(proxyName)children.push(element('p',{text:t('联动代理：','Proxy: ')+proxyName}));
         if(g.lan)children.push(element('p',{text:t('N1 地址：','N1 address: ')+g.lan+'　'+t('管理电脑：','Management computer: ')+g.admin+'　'+t('VPN 网段：','VPN pool: ')+g.pool}));
         if(g.reason)children.push(element('p',{className:'easy-notice error',text:errorText({code:g.reason})}));
         if(g.phase==='disabled' && g.last && g.last.failure)children.push(element('p',{className:'easy-notice error',text:t('上次应用已恢复：','Previous apply restored: ')+errorText({code:g.last.failure})}));
@@ -381,7 +386,7 @@
             }),
             mutationButton(state.autostart?t('关闭开机启动','Disable autostart'):t('开机自动启动','Enable autostart'),function(){complete({action:'service',command:state.autostart?'disable':'enable'}).catch(function(e){notice(errorText(e),true);});})
         ]);
-        root.appendChild(element('div',{className:'easy-heading'},[element('div',{},[element('h2',{text:'岚序 Lansyra'}),element('span',{className:'easy-muted',text:t('管理页 ','UI ')+(state.ui_version || '0.5.5')+' · ocserv '+state.version})]),actions]));
+        root.appendChild(element('div',{className:'easy-heading'},[element('div',{},[element('h2',{text:'岚序 Lansyra'}),element('span',{className:'easy-muted',text:t('管理页 ','UI ')+(state.ui_version || '0.6.0')+' · ocserv '+state.version})]),actions]));
         messageBox=element('div',{className:'easy-notice',hidden:true});root.appendChild(messageBox);
         statusBox=element('div',{className:'easy-summary'});statusKey=null;root.appendChild(statusBox);renderStatus();
         if(state.installation_pending)root.appendChild(element('p',{className:'easy-notice error',text:t('安装尚未完成。请在完整服务端套装目录重新运行 sh install.sh，完成证书和 VPN 网络初始化。','Installation is incomplete. Run sh install.sh again from the complete server bundle to finish certificate and VPN network initialization.')}));

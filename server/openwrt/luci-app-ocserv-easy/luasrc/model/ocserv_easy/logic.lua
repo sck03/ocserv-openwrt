@@ -14,7 +14,7 @@ end
 function M.supported_version(value)
     if type(value)~="string" then return false end
     local major,minor=value:match("^(%d+)%.(%d+)%.%d+")
-    return major~=nil and (tonumber(major)>1 or tonumber(major)==1 and tonumber(minor)>=5)
+    return major~=nil and (tonumber(major)>1 or tonumber(major)==1 and tonumber(minor)>=6)
 end
 function M.text(value, limit)
     return type(value) == "string" and #value <= (limit or 1024) and not value:find("[%z\1-\31\127]")

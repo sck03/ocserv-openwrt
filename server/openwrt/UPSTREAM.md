@@ -1,11 +1,12 @@
-# ocserv 1.5.0 package recipe
+# ocserv 1.6.0 package recipe
 
 The `ocserv/` directory is the OpenWrt packages feed recipe, including its UCI/procd integration.
 
 - Source: https://github.com/openwrt/packages/tree/c7a47d583127961590dfd832c424441c6810952c/net/ocserv
 - Retrieved: 2026-09-14
-- Upstream package: ocserv 1.5.0-r1; local package release: 1.5.0-r7.
-- Source archive SHA-256: `42ced08958b9576ab134fcb7bdc7f8df5e13214fd147855f99021fedcf0eedbe`
+- Original feed recipe: ocserv 1.5.0-r1; maintained source and minimum version: 1.6.0-r1 (verified 2026-10-28).
+- Official source: https://www.infradead.org/ocserv/download/ocserv-1.6.0.tar.xz
+- Source archive SHA-256: `2d3303a0d9e06eabfa08694b9dca3c558fef36418857bebf1b8de57ece5f9f32`
 - License: GPL-2.0-or-later (upstream copyright notices retained).
 - Build system: Meson. Maintained OpenWrt 25.12 APK targets are listed in [targets.json](targets.json), including armsr/armv8 for N1.
 

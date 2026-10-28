@@ -18,7 +18,7 @@ The application is GPL-3.0-or-later. Static linking does not remove third-party 
 | GCC runtime | Selected toolchain version | GPL with GCC Runtime Library Exception | Static C/C++ runtime |
 | Wintun prebuilt binaries | 0.14.1 | Wintun Prebuilt Binaries License | Official, unmodified architecture-specific DLL |
 | OpenWrt ocserv recipe | c7a47d583127961590dfd832c424441c6810952c | GPL-2.0-or-later | SDK recipe and procd/UCI integration |
-| ocserv | 1.5.0 | GPL-2.0-or-later | Server; source included in server artifacts |
+| ocserv | 1.6.0 | GPL-2.0-or-later | Server; source included in server artifacts |
 | LuCI reference source | SDK-selected feed revision in BUILDINFO.json | Upstream LuCI notices | Feed source bundled; the shipped page is luci-app-ocserv-easy |
 | OpenTunnel | 0535533dfb7d3a656bfdb880d51f731c109135c1 | LGPL-2.1; upstream LICENSE and individual notices | Android app and native build recipe; separate application ID and Chinese launcher name |
 | OpenSSL (Android / Apple) | 3.5.8 | Apache-2.0 | Static mobile and macOS TLS library |

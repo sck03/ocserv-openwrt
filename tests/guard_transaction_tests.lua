@@ -131,12 +131,20 @@ local function run(args)
         return S.openclash_process==args[2] and 0 or 1,""
     end
     if args[1]=="/bin/ubus" then
+        if args[3]=="service" then
+            local name=decode(args[5]).name
+            return 0,encode({[name]={instances={[name]={running=S.proxy_running==name}}}})
+        end
         if args[3]=="network.interface.lan" then return 0,encode({up=true,l3_device="br-lan",["ipv4-address"]={{address="192.168.19.253",mask=24}}}) end
         return 0,encode({up=S.wan or false})
     end
     if command=="/usr/sbin/nft -f "..root.."guard.nft" then S.nft=true end
     if command=="/usr/sbin/nft delete table inet lansyra_guard" then S.nft=false end
     if command=="/usr/sbin/nft list table inet lansyra_guard" then return S.nft and 0 or 1,"" end
+    if args[2]=="list" and args[3]=="set" then
+        local template=S.files["/etc/"..args[5].."/ucode/hijack.ut"] or ""
+        return 0,not S.proxy_rules_missing and template:find('"vpns*"',1,true) and 'elements = { "vpns*" }' or "elements = { }"
+    end
     return 0,""
 end
 package.loaded["nixio"]=nixio
@@ -167,14 +175,10 @@ test("Meta/Mihomo OpenClash core is accepted",function()
     check(guard.status(admin).phase=="disabled" and guard.status(admin).available)
     check(equal(before,S.cfg) and not S.nft); enable(); check(S.nft); disable()
 end)
-test("legacy host-form VPN pool is normalized for guard rules",function()
+test("a host address cannot be used as the VPN pool network",function()
     reset(); S.cfg.ocserv.config.ipaddr="192.168.100.1"; local before=clone(S.cfg)
-    check(guard.status(admin).phase=="disabled" and guard.status(admin).available)
-    enable()
-    check(S.cfg.ocserv.config.ipaddr=="192.168.100.1")
-    check(equal(S.cfg.openclash.config.lan_ac_white_ips,{"192.168.100.0/24"}))
-    check(S.files[root.."guard.nft"]:find("192.168.100.0/24",1,true))
-    disable(); check(equal(before,S.cfg))
+    expect("pool_not_network",function()guard.begin("enable",admin)end)
+    check(equal(before,S.cfg) and not guard.active())
 end)
 test("enable queues work without blocking the LuCI request",function()
     reset(); local before=clone(S.cfg); guard.begin("enable",admin); check(guard.status(admin).phase=="queued" and equal(before,S.cfg) and not S.nft)
@@ -208,7 +212,7 @@ test("disable restores original settings, lists and local file",function()
 end)
 test("IPv6 VPN entry retains isolation and restores a prior IPv4 listener",function()
     reset()
-    local extra="listen-host = 192.168.19.253\n# administrator setting\n"
+    local extra="listen-host = 192.168.19.253\nno-route = 0.0.0.0/0\n# administrator setting\n"
     S.files["/etc/ocserv/ocserv.conf.local"]=extra
     S.cfg.ocserv.config.ip6addr="fd77::/64"
     local before=clone(S.cfg)
@@ -218,6 +222,7 @@ test("IPv6 VPN entry retains isolation and restores a prior IPv4 listener",funct
     check(entry.src=="lan" and entry.family=="ipv6" and not entry.dest and entry.target=="ACCEPT")
     check(entry.dest_port=="4443 4443")
     check(not S.files["/etc/ocserv/ocserv.conf.local"]:find("listen-host",1,true))
+    check(not S.files["/etc/ocserv/ocserv.conf.local"]:find("0.0.0.0/0",1,true))
     check(S.files[root.."guard.nft"]:find("VPN IPv6 disabled",1,true))
     disable()
     check(equal(before,S.cfg) and S.files["/etc/ocserv/ocserv.conf.local"]==extra)
@@ -237,7 +242,7 @@ test("loss of browser confirmation automatically restores",function()
 end)
 test("OpenClash restart failure rolls back configuration and guard",function()
     reset(); local before=clone(S.cfg); S.fail_command="/etc/init.d/openclash restart"
-    guard.begin("enable",admin); guard.work(false); check(equal(before,S.cfg) and not S.nft and guard.status(admin).last.failure=="guard_openclash_failed")
+    guard.begin("enable",admin); guard.work(false); check(equal(before,S.cfg) and not S.nft and guard.status(admin).last.failure=="guard_proxy_failed")
 end)
 
 test("asynchronous ocserv startup succeeds on enable and restore",function()
@@ -277,6 +282,20 @@ end)
 test("queued request made stale never overwrites the other editor",function()
     reset(); guard.begin("enable",admin); S.cfg.firewall.defaults.flow_offloading="0"; S.files["/etc/config/firewall"]=encode(S.cfg.firewall)
     local before=clone(S.cfg); guard.work(false); check(equal(before,S.cfg) and not S.nft)
+end)
+test("queued request preserves an edited local configuration file",function()
+    reset(); local before=clone(S.cfg); guard.begin("enable",admin)
+    S.files["/etc/ocserv/ocserv.conf.local"]="# saved by administrator after queueing\n"
+    guard.work(false)
+    check(equal(before,S.cfg) and not S.nft and not guard.active())
+    check(S.files["/etc/ocserv/ocserv.conf.local"]=="# saved by administrator after queueing\n")
+    check(guard.status(admin).last.failure=="stale_revision")
+end)
+test("queued request cannot overwrite a newly created guard file",function()
+    reset(); local before=clone(S.cfg); guard.begin("enable",admin)
+    S.files[root.."guard.nft"]="# another administrator's rules\n"
+    guard.work(false)
+    check(equal(before,S.cfg) and not guard.active() and S.files[root.."guard.nft"]=="# another administrator's rules\n")
 end)
 test("boot recovery does not require network or fw4 to be running",function()
     reset(); local before=clone(S.cfg); enable()
@@ -375,5 +394,94 @@ end)
 test("log write failure cannot prevent configuration recovery",function()
     reset(); enable(); S.fail_write="/var/run/ocserv-easy/guard-log.json"; disable(); check(not guard.active())
 end)
-TEST_GUARD_PREVIEW={reset=reset,guard=guard,state=function()return S end}
+local function use_proxy(name)
+    S.cfg.openclash.config.enable="0"
+    S.cfg[name]={config=row("config",{enabled="1",core_only="0",profile="subscription:fixture"}),
+        proxy=row("proxy",{enabled="1",lan_proxy="1",ipv4_proxy="1",ipv4_dns_hijack="0",tcp_mode="redirect",udp_mode="tun",lan_inbound_interface={"lan"}}),
+        first=row("lan_access_control",{enabled="1",ip={"10.77.0.0/24"},dns="0",proxy="0"}),
+        last=row("lan_access_control",{enabled="1",dns="1",proxy="1"})}
+    S.files["/etc/init.d/"..name]="executable"
+    S.files["/etc/config/"..name]=encode(S.cfg[name])
+    S.files["/etc/"..name.."/ucode/hijack.ut"]="#!/usr/bin/utpl\n{% const lan_inbound_device = []; %}\n"
+    S.proxy_running=name
+end
+for _,name in ipairs({"nikki","momo"}) do
+    test(name.." uses the VPN wildcard and restores ACLs, template and subscription",function()
+        reset(); use_proxy(name); local before=clone(S.cfg)
+        local path="/etc/"..name.."/ucode/hijack.ut"; local template=S.files[path]
+        check(guard.status(admin).proxy==name and guard.status(admin).available)
+        enable(); check(guard.status(admin).proxy==name)
+        check(not S.cfg[name].proxy.lan_inbound_interface and S.cfg[name].proxy.ipv4_dns_hijack=="1")
+        check(S.cfg[name].first.enabled=="0" and S.cfg[name].last.enabled=="0")
+        check(equal(S.cfg[name].lansyra_guard.ip,{"10.77.0.0/24"}) and S.cfg[name].lansyra_guard.dns=="1")
+        check(S.files[path]:find('["vpns*"]',1,true))
+        check(S.cfg[name].config.profile==before[name].config.profile and equal(S.cfg.openclash,before.openclash))
+        for _,command in ipairs(S.commands) do check(command~="/etc/init.d/openclash restart") end
+        disable(); check(equal(before,S.cfg) and S.files[path]==template)
+    end)
+    test(name.." readiness cannot be satisfied by another core process",function()
+        reset(); use_proxy(name); S.proxy_running=nil; S.openclash_process="mihomo"
+        expect("guard_requires_proxy",function()guard.begin("enable",admin)end)
+        check(not guard.active())
+    end)
+    test(name.." restart failure restores all transaction files",function()
+        reset(); use_proxy(name); local before=clone(S.cfg); local path="/etc/"..name.."/ucode/hijack.ut"; local template=S.files[path]
+        S.fail_command="/etc/init.d/"..name.." restart"
+        guard.begin("enable",admin); guard.work(false)
+        check(equal(before,S.cfg) and S.files[path]==template and not S.nft and not guard.active())
+        check(guard.status(admin).last.failure=="guard_proxy_failed")
+    end)
+    test(name.." missing ingress rules roll back even when procd is running",function()
+        reset(); use_proxy(name); local before=clone(S.cfg); S.proxy_rules_missing=true
+        guard.begin("enable",admin); guard.work(false)
+        check(equal(before,S.cfg) and not guard.active() and not S.nft)
+        check(guard.status(admin).last.failure=="guard_proxy_failed")
+    end)
+    test(name.." unknown or duplicate template anchors fail before changes",function()
+        for _,template in ipairs({"new incompatible version","const lan_inbound_device = [];\nconst lan_inbound_device = [];"}) do
+            reset(); use_proxy(name); local before=clone(S.cfg)
+            S.files["/etc/"..name.."/ucode/hijack.ut"]=template
+            expect("guard_proxy_template",function()guard.begin("enable",admin)end)
+            check(equal(before,S.cfg) and not guard.active())
+        end
+    end)
+    test(name.." detects template changes between queue and apply",function()
+        reset(); use_proxy(name); local before=clone(S.cfg); guard.begin("enable",admin)
+        local path="/etc/"..name.."/ucode/hijack.ut"; S.files[path]="upgraded template"
+        guard.work(false)
+        check(equal(before,S.cfg) and S.files[path]=="upgraded template" and not guard.active())
+        check(guard.status(admin).last.failure=="stale_revision")
+    end)
+    test(name.." restores before boot without requiring the proxy process",function()
+        reset(); use_proxy(name); local before=clone(S.cfg); enable()
+        local state=decode(S.files[root.."state.json"]); state.phase="pending"; S.files[root.."state.json"]=encode(state)
+        S.proxy_running=nil; guard.work(true)
+        check(equal(before,S.cfg) and not guard.active())
+    end)
+    test(name.." preserves later ACL and template edits on disable",function()
+        reset(); use_proxy(name); enable()
+        local path="/etc/"..name.."/ucode/hijack.ut"; S.files[path]="upgraded template"
+        S.cfg[name].first.ip={"192.168.1.0/24"}; S.cfg[name].config.profile="subscription:new"
+        disable()
+        check(S.files[path]=="upgraded template" and S.cfg[name].first.enabled=="1")
+        check(S.cfg[name].first.ip[1]=="192.168.1.0/24" and S.cfg[name].config.profile=="subscription:new")
+    end)
+    test(name.." pending UCI edits prevent changes",function()
+        reset(); use_proxy(name); S.pending=name; local before=clone(S.cfg)
+        expect("pending_changes",function()guard.begin("enable",admin)end)
+        check(equal(before,S.cfg) and not guard.active())
+    end)
+    test(name.." core-only and invalid protocol modes are rejected",function()
+        reset(); use_proxy(name); S.cfg[name].config.core_only="1"
+        expect("guard_proxy_mode",function()guard.begin("enable",admin)end)
+        S.cfg[name].config.core_only="0"; S.cfg[name].proxy.udp_mode="redirect"
+        expect("guard_proxy_mode",function()guard.begin("enable",admin)end)
+    end)
+end
+test("multiple enabled proxies are rejected without changing configuration",function()
+    reset(); use_proxy("nikki"); S.cfg.openclash.config.enable="1"; local before=clone(S.cfg)
+    expect("guard_proxy_conflict",function()guard.begin("enable",admin)end)
+    check(equal(before,S.cfg) and not guard.active())
+end)
+TEST_GUARD_PREVIEW={reset=reset,guard=guard,use_proxy=use_proxy,state=function()return S end}
 return results

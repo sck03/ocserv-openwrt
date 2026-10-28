@@ -29,7 +29,7 @@ local function version(fresh)
         end).version
     end
     local code,output=run({"/usr/sbin/ocserv","--version"},10)
-    return code==0 and (output:match("OpenConnect VPN Server%s+([^%s]+)") or output:match("ocserv%s+([^%s]+)")) or "unknown"
+    return code==0 and output:match("OpenConnect VPN Server%s+([^%s]+)") or "unknown"
 end
 local function running()
     local pid=(read("/var/run/ocserv.pid",64) or ""):match("^%s*(%d+)%s*$")
@@ -95,7 +95,7 @@ end
 function M.data(admin)
     local s=snapshot(); local state=M.status(true)
     state.version=version()
-    state.ui_version="0.5.5"
+    state.ui_version="0.6.0"
     state.supported=logic.supported_version(state.version)
     state.capabilities=capabilities()
     state.revision=s.revision
