@@ -1,6 +1,23 @@
 #!/usr/bin/lua
-local ok=pcall(function()
+local function sync_proxy()
+    local backend=require "luci.model.ocserv_easy.backend"
+    for _=1,30 do
+        local result=backend.sync_proxy()
+        if result then
+            if result.effect=="proxy_connected" then require("luci.model.ocserv_easy.guard_log").add("proxy_connect","completed") end
+            return
+        end
+        require("nixio").poll({},1000)
+    end
+    error({code="guard_proxy_failed"},0)
+end
+local function report(err)
+    require("luci.model.ocserv_easy.guard_log").add("proxy_connect",type(err)=="table" and err.code or "guard_proxy_failed")
+end
+local ok,err=pcall(function()
     if arg[1]=="logs" then require("luci.model.ocserv_easy.guard_log").clean_loop()
+    elseif arg[1]=="proxy" then
+        sync_proxy()
     elseif arg[1]=="disable" then
         local backend=require "luci.model.ocserv_easy.backend"
         backend.action({action="guard",command="disable",revision=backend.data().revision})
@@ -8,6 +25,11 @@ local ok=pcall(function()
         local boot=arg[1]=="boot"
         assert(require("luci.model.ocserv_easy.backend").recover(boot))
         require("luci.model.ocserv_easy.guard").work(boot)
+        if not boot then
+            local synced,failure=pcall(sync_proxy)
+            if not synced then report(failure) end
+        end
     end
 end)
+if not ok and arg[1]=="proxy" then pcall(report,err) end
 os.exit(ok and 0 or 1)

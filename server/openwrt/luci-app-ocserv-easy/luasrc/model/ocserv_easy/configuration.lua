@@ -9,6 +9,10 @@ local M = {}
 local root = "/etc/ocserv/easy-transaction"
 local statefile = root .. "/state.json"
 local paths = { ocserv = "/etc/config/ocserv", firewall = "/etc/config/firewall", passwd = "/var/etc/ocpasswd" }
+for _,name in ipairs({"nikki","momo"}) do
+    paths[name]="/etc/config/"..name
+    paths[name.."_template"]="/etc/"..name.."/ucode/hijack.ut"
+end
 
 local function save(state) storage.atomic(statefile, json.stringify(state)) end
 local function file(name, suffix) return root .. "/" .. name .. "." .. suffix end
@@ -27,6 +31,10 @@ function M.mark(state, key)
     logic.require(key == "service" or key == "firewall", "rollback_failed")
     if not state[key] then state[key] = true; save(state) end
 end
+function M.mark_proxy(state,name)
+    logic.require(name=="nikki" or name=="momo","rollback_failed")
+    state.proxy=name; save(state)
+end
 
 function M.replace(state, name, before, after)
     local path = paths[name]
@@ -43,6 +51,14 @@ end
 
 function M.finish()
     storage.remove(statefile)
+    -- Once the marker is durably removed, these recovery copies are obsolete.
+    -- Cleanup failure must not turn a completed transaction into a rollback.
+    for name in pairs(paths) do
+        for _,suffix in ipairs({"before","after"}) do
+            local path=file(name,suffix)
+            if fs.access(path) then fs.remove(path) end
+        end
+    end
 end
 
 function M.restore()
@@ -50,7 +66,8 @@ function M.restore()
     if not raw then return nil end
     local state = json.parse(raw)
     logic.require(type(state) == "table" and state.version == 1 and type(state.files) == "table" and
-        #state.files <= 3 and type(state.was_running) == "boolean" and
+        #state.files <= 7 and type(state.was_running) == "boolean" and
+        (state.proxy==nil or state.proxy=="nikki" or state.proxy=="momo") and
         type(state.service) == "boolean" and type(state.firewall) == "boolean", "rollback_failed")
     local changes, seen = {}, {}
     -- Check every file before restoring any. Never overwrite a later editor.

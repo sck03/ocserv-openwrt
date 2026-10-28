@@ -279,6 +279,6 @@ fi
 # Invalidate both older Lua and current ucode dispatcher caches.
 rm -f /tmp/luci-indexcache* /tmp/luci-modulecache/*
 echo "安装完成。安装前备份：$backup"
-echo '请重新登录 LuCI → VPN → 岚序 Lansyra（管理页 0.6.0-r1）。'
+echo '请重新登录 LuCI → VPN → 岚序 Lansyra（管理页 0.6.1-r1）。'
 echo '全新安装：添加账号，检查服务设置，然后点击「启动服务」。'
 echo '默认端口 4443，VPN 地址池 10.77.0.0/24；VPN 专用代理开关默认关闭。'

@@ -29,6 +29,15 @@ else
     print("Detected ocserv: "..tostring(result.version).."; supported: "..tostring(result.supported))
     print("Running: "..tostring(result.running).."; accounts: "..tostring(#(result.users or {})).."; need password reset: "..invalid)
     print("Authentication mode: "..tostring(result.auth))
+    local native,binding=pcall(require,"uci")
+    print("Native UCI staging binding: "..tostring(native and binding.cursor~=nil))
+    local proxy=require "luci.model.ocserv_easy.proxy"
+    local detected,name=pcall(proxy.detect,require("luci.model.uci").cursor())
+    if detected then
+        print("Proxy: "..name.."; VPN ingress ready: "..tostring(proxy.ready(name,true)))
+    else
+        print("Proxy detection: "..(type(name)=="table" and name.code or "unavailable"))
+    end
 end
 LUA
 else

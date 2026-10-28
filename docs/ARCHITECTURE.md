@@ -20,8 +20,8 @@
 | Android `DiagnosticLog` | 已知秘密、认证结构和 URL 过滤 | 清理后才发布到界面或 Logcat；日志历史另有数量与字符预算 |
 | 服务端 `logic`、`firewall` | 纯校验、配置渲染、受管防火墙定义 | 无进程或文件系统副作用，可直接做 Lua 回归 |
 | 服务端 `backend`、`guard` | 普通配置事务、可恢复的 VPN-only 事务 | 写入受互斥锁、修订、待提交变更和权限检查约束 |
-| 服务端 `proxy` | OpenClash、Nikki、Momo 识别、配置计划和入口就绪检查 | 共用 guard 的持久化/恢复；Nikki/Momo 使用动态 VPN 接口集合，不新增常驻轮询 |
-| 服务端 `storage`、`configuration` | 有界原子文件 IO、候选替换和持久恢复记录 | UCI 候选在独立目录生成；恢复前检查全部文件，后续修改保留现场 |
+| 服务端 `proxy` | OpenClash、Nikki、Momo 识别、配置计划和入口就绪检查 | 普通模式由 procd 启动事件自动接入 VPN；隔离模式由 guard 控制；共用动态接口模板，不新增常驻轮询 |
+| 服务端 `storage`、`configuration` | 有界原子文件 IO、候选替换和持久恢复记录 | 候选必须用原生 UCI 独立目录，不能用忽略目录的 LuCI rpcd 桥；恢复前检查全部文件，后续修改保留现场 |
 | 服务端 `process`、`guard_log` | 有时限的子进程执行、结构化日志 | 不经过 shell 拼接；日志不保存原始命令输出和凭据 |
 | 服务端 `lease`、安装工具 `with-lock` | LuCI、恢复和 shell 维护共用 POSIX 租约 | 锁文件不删除；同 PID exec 保留所有权，进程退出自动释放；不用不兼容的 flock 替代 |
 | 服务端 `query_cache` | 可丢弃的在线/版本/能力快照 | 仅保存有界运行期数据；显式刷新绕过缓存，配置事务不依赖缓存正确性 |

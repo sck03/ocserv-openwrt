@@ -39,10 +39,17 @@ local function reset()
     S.files["/var/run/ocserv.pid"]="101\n"
     for _,path in ipairs({"/sbin/fw4","/usr/sbin/nft","/etc/init.d/openclash"}) do S.files[path]="executable" end
 end
-local function cursor()
+local function cursor(directory,savedir)
+    directory=directory or "/etc/config"
     local cache={}
-    local function db(package) if not cache[package] then cache[package]=clone(S.cfg[package] or {}) end; return cache[package] end
+    local function db(package)
+        if not cache[package] then cache[package]=clone(directory=="/etc/config" and S.cfg[package] or decode(S.files[directory.."/"..package]) or {}) end
+        return cache[package]
+    end
     local c={}
+    function c:get_confdir()return directory end
+    function c:get_savedir()return savedir end
+    function c:load(package) return S.files[directory.."/"..package]~=nil end
     function c:get(package,id,key)
         local r=db(package)[id];local value=r and r[key or ".type"]
         if value==nil then return false,"Entry not found" end
@@ -55,7 +62,10 @@ local function cursor()
     end
     function c:foreach(package,kind,fn)
         local rows={}; for id,r in pairs(db(package)) do if r[".type"]==kind then local v=clone(r); v[".name"]=id; rows[#rows+1]=v end end
-        table.sort(rows,function(a,b)return a[".name"]<b[".name"]end)
+        table.sort(rows,function(a,b)
+            local ai,bi=a[".index"] or 1,b[".index"] or 1
+            return ai==bi and a[".name"]<b[".name"] or ai<bi
+        end)
         for _,r in ipairs(rows) do fn(r) end
     end
     function c:set(package,id,key,value)
@@ -71,8 +81,10 @@ local function cursor()
     function c:changes(package) return S.pending==package and {[package]={"external edit"}} or {} end
     function c:commit(package)
         if S.fail_commit==package then S.fail_commit=nil; return false end
-        S.cfg[package]=clone(db(package)); S.files["/etc/config/"..package]=encode(db(package)); return true
+        if directory=="/etc/config" then S.cfg[package]=clone(db(package)) end
+        S.files[directory.."/"..package]=encode(db(package)); return true
     end
+    function c:reorder(package,id) db(package)[id][".index"]=0; return true end
     function c:unload(package) cache[package]=nil end
     function c:revert(package) S.pending=nil; cache[package]=nil end
     return c
@@ -89,7 +101,11 @@ function fs.chmod(path,value) mode(value);return true end
 function fs.remove(path) S.files[path]=nil; return true end
 function fs.rename(from,to)
     if S.fail_write==to then S.fail_write=nil; return false end
-    S.files[to]=S.files[from]; S.files[from]=nil; return true
+    S.files[to]=S.files[from]; S.files[from]=nil
+    if to:sub(1,5)=="/etc/" then S.flash_writes=(S.flash_writes or 0)+1 end
+    local package=to:match("^/etc/config/(%w+)$")
+    if package then S.cfg[package]=decode(S.files[to]) end
+    return true
 end
 function fs.readlink(path) if S.running and path=="/proc/101/exe" then return "/usr/sbin/ocserv" end end
 io.open=function(path)
@@ -120,6 +136,9 @@ end
 local function run(args)
     local command=table.concat(args," "); S.commands[#S.commands+1]=command
     if command==S.fail_command then S.fail_command=nil; return 1,"failure" end
+    if command=="/usr/sbin/ocserv --version" then return 0,"OpenConnect VPN Server 1.6.0\n" end
+    if command=="/usr/bin/occtl --help" then return 0,"terminate user" end
+    if command=="/usr/bin/occtl -j show users" then return 0,encode({}) end
     if command=="/etc/init.d/ocserv restart" then
         S.running=false; S.files["/var/run/ocserv.pid"]=nil; S.ocserv_ready_at=nil
         if not S.ocserv_never_ready then
@@ -149,7 +168,8 @@ local function run(args)
 end
 package.loaded["nixio"]=nixio
 package.loaded["nixio.fs"]=fs
-package.loaded["luci.model.uci"]={cursor=cursor}
+package.loaded["luci.model.uci"]={cursor=function()return cursor()end}
+package.loaded["uci"]={cursor=cursor}
 package.loaded["luci.jsonc"]={parse=decode,stringify=encode}
 package.loaded["luci.model.ocserv_easy.process"]={run=run}
 guard=require "luci.model.ocserv_easy.guard"
@@ -482,6 +502,70 @@ test("multiple enabled proxies are rejected without changing configuration",func
     reset(); use_proxy("nikki"); S.cfg.openclash.config.enable="1"; local before=clone(S.cfg)
     expect("guard_proxy_conflict",function()guard.begin("enable",admin)end)
     check(equal(before,S.cfg) and not guard.active())
+end)
+local backend=require "luci.model.ocserv_easy.backend"
+local function normal_proxy(name)
+    reset();use_proxy(name)
+    S.cfg.ocserv.route1=nil;S.files["/etc/config/ocserv"]=encode(S.cfg.ocserv)
+    S.files["/etc/ocserv/ocserv.conf.local"]="# preserve me\n"
+end
+local function connect()
+    return backend.sync_proxy()
+end
+for _,name in ipairs({"nikki","momo"}) do
+    test(name.." normal VPN access retains LAN interfaces, ACLs and the VPN daemon",function()
+        normal_proxy(name);local before=clone(S.cfg)
+        check(connect().effect=="proxy_connected" and not guard.active())
+        check(equal(S.cfg[name].proxy.lan_inbound_interface,before[name].proxy.lan_inbound_interface))
+        check(equal(S.cfg[name].first,before[name].first) and equal(S.cfg[name].last,before[name].last))
+        check(S.cfg[name].lansyra_vpn[".index"]==0 and equal(S.cfg[name].lansyra_vpn.ip,{"10.77.0.0/24"}))
+        check(S.cfg[name].proxy.ipv4_dns_hijack=="1" and equal(S.cfg.ocserv,before.ocserv) and equal(S.cfg.firewall,before.firewall))
+        for _,cmd in ipairs(S.commands) do check(cmd~="/etc/init.d/ocserv restart") end
+        local raw=S.files["/etc/config/"..name];check(connect().effect=="unchanged" and S.files["/etc/config/"..name]==raw)
+        local writes=S.flash_writes
+        for _=1,10 do check(connect().effect=="unchanged") end
+        check(S.flash_writes==writes,"repeat lifecycle events wrote to flash")
+        enable();disable();check(S.files["/etc/config/"..name] and S.cfg[name].lansyra_vpn.enabled=="1")
+    end)
+    test(name.." normal proxy restart failure restores the template and configuration",function()
+        normal_proxy(name);local before=clone(S.cfg);local path="/etc/"..name.."/ucode/hijack.ut";local template=S.files[path]
+        S.fail_command="/etc/init.d/"..name.." restart"
+        expect("guard_proxy_failed",connect)
+        check(equal(S.cfg,before) and S.files[path]==template and not require("luci.model.ocserv_easy.configuration").pending())
+    end)
+    test(name.." automatic proxy integration respects pending edits and split tunneling",function()
+        normal_proxy(name);local before=clone(S.cfg);S.pending=name
+        expect("pending_changes",connect);check(equal(S.cfg,before))
+        S.pending=nil;S.cfg.ocserv.route1=row("routes",{ip="192.168.40.0",netmask="255.255.255.0"})
+        S.files["/etc/config/ocserv"]=encode(S.cfg.ocserv)
+        connect();check(S.cfg.ocserv.route1 and S.cfg[name].lansyra_vpn.enabled=="1")
+    end)
+    test(name.." normal mode enables IPv6 DNS and proxy access only for a configured pool",function()
+        normal_proxy(name);S.cfg.ocserv.config.ip6addr="fd77::/64";S.files["/etc/config/ocserv"]=encode(S.cfg.ocserv)
+        connect();check(equal(S.cfg[name].lansyra_vpn.ip6,{"fd77::/64"}) and S.cfg[name].proxy.ipv6_dns_hijack=="1")
+    end)
+    test(name.." automatic integration remains dormant while isolation is active",function()
+        normal_proxy(name);enable();local before=clone(S.cfg);local count=#S.commands
+        check(connect().effect=="unchanged" and equal(before,S.cfg) and #S.commands==count)
+        disable();connect();check(not guard.active() and S.cfg[name].lansyra_vpn.enabled=="1")
+    end)
+    test(name.." automatic integration repairs an upgraded template without replacing LAN settings",function()
+        normal_proxy(name);connect()
+        local path="/etc/"..name.."/ucode/hijack.ut";S.files[path]="{% const lan_inbound_device = []; %}\n# new upstream\n"
+        check(connect().effect=="proxy_connected" and S.files[path]:find("# new upstream",1,true))
+        check(S.cfg[name].first.enabled=="1" and S.cfg[name].proxy.lan_inbound_interface[1]=="lan")
+    end)
+    test(name.." completed proxy transactions discard obsolete recovery and staging copies",function()
+        normal_proxy(name);connect()
+        check(not S.files["/etc/ocserv/easy-transaction/"..name..".before"] and
+            not S.files["/etc/ocserv/easy-transaction/"..name.."_template.after"] and
+            not S.files["/var/run/ocserv-easy/config-stage/"..name])
+        check(S.files["/etc/ocserv/easy-backup/"..name..".uci"])
+    end)
+end
+test("automatic proxy integration waits on the shared lease without touching UCI",function()
+    normal_proxy("nikki");S.locked=true;local before=clone(S.cfg)
+    check(connect()==false and equal(before,S.cfg))
 end)
 TEST_GUARD_PREVIEW={reset=reset,guard=guard,use_proxy=use_proxy,state=function()return S end}
 return results

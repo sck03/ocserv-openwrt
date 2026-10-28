@@ -88,6 +88,7 @@ jobs:
           python tests/server_controller_tests.py
           python tests/server_config_tests.py
           python tests/guard_integration.py
+          python tests/proxy_lifecycle_tests.py
           python tests/process_tests.py
           python tests/server_install_tests.py
           python tests/server_userfile_tests.py

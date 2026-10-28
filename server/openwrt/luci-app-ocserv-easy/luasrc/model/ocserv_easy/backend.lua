@@ -10,6 +10,7 @@ local run = require("luci.model.ocserv_easy.process").run
 local storage = require "luci.model.ocserv_easy.storage"
 local configuration = require "luci.model.ocserv_easy.configuration"
 local query_cache = require "luci.model.ocserv_easy.query_cache"
+local proxy = require "luci.model.ocserv_easy.proxy"
 local read, atomic, directory, random_bytes = storage.read, storage.atomic, storage.directory, storage.random
 local M = {}
 local config_path="/etc/config/ocserv"
@@ -95,7 +96,7 @@ end
 function M.data(admin)
     local s=snapshot(); local state=M.status(true)
     state.version=version()
-    state.ui_version="0.6.0"
+    state.ui_version="0.6.1"
     state.supported=logic.supported_version(state.version)
     state.capabilities=capabilities()
     state.revision=s.revision
@@ -165,6 +166,10 @@ local function reload_firewall(mark)
     logic.require(run({"/etc/init.d/firewall","reload"},20)==0,"firewall_reload_failed")
 end
 local wait_running
+local function wait_proxy(name,managed,code)
+    for _=1,30 do if proxy.ready(name,managed) then return end nixio.poll({},1000) end
+    logic.fail(code)
+end
 local function recover_locked(boot)
     local state=configuration.restore()
     if not state then return end
@@ -176,39 +181,56 @@ local function recover_locked(boot)
         logic.require(run({"/etc/init.d/ocserv",state.was_running and "restart" or "stop"},15)==0,"rollback_failed")
         wait_running(state.was_running,"rollback_failed")
     end
+    if not boot and state.proxy then
+        logic.require(run({"/etc/init.d/"..state.proxy,"restart"},90)==0,"rollback_failed")
+        wait_proxy(state.proxy,false,"rollback_failed")
+    end
     configuration.finish()
 end
-local function stage_cursor(s,include_firewall)
+local function stage_cursor(s,include_firewall,proxy_name)
     s.stage=work.."/config-stage"
     directory(s.stage); directory(s.stage.."/delta")
-    for _,package in ipairs({"ocserv","firewall"}) do
+    for _,package in ipairs({"ocserv","firewall","nikki","momo"}) do
         -- Fixed paths under the shared lease; clear only our private UCI deltas.
         fs.remove(s.stage.."/delta/"..package)
     end
     atomic(s.stage.."/ocserv",s.raw)
     if include_firewall then atomic(s.stage.."/firewall",s.firewall_raw) end
-    s.cursor=uci.cursor(s.stage,s.stage.."/delta")
+    if proxy_name then atomic(s.stage.."/"..proxy_name,s.proxy_raw) end
+    -- The LuCI rpcd bridge ignores cursor directory arguments and commits to
+    -- /etc/config. Only the native binding can build a private candidate.
+    s.cursor=require("uci").cursor(s.stage,s.stage.."/delta")
+    logic.require(s.cursor:get_confdir()==s.stage and s.cursor:get_savedir()==s.stage.."/delta","write_failed")
     logic.require(s.cursor:load("ocserv"),"write_failed")
     if include_firewall then logic.require(s.cursor:load("firewall"),"write_failed") end
+    if proxy_name then logic.require(s.cursor:load(proxy_name),"write_failed") end
 end
-local function transaction(s,was_running,operation,include_firewall)
+local function clear_stage(s)
+    for _,package in ipairs({"ocserv","firewall","nikki","momo"}) do
+        fs.remove(s.stage.."/"..package); fs.remove(s.stage.."/delta/"..package)
+    end
+end
+local function transaction(s,was_running,operation,include_firewall,proxy_name,prepared)
     local old_passwd=read(passwd_path)
     s.old_passwd=old_passwd
     backup(s,old_passwd,include_firewall)
-    stage_cursor(s,include_firewall)
+    if not prepared then stage_cursor(s,include_firewall,proxy_name) end
     s.journal=configuration.begin(was_running)
     local function mark_service() configuration.mark(s.journal,"service") end
     local function mark_firewall() configuration.mark(s.journal,"firewall") end
     local ok,result=pcall(operation,mark_service,mark_firewall)
     if ok then
         configuration.finish()
+        clear_stage(s)
         return result
     end
     local restored=pcall(function()
         s.cursor:revert("ocserv"); s.cursor:unload("ocserv")
         if include_firewall then s.cursor:revert("firewall"); s.cursor:unload("firewall") end
+        if proxy_name then s.cursor:revert(proxy_name); s.cursor:unload(proxy_name) end
         recover_locked(false)
     end)
+    clear_stage(s)
     if not restored then logic.fail("rollback_failed") end
     error(result,0)
 end
@@ -321,6 +343,68 @@ local function apply_settings(s,request)
         if was_running then restart(mark) end
         return {effect=was_running and "restarted" or "saved"}
     end,true)
+end
+local function connect_proxy(s,name)
+    logic.require(not guard.active(),"guard_settings_locked")
+    logic.require(running() and (s.config.auth or "plain")=="plain" and s.config.proxy_arp~="1","guard_requires_routed_vpn")
+    local changes=s.cursor:changes(name)
+    logic.require(not changes or not next(changes[name] or changes),"pending_changes")
+    local settings=logic.settings(s.config,s.dns,s.routes)
+    local values=logic.validate_settings(settings)
+    for line in (s.extra.."\n"):gmatch("([^\n]*)\n") do
+        logic.require(not line:match("^%s*device%s*="),"custom_override")
+    end
+    local path="/etc/"..name.."/ucode/hijack.ut"
+    local before=read(path); local after=proxy.ingress(before)
+    s.proxy_raw=read("/etc/config/"..name)
+    logic.require(s.proxy_raw,"write_failed")
+    stage_cursor(s,false,name)
+    local changed=proxy.connect(s.cursor,name,values.ipaddr.."/"..logic.prefix(values.netmask),values.ip6addr)
+    if not changed and before==after and proxy.ready(name,true) then
+        clear_stage(s)
+        return {effect="unchanged"}
+    end
+    return transaction(s,true,function()
+        storage.keep("/etc/ocserv/easy-backup/"..name..".uci",s.proxy_raw)
+        storage.keep("/etc/ocserv/easy-backup/"..name.."-hijack.ut",before)
+        if changed then
+            logic.require(s.cursor:commit(name),"write_failed")
+            configuration.replace(s.journal,name,s.proxy_raw,read(s.stage.."/"..name))
+        end
+        configuration.replace(s.journal,name.."_template",before,after)
+        configuration.mark_proxy(s.journal,name)
+        logic.require(run({"/etc/init.d/"..name,"restart"},90)==0,"guard_proxy_failed")
+        wait_proxy(name,true,"guard_proxy_failed")
+        return {effect="proxy_connected"}
+    end,false,name,true)
+end
+function M.sync_proxy()
+    -- Root-only lifecycle hook; do not change another editor's staged settings.
+    local lease=require "luci.model.ocserv_easy.lease"
+    local lock,code=lease.acquire()
+    if not lock and code=="busy" then return false end
+    logic.require(lock,code)
+    local ok,result=pcall(function()
+        if not running() or guard.active() then return {effect="unchanged"} end
+        recover_locked(false)
+        local s=snapshot()
+        if (s.config.auth or "plain")~="plain" or s.config.proxy_arp=="1" then return {effect="unchanged"} end
+        local detected,name=pcall(proxy.detect,s.cursor)
+        if not detected then
+            if type(name)=="table" and name.code=="guard_requires_proxy" then return {effect="unchanged"} end
+            error(name,0)
+        end
+        if name=="openclash" then return {effect="unchanged"} end
+        -- instance.start precedes the proxy's service_started rule generation.
+        if run({"/usr/sbin/nft","list","set","inet",name,"lan_inbound_device"},3)~=0 then return false end
+        logic.require(logic.supported_version(version(true)),"upgrade_required")
+        local changes=s.cursor:changes("ocserv")
+        logic.require(not changes or not next(changes.ocserv or changes),"pending_changes")
+        return connect_proxy(s,name)
+    end)
+    lease.release(lock)
+    if not ok then error(result,0) end
+    return result
 end
 function M.action(request,admin)
     logic.require(type(request)=="table" and type(request.action)=="string","bad_request")

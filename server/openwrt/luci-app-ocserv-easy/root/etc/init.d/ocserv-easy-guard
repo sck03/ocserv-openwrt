@@ -21,6 +21,34 @@ start_service() {
     procd_close_instance
 }
 
+service_triggers() {
+    # One-shot repair after VPN/proxy startup, respawn or package upgrade.
+    # Filter service events; no extra daemon or recurring proxy polling.
+    procd_open_trigger
+    local service
+    for service in ocserv nikki momo; do
+        json_add_array ""
+        json_add_string "" "instance.start"
+        json_add_array ""
+        json_add_string "" "if"
+        json_add_array ""
+        json_add_string "" "eq"
+        json_add_string "" "service"
+        json_add_string "" "$service"
+        json_close_array
+        json_add_array ""
+        json_add_string "" "run_script"
+        json_add_string "" "/usr/bin/lua"
+        json_add_string "" "/usr/libexec/ocserv-easy-guard"
+        json_add_string "" "proxy"
+        json_close_array
+        json_close_array
+        json_add_int "" 3000
+        json_close_array
+    done
+    procd_close_trigger
+}
+
 boot() {
     # A pending transaction is restored before fw4 starts after a power failure.
     /usr/bin/lua /usr/libexec/ocserv-easy-guard boot

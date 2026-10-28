@@ -45,6 +45,44 @@ function M.ready(name,managed)
     local code,out=run({"/usr/sbin/nft","list","set","inet",name,"lan_inbound_device"},3)
     return code==0 and (out or ""):find('"vpns*"',1,true)~=nil
 end
+function M.ingress(before)
+    logic.require(type(before)=="string","guard_proxy_template")
+    local _,anchors=before:gsub("const lan_inbound_device = ","")
+    logic.require(anchors==1,"guard_proxy_template")
+    local seed='const lan_inbound_device = ["vpns*"]; /* Lansyra VPN ingress */'
+    if before:find(seed,1,true) then return before end
+    local after,count=before:gsub("const lan_inbound_device = %[%];",seed)
+    logic.require(count==1,"guard_proxy_template")
+    return after
+end
+function M.connect(c,name,pool,ipv6)
+    -- Put the VPN rule first, so a LAN-wide catch-all ACL cannot bypass it.
+    -- Other ACLs, LAN interfaces, router traffic and subscription rules stay intact.
+    local id="lansyra_vpn"
+    local existing=c:get_all(name,id)
+    logic.require(not existing or existing[".type"]=="lan_access_control","guard_section_conflict")
+    local changed=false
+    local function set(section,key,value)
+        if not logic.equal(c:get(name,section,key) or false,value or false) then
+            if value then logic.require(c:set(name,section,key,value),"write_failed")
+            else logic.require(c:delete(name,section,key),"write_failed") end
+            changed=true
+        end
+    end
+    if not existing then logic.require(c:set(name,id,"lan_access_control"),"write_failed"); changed=true end
+    for _,key in ipairs({"enabled","lan_proxy","ipv4_proxy","ipv4_dns_hijack"}) do set("proxy",key,"1") end
+    if ipv6~="" then
+        for _,key in ipairs({"ipv6_proxy","ipv6_dns_hijack"}) do set("proxy",key,"1") end
+    end
+    for _,key in ipairs({"enabled","dns","proxy"}) do set(id,key,"1") end
+    set(id,"ip",{pool}); set(id,"ip6",ipv6~="" and {ipv6} or false)
+    -- A preexisting section with our name must never broaden access by MAC.
+    set(id,"mac",false)
+    local first
+    c:foreach(name,"lan_access_control",function(s) first=first or s[".name"] end)
+    if first~=id then logic.require(c:reorder(name,id,0),"write_failed"); changed=true end
+    return changed
+end
 function M.plan(c,info,option,whole,read)
     local name=info.proxy
     local pool=info.pool.."/"..info.prefix
@@ -61,8 +99,7 @@ function M.plan(c,info,option,whole,read)
     -- Upstream resolves logical interfaces via ubus, which cannot describe
     -- ocserv's future per-session devices. Seed the native ifname interval set
     -- once; it then covers reconnects and proxy restarts without a polling job.
-    local after,count=(before or ""):gsub("const lan_inbound_device = %[%];",'const lan_inbound_device = ["vpns*"]; /* Lansyra VPN-only */')
-    logic.require(before and count==1,"guard_proxy_template")
+    local after=M.ingress(before)
     logic.require(not c:get(name,"lansyra_guard"),"guard_section_conflict")
     for _,key in ipairs({"enabled","lan_proxy","ipv4_proxy","ipv4_dns_hijack"}) do option(name,"proxy",key,"1") end
     option(name,"proxy","lan_inbound_interface",false)

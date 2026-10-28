@@ -254,13 +254,14 @@ nixio.open=function(path,flags,permissions)
     S.files[path]=""
     return {write=function(_,data)S.files[path]=S.files[path]..data;return #data end,sync=function()S.disk_events[#S.disk_events+1]="sync:"..path;return true end,close=function()end,lock=function()return not S.busy end}
 end
-local function cursor(directory)
+local function cursor(directory,savedir)
     directory=directory or "/etc/config"
     local db=clone(directory=="/etc/config" and S.db or S.history[S.files[directory.."/ocserv"]] or S.db)
     local fw=clone(directory=="/etc/config" and S.firewall or S.history[S.files[directory.."/firewall"]] or S.firewall)
     local function find(id)for _,row in ipairs(db)do if row[".name"]==id then return row end end end
     local function find_fw(id) return fw[id] end
     return {
+        get_confdir=function()return directory end,get_savedir=function()return savedir end,
         load=function()return true end,unload=function()end,
         get=function(_,package,id,key)local row=package=="firewall" and find_fw(id) or find(id);return row and row[key or ".type"]end,
         get_all=function(_,package,id)return clone(package=="firewall" and find_fw(id) or find(id))end,
@@ -317,7 +318,9 @@ local function run(argv)
     return 0,""
 end
 package.loaded["nixio"]=nixio;package.loaded["nixio.fs"]=fs
-package.loaded["luci.model.uci"]={cursor=cursor}
+-- Match OpenWrt 25.12: LuCI's rpcd cursor ignores custom directories.
+package.loaded["luci.model.uci"]={cursor=function()return cursor()end}
+package.loaded["uci"]={cursor=cursor}
 package.loaded["luci.model.ocserv_easy.process"]={run=run}
 package.loaded["luci.jsonc"]={
     stringify=function(value) S.json=S.json or {};local key="JSON"..tostring(#S.json+1);S.json[#S.json+1]=clone(value);return key end,
@@ -429,6 +432,13 @@ test("new account live update without service restart",function()
     check(result.effect=="updated_live" and S.files["/var/etc/ocpasswd"]:find("new:*:",1,true))
     check(not contains_command("restart") and not contains_command("terminate user"))
     check(not S.files["/etc/config/ocserv"]:find("FixturePassword",1,true))
+end)
+test("a non-isolated UCI cursor is rejected before changing live configuration",function()
+    reset();local raw=S.files["/etc/config/ocserv"];local native=package.loaded["uci"]
+    package.loaded["uci"]={cursor=function()return cursor()end}
+    expect("write_failed",function()request(edit("FixturePassword"))end)
+    package.loaded["uci"]=native
+    check(S.files["/etc/config/ocserv"]==raw and S.files["/var/etc/ocpasswd"]==logic.passwd(original))
 end)
 test("password reset sends only username to occtl",function()
     reset();request(edit("FixturePassword"));check(contains_command("occtl terminate user employee01"))

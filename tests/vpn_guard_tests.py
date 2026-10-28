@@ -394,6 +394,32 @@ table inet simulated_openclash {
         finally:
             nsrun(self.router, "nft", "-f", "-", input=self.proxy_rules)
 
+    def test_normal_nikki_momo_access_and_isolation_toggle(self):
+        nsrun(self.router, "nft", "delete", "table", "inet", "simulated_openclash")
+        nsrun(self.router, "nft", "delete", "table", "inet", "lansyra_guard")
+        try:
+            for name in ("nikki", "momo"):
+                rules = self.proxy_rules.replace("simulated_openclash", name)
+                rules = rules.replace("    chain mangle", '    set lan_inbound_device { type ifname; flags interval; auto-merge; elements = { "br-lan", "vpns*" }; }\n    chain mangle')
+                rules = rules.replace("        ip daddr", "        iifname @lan_inbound_device ip daddr")
+                rules = rules.replace("        meta l4proto", "        iifname @lan_inbound_device meta l4proto")
+                nsrun(self.router, "nft", "-f", "-", input=rules)
+                try:
+                    for role in ("lan", "vpn"):
+                        self.allowed(role, "203.0.113.11", 80, "redirect")
+                        self.allowed(role, "203.0.113.11", 443, "tproxy", "udp")
+                        for protocol in ("tcp", "udp"):
+                            self.allowed(role, "192.168.19.254", 53, "dns", protocol)
+                    nsrun(self.router, "nft", "-f", str(GUARD))
+                    self.allowed("vpn", "203.0.113.11", 80, "redirect")
+                    self.denied("lan", "203.0.113.11", 80)
+                    self.denied("lan", "192.168.19.254", 53, "udp")
+                finally:
+                    nsrun(self.router, "nft", "delete", "table", "inet", name, check=False)
+                    nsrun(self.router, "nft", "delete", "table", "inet", "lansyra_guard", check=False)
+        finally:
+            nsrun(self.router, "nft", "-f", "-", input=self.proxy_rules)
+
     def test_bad_reload_is_atomic_and_keeps_existing_guard(self):
         result = nsrun(self.router, "nft", "-f", "-", check=False,
                        input=GUARD.read_text() + "\ninvalid_statement\n")
