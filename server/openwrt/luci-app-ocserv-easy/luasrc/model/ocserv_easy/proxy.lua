@@ -38,12 +38,91 @@ function M.detect(c)
     end
     return selected
 end
-function M.ready(name,managed)
-    if not M.running(name) then return false end
-    if name=="openclash" or not managed then return true end
+local function ingress_ready(name)
+    if name=="openclash" then return true end
     -- procd can be running even if template generation or TUN startup failed.
     local code,out=run({"/usr/sbin/nft","list","set","inet",name,"lan_inbound_device"},3)
     return code==0 and (out or ""):find('"vpns*"',1,true)~=nil
+end
+function M.ready(name,managed)
+    return M.running(name) and (not managed or ingress_ready(name))
+end
+-- On-demand diagnostics only: use generated nft targets, never mixed-port,
+-- subscription contents or defaults that would become stale after a port edit.
+function M.diagnostics(c,name)
+    logic.require(supported[name],"guard_state_invalid")
+    local running=M.running(name)
+    local result={running=running,ingress_ready=running and ingress_ready(name),targets={}}
+    if name=="openclash" then return result end
+    result.tcp_mode=c:get(name,"proxy","tcp_mode")
+    result.udp_mode=c:get(name,"proxy","udp_mode")
+    local read=require("luci.model.ocserv_easy.storage").read
+    local sockets={}
+    for _,protocol in ipairs({"tcp","udp"}) do
+        local known=true
+        sockets[protocol]={}
+        for _,suffix in ipairs({"","6"}) do
+            local ok,raw=pcall(read,"/proc/net/"..protocol..suffix)
+            if ok and raw then
+                for line in raw:gmatch("[^\n]+") do
+                    local port,state=line:match("^%s*%d+:%s+%x+:(%x+)%s+%x+:%x+%s+(%x+)")
+                    if port and state==(protocol=="tcp" and "0A" or "07") then sockets[protocol][tonumber(port,16)]=true end
+                end
+            else known=false end
+        end
+        sockets[protocol].known=known
+    end
+    local function targets(chain,kind)
+        local code,out=run({"/usr/sbin/nft","-j","list","chain","inet",name,chain},3)
+        local data=code==0 and json.parse(out)
+        local target={available=type(data)=="table" and type(data.nftables)=="table",ports={}}
+        local seen={}
+        for _,item in ipairs(target.available and data.nftables or {}) do
+            local rule=type(item)=="table" and item.rule
+            for _,expr in ipairs(type(rule)=="table" and type(rule.expr)=="table" and rule.expr or {}) do
+                local value=type(expr)=="table" and expr[kind]
+                local raw=type(value)=="table" and value.port
+                local port=(type(raw)=="number" or type(raw)=="string") and tonumber(raw)
+                if port and port>=1 and port<=65535 and port%1==0 and not seen[port] then
+                    seen[port]=true
+                    local entry={port=port}
+                    for _,protocol in ipairs({"tcp","udp"}) do
+                        if sockets[protocol][port] then entry[protocol]=true
+                        elseif sockets[protocol].known then entry[protocol]=false end
+                    end
+                    target.ports[#target.ports+1]=entry
+                end
+            end
+        end
+        table.sort(target.ports,function(a,b)return a.port<b.port end)
+        result.targets[chain]=target
+    end
+    targets("lan_dns_hijack","redirect")
+    if result.tcp_mode=="redirect" then targets("lan_redirect","redirect") end
+    if result.tcp_mode=="tproxy" or result.udp_mode=="tproxy" then targets("lan_tproxy","tproxy") end
+    if result.tcp_mode=="tun" or result.udp_mode=="tun" then
+        -- Both upstream init scripts use table 81 when the option is absent.
+        local routing_table=tonumber(c:get(name,"routing","tun_route_table") or "81")
+        result.tun={}
+        if routing_table and routing_table>=1 and routing_table<=4294967295 and routing_table%1==0 then
+            result.tun.table=routing_table
+            local code,out=run({"/sbin/ip","-j","-4","route","show","table",tostring(routing_table)},3)
+            local routes=code==0 and json.parse(out)
+            for _,route in ipairs(type(routes)=="table" and routes or {}) do
+                if type(route)=="table" and route.dst=="default" and type(route.dev)=="string" then
+                    result.tun.device=route.dev
+                    break
+                end
+            end
+            code,out=run({"/sbin/ip","-j","-4","rule","show"},3)
+            local rules=code==0 and json.parse(out)
+            if type(rules)=="table" then result.tun.rule=false end
+            for _,rule in ipairs(type(rules)=="table" and rules or {}) do
+                if type(rule)=="table" and tonumber(rule.table)==routing_table and rule.fwmark~=nil then result.tun.rule=true end
+            end
+        end
+    end
+    return result
 end
 function M.ingress(before)
     logic.require(type(before)=="string","guard_proxy_template")

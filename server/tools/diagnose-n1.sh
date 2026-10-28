@@ -31,17 +31,45 @@ else
     print("Authentication mode: "..tostring(result.auth))
     local native,binding=pcall(require,"uci")
     print("Native UCI staging binding: "..tostring(native and binding.cursor~=nil))
-    local proxy=require "luci.model.ocserv_easy.proxy"
-    local detected,name=pcall(proxy.detect,require("luci.model.uci").cursor())
-    if detected then
-        print("Proxy: "..name.."; VPN ingress ready: "..tostring(proxy.ready(name,true)))
-    else
-        print("Proxy detection: "..(type(name)=="table" and name.code or "unavailable"))
-    end
+    print("VPN DNS: "..table.concat(result.settings.dns or {},", "))
+    print("VPN routes: "..(#(result.settings.routes or {})==0 and "all traffic" or table.concat(result.settings.routes,", ")))
 end
 LUA
 else
     printf '%s\n' 'Lua runtime is missing.'
+fi
+printf '\n%s\n' 'Proxy forwarding diagnostics (generated targets; no subscriptions or credentials):'
+if command -v lua >/dev/null 2>&1; then
+    lua - <<'LUA'
+local ok,err=pcall(function()
+    local c=require("luci.model.uci").cursor()
+    local proxy=require "luci.model.ocserv_easy.proxy"
+    local detected,name=pcall(proxy.detect,c)
+    print("Proxy selection: "..(detected and name or type(name)=="table" and name.code or "unavailable"))
+    for _,provider in ipairs({"openclash","nikki","momo"}) do
+        if c:get(provider,"config",provider=="openclash" and "enable" or "enabled")=="1" then
+            local state=proxy.diagnostics(c,provider)
+            print(provider..": running="..tostring(state.running).."; VPN ingress="..tostring(state.ingress_ready))
+            if state.tcp_mode then print("  TCP="..state.tcp_mode.."; UDP="..tostring(state.udp_mode)) end
+            for _,chain in ipairs({"lan_dns_hijack","lan_redirect","lan_tproxy"}) do
+                local target=state.targets[chain]
+                if target then
+                    print("  "..chain..": rules="..tostring(target.available).."; targets="..#target.ports)
+                    for _,port in ipairs(target.ports) do
+                        print("    port="..port.port.."; TCP socket="..tostring(port.tcp).."; UDP socket="..tostring(port.udp))
+                    end
+                end
+            end
+            if state.tun then
+                print("  IPv4 TUN: table="..tostring(state.tun.table).."; device="..tostring(state.tun.device).."; marked rule="..tostring(state.tun.rule))
+            end
+            local acl=c:get_all(provider,"lansyra_vpn")
+            if acl then print("  Normal VPN ACL: enabled="..tostring(acl.enabled).."; proxy="..tostring(acl.proxy).."; DNS="..tostring(acl.dns)) end
+        end
+    end
+end)
+if not ok then print("Proxy diagnostics: "..(type(err)=="table" and err.code or "unavailable")) end
+LUA
 fi
 printf '\n%s\n' 'Password file permissions (no file contents):'
 ls -l /etc/config/ocserv /var/etc/ocpasswd 2>/dev/null || true

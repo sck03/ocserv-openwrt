@@ -161,8 +161,12 @@ local function run(args)
     if command=="/usr/sbin/nft delete table inet lansyra_guard" then S.nft=false end
     if command=="/usr/sbin/nft list table inet lansyra_guard" then return S.nft and 0 or 1,"" end
     if args[2]=="list" and args[3]=="set" then
+        if S.proxy_table_absent then return 1,"No such file or directory" end
         local template=S.files["/etc/"..args[5].."/ucode/hijack.ut"] or ""
         return 0,not S.proxy_rules_missing and template:find('"vpns*"',1,true) and 'elements = { "vpns*" }' or "elements = { }"
+    end
+    if args[2]=="restart" and (args[1]=="/etc/init.d/nikki" or args[1]=="/etc/init.d/momo") then
+        S.proxy_table_absent=false
     end
     return 0,""
 end
@@ -513,6 +517,20 @@ local function connect()
     return backend.sync_proxy()
 end
 for _,name in ipairs({"nikki","momo"}) do
+    test(name.." normal integration bootstraps before a disabled proxy has nft rules",function()
+        normal_proxy(name);S.cfg[name].proxy.enabled="0";S.proxy_table_absent=true
+        S.files["/etc/config/"..name]=encode(S.cfg[name])
+        check(connect().effect=="proxy_connected")
+        check(S.cfg[name].proxy.enabled=="1" and not S.proxy_table_absent)
+    end)
+    test(name.." repeated startup events wait for rule generation without restarting again",function()
+        normal_proxy(name);connect();S.proxy_table_absent=true
+        local count=#S.commands;local writes=S.flash_writes
+        for _=1,5 do check(connect()==false) end
+        for i=count+1,#S.commands do check(S.commands[i]~="/etc/init.d/"..name.." restart") end
+        check(S.flash_writes==writes)
+        S.proxy_table_absent=false;check(connect().effect=="unchanged")
+    end)
     test(name.." normal VPN access retains LAN interfaces, ACLs and the VPN daemon",function()
         normal_proxy(name);local before=clone(S.cfg)
         check(connect().effect=="proxy_connected" and not guard.active())

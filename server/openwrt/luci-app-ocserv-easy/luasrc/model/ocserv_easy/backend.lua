@@ -96,7 +96,7 @@ end
 function M.data(admin)
     local s=snapshot(); local state=M.status(true)
     state.version=version()
-    state.ui_version="0.6.1"
+    state.ui_version="0.6.2"
     state.supported=logic.supported_version(state.version)
     state.capabilities=capabilities()
     state.revision=s.revision
@@ -360,9 +360,11 @@ local function connect_proxy(s,name)
     logic.require(s.proxy_raw,"write_failed")
     stage_cursor(s,false,name)
     local changed=proxy.connect(s.cursor,name,values.ipaddr.."/"..logic.prefix(values.netmask),values.ip6addr)
-    if not changed and before==after and proxy.ready(name,true) then
+    if not changed and before==after then
         clear_stage(s)
-        return {effect="unchanged"}
+        -- A startup event can arrive before service_started finishes generating
+        -- rules. Wait without another restart when the configuration is current.
+        return proxy.ready(name,true) and {effect="unchanged"} or false
     end
     return transaction(s,true,function()
         storage.keep("/etc/ocserv/easy-backup/"..name..".uci",s.proxy_raw)
@@ -395,8 +397,8 @@ function M.sync_proxy()
             error(name,0)
         end
         if name=="openclash" then return {effect="unchanged"} end
-        -- instance.start precedes the proxy's service_started rule generation.
-        if run({"/usr/sbin/nft","list","set","inet",name,"lan_inbound_device"},3)~=0 then return false end
+        -- Do not require existing hijack rules before enabling proxy/DNS ingress:
+        -- a running core with proxy.enabled=0 has no nft table to wait for.
         logic.require(logic.supported_version(version(true)),"upgrade_required")
         local changes=s.cursor:changes("ocserv")
         logic.require(not changes or not next(changes.ocserv or changes),"pending_changes")
