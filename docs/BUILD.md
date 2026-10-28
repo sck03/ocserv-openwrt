@@ -97,6 +97,8 @@ python -m pip install -r client/tests/requirements.txt
 
 默认清理 `build/`、`.ruff_cache/`、项目 Python 字节码、生成的 Lansyra Xcode 工程/Info.plist/图标，以及 `dist/validation-x64/`、`dist/validation-x86/` 测试二进制。添加 `-IncludeDependencies` 可清理 `.deps/`；添加 `-IncludeTestResults` 可清理 `test-results/`。发行包、备份、临时虚拟机、工具链和锁定的第三方源码归档保留。
 
+需要大幅释放磁盘空间时，运行 `.\scripts\clean-workspace.ps1 -DeepClean` 预览，再添加 `-Apply` 执行。深度清理还删除 `.deps/`、`test-results/`、`.tools/`（含下载归档与工具链）、`.reference/`（临时审计文件）、`.venv/` 和 `artifacts/validation/`（历次验证下载与截图）。保留 Git 历史、跟踪源码、`dist/` 安装包、`artifacts/backups/` 与 `private-configs/` 私有配置。下次本地构建前重新安装测试依赖并运行 `fetch-deps.ps1`；文件 SHA-256 锁定值仍在源码清单中。
+
 脚本拒绝删除 Git 跟踪的源码、链接到其他目录的路径及运行中进程引用的文件。清理 `.deps` 后，下次按上述构建流程重新生成依赖。默认只显示清单，只有 `-Apply` 才执行删除。
 
 ## 验证

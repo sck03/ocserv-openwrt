@@ -8,7 +8,7 @@ function index()
     local page=entry(base,call("page"),"岚序 Lansyra",50)
     page.dependent=false
     page.acl_depends={"luci-app-ocserv-easy"}
-    for _,item in ipairs({{"data",call("data")},{"status",call("status")},{"guard-log",call("guard_log")},{"action",post("action")},{"download",post("download")}}) do
+    for _,item in ipairs({{"data",call("data")},{"status",call("status")},{"guard-log",call("guard_log")},{"proxy-status",call("proxy_status")},{"action",post("action")},{"download",post("download")}}) do
         local child=entry({"admin","vpn","ocserv",item[1]},item[2])
         child.leaf=true
         child.acl_depends={"luci-app-ocserv-easy"}
@@ -45,6 +45,7 @@ function page()
 end
 function data() response(function() return require("luci.model.ocserv_easy.backend").data(require("luci.http").getenv("REMOTE_ADDR")) end) end
 function guard_log() response(function() return require("luci.model.ocserv_easy.guard_log").read() end) end
+function proxy_status() response(function() return require("luci.model.ocserv_easy.backend").proxy_status() end) end
 function status() response(function()
     local result=require("luci.model.ocserv_easy.backend").status()
     result.guard=require("luci.model.ocserv_easy.guard").status(require("luci.http").getenv("REMOTE_ADDR"),false)

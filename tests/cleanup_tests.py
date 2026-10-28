@@ -22,7 +22,9 @@ class CleanupTests(unittest.TestCase):
         self.root = Path(temporary.name)
         for name in ("client/CMakeLists.txt", "scripts/sources.json", "build/cache.bin",
                      "scripts/__pycache__/cache.pyc", ".ruff_cache/result", ".deps/library.a", "test-results/report.json",
-                     "dist/release.zip", "artifacts/backups/config.zip", ".tools/tool.exe"):
+                     "dist/release.zip", "artifacts/backups/config.zip", ".tools/tool.exe",
+                     ".reference/audit/screenshot.png", ".venv/Lib/library.py",
+                     "artifacts/validation/old-run.zip", "private-configs/momo/config.json"):
             path = self.root / name
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text("fixture", encoding="ascii")
@@ -80,6 +82,30 @@ class CleanupTests(unittest.TestCase):
         self.assertIn("tracked source files", result.stderr)
         self.assertTrue((self.root / "build/cache.bin").is_file())
         self.assertTrue((self.root / "scripts/__pycache__/cache.pyc").is_file())
+
+    def test_deep_preview_preserves_all_files(self):
+        result = self.clean("-DeepClean")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        for name in (".tools/tool.exe", ".reference/audit/screenshot.png", ".venv/Lib/library.py",
+                     "artifacts/validation/old-run.zip", "private-configs/momo/config.json"):
+            self.assertTrue((self.root / name).is_file(), name)
+
+    def test_deep_clean_keeps_deliverables_and_private_data(self):
+        result = self.clean("-DeepClean", "-Apply")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        for name in ("build", ".deps", ".tools", ".reference", ".venv", "test-results", "artifacts/validation"):
+            self.assertFalse((self.root / name).exists(), name)
+        for name in ("client/CMakeLists.txt", "dist/release.zip", "artifacts/backups/config.zip",
+                     "private-configs/momo/config.json", ".git/index"):
+            self.assertTrue((self.root / name).is_file(), name)
+
+    def test_deep_clean_rejects_tracked_audit_data_before_deleting(self):
+        self.git("add", ".reference/audit/screenshot.png")
+        result = self.clean("-DeepClean", "-Apply")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("tracked source files", result.stderr)
+        self.assertTrue((self.root / "build/cache.bin").is_file())
+        self.assertTrue((self.root / ".tools/tool.exe").is_file())
 
 
 if __name__ == "__main__":

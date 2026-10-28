@@ -22,7 +22,7 @@ function M.running(name)
     local instance=type(instances)=="table" and instances[name]
     return type(instance)=="table" and instance.running==true
 end
-function M.detect(c)
+function M.select(c)
     local selected
     for _,name in ipairs({"openclash","nikki","momo"}) do
         if c:get(name,"config",supported[name])=="1" then
@@ -30,6 +30,10 @@ function M.detect(c)
             selected=name
         end
     end
+    return selected
+end
+function M.detect(c)
+    local selected=M.select(c)
     logic.require(selected and fs.access("/etc/init.d/"..selected) and M.running(selected),"guard_requires_proxy")
     if selected~="openclash" then
         logic.require(c:get(selected,"config","core_only")~="1" and c:get(selected,"proxy"),"guard_proxy_mode")
@@ -134,7 +138,7 @@ function M.ingress(before)
     logic.require(count==1,"guard_proxy_template")
     return after
 end
-function M.connect(c,name,pool,ipv6)
+function M.connect(c,name,pool,ipv6,dry_run)
     -- Put the VPN rule first, so a LAN-wide catch-all ACL cannot bypass it.
     -- Other ACLs, LAN interfaces, router traffic and subscription rules stay intact.
     local id="lansyra_vpn"
@@ -143,12 +147,17 @@ function M.connect(c,name,pool,ipv6)
     local changed=false
     local function set(section,key,value)
         if not logic.equal(c:get(name,section,key) or false,value or false) then
-            if value then logic.require(c:set(name,section,key,value),"write_failed")
-            else logic.require(c:delete(name,section,key),"write_failed") end
+            if not dry_run then
+                if value then logic.require(c:set(name,section,key,value),"write_failed")
+                else logic.require(c:delete(name,section,key),"write_failed") end
+            end
             changed=true
         end
     end
-    if not existing then logic.require(c:set(name,id,"lan_access_control"),"write_failed"); changed=true end
+    if not existing then
+        if not dry_run then logic.require(c:set(name,id,"lan_access_control"),"write_failed") end
+        changed=true
+    end
     for _,key in ipairs({"enabled","lan_proxy","ipv4_proxy","ipv4_dns_hijack"}) do set("proxy",key,"1") end
     if ipv6~="" then
         for _,key in ipairs({"ipv6_proxy","ipv6_dns_hijack"}) do set("proxy",key,"1") end
@@ -159,7 +168,10 @@ function M.connect(c,name,pool,ipv6)
     set(id,"mac",false)
     local first
     c:foreach(name,"lan_access_control",function(s) first=first or s[".name"] end)
-    if first~=id then logic.require(c:reorder(name,id,0),"write_failed"); changed=true end
+    if first~=id then
+        if not dry_run then logic.require(c:reorder(name,id,0),"write_failed") end
+        changed=true
+    end
     return changed
 end
 function M.plan(c,info,option,whole,read)

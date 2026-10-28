@@ -96,7 +96,7 @@ end
 function M.data(admin)
     local s=snapshot(); local state=M.status(true)
     state.version=version()
-    state.ui_version="0.6.2"
+    state.ui_version="0.6.3"
     state.supported=logic.supported_version(state.version)
     state.capabilities=capabilities()
     state.revision=s.revision
@@ -356,16 +356,18 @@ local function connect_proxy(s,name)
     end
     local path="/etc/"..name.."/ucode/hijack.ut"
     local before=read(path); local after=proxy.ingress(before)
+    local pool=values.ipaddr.."/"..logic.prefix(values.netmask)
+    local changed=proxy.connect(s.cursor,name,pool,values.ip6addr,true)
+    if not changed and before==after then
+        -- A startup event can arrive before service_started finishes generating
+        -- rules. Wait without another restart when the configuration is current.
+        return proxy.ready(name,true) and {effect="unchanged",proxy=name} or false
+    end
     s.proxy_raw=read("/etc/config/"..name)
     logic.require(s.proxy_raw,"write_failed")
     stage_cursor(s,false,name)
-    local changed=proxy.connect(s.cursor,name,values.ipaddr.."/"..logic.prefix(values.netmask),values.ip6addr)
-    if not changed and before==after then
-        clear_stage(s)
-        -- A startup event can arrive before service_started finishes generating
-        -- rules. Wait without another restart when the configuration is current.
-        return proxy.ready(name,true) and {effect="unchanged"} or false
-    end
+    proxy.connect(s.cursor,name,pool,values.ip6addr)
+    require("luci.model.ocserv_easy.guard_log").add("proxy_connect","start",name)
     return transaction(s,true,function()
         storage.keep("/etc/ocserv/easy-backup/"..name..".uci",s.proxy_raw)
         storage.keep("/etc/ocserv/easy-backup/"..name.."-hijack.ut",before)
@@ -377,7 +379,7 @@ local function connect_proxy(s,name)
         configuration.mark_proxy(s.journal,name)
         logic.require(run({"/etc/init.d/"..name,"restart"},90)==0,"guard_proxy_failed")
         wait_proxy(name,true,"guard_proxy_failed")
-        return {effect="proxy_connected"}
+        return {effect="proxy_connected",proxy=name}
     end,false,name,true)
 end
 function M.sync_proxy()
@@ -391,12 +393,14 @@ function M.sync_proxy()
         recover_locked(false)
         local s=snapshot()
         if (s.config.auth or "plain")~="plain" or s.config.proxy_arp=="1" then return {effect="unchanged"} end
+        local selected=proxy.select(s.cursor)
+        if not selected or selected=="openclash" then return {effect="unchanged"} end
         local detected,name=pcall(proxy.detect,s.cursor)
         if not detected then
-            if type(name)=="table" and name.code=="guard_requires_proxy" then return {effect="unchanged"} end
+            -- Enabled but not running yet is transient, not successful sync.
+            if type(name)=="table" and name.code=="guard_requires_proxy" then return false end
             error(name,0)
         end
-        if name=="openclash" then return {effect="unchanged"} end
         -- Do not require existing hijack rules before enabling proxy/DNS ingress:
         -- a running core with proxy.enabled=0 has no nft table to wait for.
         logic.require(logic.supported_version(version(true)),"upgrade_required")
@@ -406,6 +410,14 @@ function M.sync_proxy()
     end)
     lease.release(lock)
     if not ok then error(result,0) end
+    return result
+end
+function M.proxy_status()
+    local c=uci.cursor()
+    local name=proxy.select(c)
+    logic.require(name,"guard_requires_proxy")
+    local result=proxy.diagnostics(c,name)
+    result.proxy=name
     return result
 end
 function M.action(request,admin)

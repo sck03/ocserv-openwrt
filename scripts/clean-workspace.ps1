@@ -2,7 +2,8 @@
 param(
     [switch]$Apply,
     [switch]$IncludeDependencies,
-    [switch]$IncludeTestResults
+    [switch]$IncludeTestResults,
+    [switch]$DeepClean
 )
 
 $ErrorActionPreference = 'Stop'
@@ -38,7 +39,7 @@ function Add-Candidate([string]$Relative) {
     }
 }
 
-# Keep release packages, backups, test environments, toolchains and source archives.
+# Always retain release packages, backups and private configurations.
 foreach ($relative in @(
     'build', '.ruff_cache', 'scripts\__pycache__', 'tests\__pycache__', 'client\tests\__pycache__',
     'dist\validation-x64', 'dist\validation-x86',
@@ -46,8 +47,14 @@ foreach ($relative in @(
     'desktop\macos\Lansyra.xcodeproj', 'desktop\macos\App\Info.plist',
     'desktop\macos\Tunnel\Info.plist', 'desktop\macos\App\AppIcon.icns'
 )) { Add-Candidate $relative }
-if ($IncludeDependencies) { Add-Candidate '.deps' }
-if ($IncludeTestResults) { Add-Candidate 'test-results' }
+if ($IncludeDependencies -or $DeepClean) { Add-Candidate '.deps' }
+if ($IncludeTestResults -or $DeepClean) { Add-Candidate 'test-results' }
+if ($DeepClean) {
+    # All of these can be downloaded or generated again using the build guide.
+    foreach ($relative in @('.tools', '.reference', '.venv', 'artifacts\validation')) {
+        Add-Candidate $relative
+    }
+}
 
 $tracked = @(& git -C $cleanupRoot ls-files)
 if ($LASTEXITCODE) { throw 'Cannot check tracked files; no files were deleted.' }
@@ -100,4 +107,5 @@ foreach ($target in $plan) {
     if (Test-Path -LiteralPath $resolved) { throw "Cleanup did not finish: $resolved; $($cleanupErrors[0])" }
 }
 Write-Output ('Deleted {0:N3} GiB of generated files.' -f ($totalBytes / 1GB))
-Write-Output 'Release packages, backups, source files and toolchains were retained.'
+Write-Output 'Release packages, backups, private configurations and source files were retained.'
+if ($DeepClean) { Write-Output 'Run the documented dependency setup before the next local build or test.' }

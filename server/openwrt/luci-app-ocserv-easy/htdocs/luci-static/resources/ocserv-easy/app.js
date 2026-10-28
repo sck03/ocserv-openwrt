@@ -303,6 +303,36 @@
         ],async function(){},t('关闭','Close'));
         guardLogOpen=true; refresh();
     }
+    function showProxyStatus() {
+        var output=element('pre',{className:'easy-guard-log',tabindex:'0'}), loading=false;
+        function status(value){return value===true?t('正常','OK'):value===false?t('未就绪','Not ready'):t('未知','Unknown');}
+        function listener(value){return value===true?t('已监听','Listening'):value===false?t('未监听','Not listening'):t('未知','Unknown');}
+        async function refresh(){
+            if(loading)return; loading=true; output.textContent=t('正在检查…','Checking…');
+            try{
+                var p=await request('proxy-status');
+                var lines=[t('代理：','Proxy: ')+p.proxy,t('核心进程：','Core process: ')+status(p.running)];
+                if(p.proxy!=='openclash'){
+                    lines.push(t('VPN 入口：','VPN ingress: ')+status(p.ingress_ready));
+                    if(!p.ingress_ready)lines.push(t('VPN 流量尚未接入代理，请查看接入日志。','VPN traffic is not connected to the proxy. Check the integration log.'));
+                    lines.push('TCP: '+p.tcp_mode+'; UDP: '+p.udp_mode);
+                    [['lan_dns_hijack','DNS'],['lan_redirect','Redirect'],['lan_tproxy','TPROXY']].forEach(function(item){
+                        var target=(p.targets || {})[item[0]]; if(!target)return;
+                        lines.push(item[1]+t(' 规则：',' rules: ')+status(target.available));
+                        array(target.ports).forEach(function(port){lines.push('  '+port.port+'  TCP: '+listener(port.tcp)+'; UDP: '+listener(port.udp));});
+                        if(!array(target.ports).length)lines.push(t('  未发现目标端口','  No target port found'));
+                    });
+                    if(p.tun)lines.push('TUN: '+(p.tun.device || '?')+'; '+t('路由表 ','table ')+(p.tun.table || '?')+'; '+t('策略规则：','policy rule: ')+status(p.tun.rule));
+                    if(p.tcp_mode==='redirect')lines.push(t('Redirect 使用 TCP；UDP 按上方所选模式接管。','Redirect uses TCP; UDP follows the mode shown above.'));
+                }
+                lines.push(t('端口来自当前运行规则；监听存在不代表节点或外网已连通。','Ports come from live rules; a listener does not verify the upstream node or internet connection.'));
+                output.textContent=lines.join('\n');
+            }catch(error){output.textContent=errorText(error);}
+            finally{loading=false;}
+        }
+        showModal(t('代理接入诊断','Proxy integration diagnostics'),[button(t('重新检查','Check again'),refresh),output],async function(){},t('关闭','Close'));
+        guardLogOpen=true; refresh();
+    }
     function renderGuard() {
         var g=state.guard || {phase:'disabled'}, labels={disabled:t('已关闭','Disabled'),queued:t('等待应用…','Queued…'),applying:t('正在应用…','Applying…'),pending:t('正在确认管理连接…','Checking management connectivity…'),enabled:t('已开启','Enabled'),restoring:t('正在恢复…','Restoring…'),recovery_failed:t('恢复需要重试','Restoration needs a retry')};
         var proxyName={openclash:'OpenClash',nikki:'Nikki',momo:'Momo'}[g.proxy];
@@ -320,7 +350,8 @@
         if(g.reason)children.push(element('p',{className:'easy-notice error',text:errorText({code:g.reason})}));
         if(g.phase==='disabled' && g.last && g.last.failure)children.push(element('p',{className:'easy-notice error',text:t('上次应用已恢复：','Previous apply restored: ')+errorText({code:g.last.failure})}));
         if(g.phase==='disabled' && g.last && g.last.preserved)children.push(element('p',{className:'easy-muted',text:t('已保留启用期间由其他页面修改的设置。','Settings changed in other pages while enabled were preserved.')}));
-        children.push(element('div',{className:'easy-buttons'},[toggle,button(t('查看日志','View log'),showGuardLog)]));
+        var diagnose=button(t('检查代理','Check proxy'),showProxyStatus); diagnose.disabled=switching;
+        children.push(element('div',{className:'easy-buttons'},[toggle,button(t('查看日志','View log'),showGuardLog),diagnose]));
         content.appendChild(element('section',{className:'easy-card'},children));
     }
     function download(kind,server) {
@@ -386,7 +417,7 @@
             }),
             mutationButton(state.autostart?t('关闭开机启动','Disable autostart'):t('开机自动启动','Enable autostart'),function(){complete({action:'service',command:state.autostart?'disable':'enable'}).catch(function(e){notice(errorText(e),true);});})
         ]);
-        root.appendChild(element('div',{className:'easy-heading'},[element('div',{},[element('h2',{text:'岚序 Lansyra'}),element('span',{className:'easy-muted',text:t('管理页 ','UI ')+(state.ui_version || '0.6.2')+' · ocserv '+state.version})]),actions]));
+        root.appendChild(element('div',{className:'easy-heading'},[element('div',{},[element('h2',{text:'岚序 Lansyra'}),element('span',{className:'easy-muted',text:t('管理页 ','UI ')+(state.ui_version || '0.6.3')+' · ocserv '+state.version})]),actions]));
         messageBox=element('div',{className:'easy-notice',hidden:true});root.appendChild(messageBox);
         statusBox=element('div',{className:'easy-summary'});statusKey=null;root.appendChild(statusBox);renderStatus();
         if(state.installation_pending)root.appendChild(element('p',{className:'easy-notice error',text:t('安装尚未完成。请在完整服务端套装目录重新运行 sh install.sh，完成证书和 VPN 网络初始化。','Installation is incomplete. Run sh install.sh again from the complete server bundle to finish certificate and VPN network initialization.')}));

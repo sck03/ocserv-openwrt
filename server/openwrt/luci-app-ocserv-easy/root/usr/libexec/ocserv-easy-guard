@@ -4,7 +4,9 @@ local function sync_proxy()
     for _=1,30 do
         local result=backend.sync_proxy()
         if result then
-            if result.effect=="proxy_connected" then require("luci.model.ocserv_easy.guard_log").add("proxy_connect","completed") end
+            if result.proxy then
+                require("luci.model.ocserv_easy.guard_log").add("proxy_connect",result.effect=="proxy_connected" and "completed" or "running",result.proxy)
+            end
             return
         end
         require("nixio").poll({},1000)

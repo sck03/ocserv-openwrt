@@ -1,6 +1,7 @@
 .tools/
 .deps/
 .reference/
+private-configs/
 build/
 dist/
 *.user

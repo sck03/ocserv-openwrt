@@ -103,6 +103,7 @@ function fs.rename(from,to)
     if S.fail_write==to then S.fail_write=nil; return false end
     S.files[to]=S.files[from]; S.files[from]=nil
     if to:sub(1,5)=="/etc/" then S.flash_writes=(S.flash_writes or 0)+1 end
+    if to:find("config-stage",1,true) then S.stage_writes=(S.stage_writes or 0)+1 end
     local package=to:match("^/etc/config/(%w+)$")
     if package then S.cfg[package]=decode(S.files[to]) end
     return true
@@ -530,6 +531,26 @@ for _,name in ipairs({"nikki","momo"}) do
         for i=count+1,#S.commands do check(S.commands[i]~="/etc/init.d/"..name.." restart") end
         check(S.flash_writes==writes)
         S.proxy_table_absent=false;check(connect().effect=="unchanged")
+    end)
+    test(name.." enabled proxy still starting is retried instead of silently skipped",function()
+        normal_proxy(name);S.proxy_running=nil;local before=clone(S.cfg)
+        check(connect()==false and equal(S.cfg,before))
+        S.proxy_running=name;check(connect().effect=="proxy_connected")
+    end)
+    test(name.." custom VPN pool is connected and unchanged events avoid staging writes",function()
+        normal_proxy(name);S.cfg.ocserv.config.ipaddr="192.168.100.0"
+        S.files["/etc/config/ocserv"]=encode(S.cfg.ocserv)
+        connect();check(equal(S.cfg[name].lansyra_vpn.ip,{"192.168.100.0/24"}))
+        local writes=S.stage_writes
+        for _=1,10 do check(connect().effect=="unchanged") end
+        check(S.stage_writes==writes,"unchanged event rewrote private UCI candidates")
+    end)
+    test(name.." on-demand status reports missing ingress without changing configuration",function()
+        normal_proxy(name);local before=clone(S.cfg)
+        local status=backend.proxy_status()
+        check(status.proxy==name and status.running and not status.ingress_ready)
+        check(equal(before,S.cfg) and not S.stage_writes and not status.subscription)
+        connect();check(backend.proxy_status().ingress_ready)
     end)
     test(name.." normal VPN access retains LAN interfaces, ACLs and the VPN daemon",function()
         normal_proxy(name);local before=clone(S.cfg)

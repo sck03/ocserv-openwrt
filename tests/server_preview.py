@@ -68,6 +68,9 @@ class Handler(BaseHTTPRequestHandler):
         if parts.path=='/easy/guard-log':
             logs=guard_lua.eval('require("luci.model.ocserv_easy.guard_log").read')()
             self.send(json.dumps({'ok':True,'data':to_python(logs)}));return
+        if parts.path=='/easy/proxy-status':
+            result=guard_lua.eval('require("luci.model.ocserv_easy.backend").proxy_status')()
+            self.send(json.dumps({'ok':True,'data':to_python(result)}));return
         if parts.path!='/':self.send('{}',status=404);return
         lang=parse_qs(parts.query).get('lang',['zh-cn'])[0]
         opts=json.dumps({'base':'/easy','token':'local-preview-only','language':lang,'writable':True})

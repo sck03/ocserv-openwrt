@@ -1,6 +1,6 @@
 # 岚序（Lansyra）
 
-岚序（Lansyra）提供 Windows 10/11 原生客户端 0.7.4、macOS 13+ Universal 和 Linux amd64/arm64 桌面客户端 0.1.4，以及 Android 0.2.4 / iOS 0.2.4 移动客户端。配套 ocserv 1.6.0-r1 服务端和中文管理页 0.6.2-r1。Windows 提供 x86/x64 便携包；Linux 支持 Debian 13 / Ubuntu 26.04，macOS 实际连接需要有效的 Apple 系统扩展签名。桌面安装方式见[桌面客户端说明](docs/DESKTOP.md)。服务端支持 **OpenWrt 25.12 / APK** 的六个目标，具体架构见 [OpenWrt 多架构说明](docs/OPENWRT.md)。
+岚序（Lansyra）提供 Windows 10/11 原生客户端 0.7.4、macOS 13+ Universal 和 Linux amd64/arm64 桌面客户端 0.1.4，以及 Android 0.2.4 / iOS 0.2.4 移动客户端。配套 ocserv 1.6.0-r1 服务端和中文管理页 0.6.3-r1。Windows 提供 x86/x64 便携包；Linux 支持 Debian 13 / Ubuntu 26.04，macOS 实际连接需要有效的 Apple 系统扩展签名。桌面安装方式见[桌面客户端说明](docs/DESKTOP.md)。服务端支持 **OpenWrt 25.12 / APK** 的六个目标，具体架构见 [OpenWrt 多架构说明](docs/OPENWRT.md)。
 
 客户端界面名称统一为 **岚序 Lansyra**，Windows 程序为 `Lansyra.exe`，Linux 包和命令为 `lansyra`，Android / iOS 默认安装 ID 为 `io.github.sck03.lansyra`，macOS 为 `io.github.sck03.lansyra.macos`。首次安装需填写服务器、账号、证书指纹并设置启动项；Apple 签名描述文件须匹配应用标识。本次维护沿用同名 Lansyra 的数据格式：升级前退出客户端并备份配置，同一用户、相同安装标识和签名下可保留现有配置。其他旧产品的数据、加密凭据和系统连接不自动迁移。
 
@@ -42,7 +42,7 @@ sh install.sh
 
 管理页提供 **VPN 专用上网**，支持 **OpenClash、Nikki、Momo**，自动识别唯一启用的代理。默认关闭；代理由管理员先安装并配置。开启后自动处理 VPN 入口、DNS、访问控制、防火墙和标准流量卸载。普通 LAN 设备不能借 N1 的网关、DNS 或代理端口上网；通过主路由的普通上网保持原有行为。升级 Nikki/Momo 或切换代理前先关闭本开关。
 
-不开启隔离开关时，VPN 同样可以使用代理。管理页 0.6.1 起，ocserv/Nikki/Momo 启动或重启后自动接入 VPN 的动态接口和 DNS，保留普通 LAN 的代理设置，无需另一个接入按钮。0.6.2 修复代理规则尚未生成时的接入等待，并提供实际透明代理端口与监听诊断，支持手动修改端口。
+不开启隔离开关时，VPN 同样可以使用代理。管理页 0.6.3 修复 OpenWrt 25.12 启动事件未触发接入的问题：服务启动、重启或升级后自动接入 VPN 的动态接口和 DNS，保留普通 LAN 的代理设置。点击 **检查代理** 可查看 VPN 入口、实际 DNS/透明代理监听端口和 TUN 路由；识别到代理进程不等于 VPN 已接入。端口按运行规则读取，无需改成固定端口。
 
 开关适用于已确认的 **N1 单网口旁路由**。关闭后恢复本功能改动的设置；后来添加的账号、修改的订阅等保留。服务操作失败或应用后管理页面无法重新确认访问，会尝试自动恢复。订阅、节点及分流规则不由本开关修改。详见 [开关说明](docs/VPN-ONLY-PROXY.md)。
 
