@@ -95,11 +95,11 @@ python -m pip install -r client/tests/requirements.txt
 .\scripts\clean-workspace.ps1 -Apply
 ~~~
 
-默认清理 `build/`、`.ruff_cache/`、项目 Python 字节码、生成的 Lansyra Xcode 工程/Info.plist/图标，以及 `dist/validation-x64/`、`dist/validation-x86/` 测试二进制。添加 `-IncludeDependencies` 可清理 `.deps/`；添加 `-IncludeTestResults` 可清理 `test-results/`。需要释放更多空间时先运行 `./scripts/clean-workspace.ps1 -DeepClean` 预览，再添加 `-Apply`：同时删除 `.tools/`、`.reference/`、`.venv/`、依赖与旧验证缓存，下次构建需重新下载。发行包、备份、私有配置与受 Git 跟踪的源码保留；需要保留的测试摘要应先移到 `artifacts/verification/` 等清理范围外。
+默认清理 `build/`、`.ruff_cache/`、项目 Python 字节码、生成的 Lansyra Xcode 工程/Info.plist/图标，以及 `dist/validation-x64/`、`dist/validation-x86/` 测试二进制。添加 `-IncludeDependencies` 可清理 `.deps/`；添加 `-IncludeTestResults` 可清理 `test-results/`。
 
-需要大幅释放磁盘空间时，运行 `.\scripts\clean-workspace.ps1 -DeepClean` 预览，再添加 `-Apply` 执行。深度清理还删除 `.deps/`、`test-results/`、`.tools/`（含下载归档与工具链）、`.reference/`（临时审计文件）、`.venv/` 和 `artifacts/validation/`（历次验证下载与截图）。保留 Git 历史、跟踪源码、`dist/` 安装包、`artifacts/backups/` 与 `private-configs/` 私有配置。下次本地构建前重新安装测试依赖并运行 `fetch-deps.ps1`；文件 SHA-256 锁定值仍在源码清单中。
+需要大幅释放磁盘空间时，运行 `.\scripts\clean-workspace.ps1 -DeepClean` 预览，再添加 `-Apply` 执行。深度清理还删除 `.deps/`、`test-results/`、`.tools/`（含下载归档与工具链）、`.reference/`（临时审计文件）、`.venv/` 和 `artifacts/validation/`（历次验证下载与截图）。保留 Git 历史、跟踪源码、`dist/` 安装包、`artifacts/backups/` 与 `private-configs/` 私有配置；需要保留的测试摘要先移到 `artifacts/verification/`。下次本地构建前重新安装测试依赖并运行 `fetch-deps.ps1`；文件 SHA-256 锁定值仍在源码清单中。
 
-脚本拒绝删除 Git 跟踪的源码、链接到其他目录的路径及运行中进程引用的文件。清理 `.deps` 后，下次按上述构建流程重新生成依赖。默认只显示清单，只有 `-Apply` 才执行删除。
+脚本拒绝删除 Git 跟踪的源码、链接到其他目录的路径及运行中进程引用的文件。Windows 的编辑器目录监听可能在内容删除后保留一个空目录句柄；脚本仅在原生状态明确为 `STATUS_DELETE_PENDING` 时列出待删除目录并继续，其目录项会在监听句柄关闭后消失。普通权限或占用错误仍然报错。默认只显示清单，只有 `-Apply` 才执行删除。
 
 ## 验证
 

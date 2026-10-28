@@ -2,6 +2,22 @@
 
 本页记录岚序（Lansyra）全新安装版本的验证证据与实机边界。以前的打包和系统升级记录见[历史版本](https://github.com/sck03/ocserv-openwrt/blob/ba903fe/docs/VALIDATION.md)。
 
+## 2026-10-29 代理归属、DNS 就绪与工作区清理
+
+管理页更新为 0.6.4-r1，ocserv 和客户端版本不变。修复 OpenClash 将 Nikki 的 Mihomo 误认为自己的进程、停止的 Momo 显示 Nikki 共用 TUN，以及仅有进程或接口集合就过早完成接入的问题。启用隔离时三款代理均等待有效 DNS 重定向目标和实际 TCP/UDP 监听，Nikki/Momo 另检查动态 VPN 接口集合；Nikki/Momo 普通接入沿用相同规则和监听检查。就绪判断与按需诊断共用端口解析和监听读取，删除过时的全局 pidof 检测及对应测试桩。
+
+新增 `proxy_registry.lua` 统一维护服务身份和适配能力，复用配置事务、恢复校验和控制器权限检查。PassWall、PassWall 2、HomeProxy、SSR Plus+ 提供运行检测、冲突检查及未适配提示；当前不能自动接入或隔离这些软件，不套用另一款代理的配置。
+
+应用提交 [`25fc4f6`](https://github.com/sck03/ocserv-openwrt/commit/25fc4f6) 的 [GitHub 验证 40776400248](https://github.com/sck03/ocserv-openwrt/actions/runs/40776400248) 全部通过：逻辑 75、事务 93、端口/归属/就绪 13、生命周期 6、控制器 8、进程边界 9、打包 8；Linux 安装与锁竞争 49、证书 14、密码文件 9、真实 nftables 报文 22。三款代理的 Chrome 模拟后端流程各 19 项、请求与轮询边界 8 项通过，无浏览器脚本错误。验证附件核对 GitHub SHA-256 和 ZIP CRC 后只保留 JSON 与小型日志，摘要位于 `artifacts/verification/2026-10-29-maintenance/ci/`。本次仅验证，未编译六架构 APK 或发布 Release。
+
+本地另通过构建参数 13、客户端构建 13、移动构建 19、发行元数据 6，以及 Python、Shell、管理页 JS 和 Git 差异检查。清理过程中发现 Windows 目录监听让已清空的目录停留在待删除状态，原脚本因此中断；现读取原生 `STATUS_DELETE_PENDING` 并明确报告，继续处理其他目标，普通权限/占用错误仍然失败。最终清理回归 10 项通过，包括新产生及已有的待删除目录、普通文件锁和受跟踪文件保护。客户端源码未改变，保留前轮 Windows 0.7.4 原生回归摘要：连接 61、配置/DPAPI 92、UI 51、WSH 7、资源 9、回环 TLS 认证 35 项通过；600,000 个事件、1,000 轮清空前后私有内存均为 2,297,856 字节，句柄均为 134。这是短时合成测试，不代表真实客户端长期转发验收。
+
+在用户 N1 上备份并更新管理页源码，通过虚拟 `vpns*` 接口和独立 LAN 网络命名空间验证代理流量；这不是新版 APK 安装，设备软件包元数据仍可能显示旧版。最新重跑在每次服务操作后重新创建测试接口，Nikki、Momo 的关闭、开启、再关闭共六阶段、24 项检查通过：VPN DNS、Google HTTPS 和国内 HTTP 可用，隔离开启时 LAN 的 DNS 与透明 HTTPS 被拦截。结果保存在 `artifacts/verification/2026-10-29-maintenance/nikki-momo-device-matrix.json`，最终设备状态见同目录 `device-final-state.json`。该方法不包含真实 ocserv 账号认证、Windows/手机客户端连接或长期流量测试。
+
+**OpenClash 尚未通过完整实机验收。** 本机 VPN DNS 可用，普通模式曾通过一次外网检查，但重复探测和隔离模式仍出现 TLS 提前关闭。TCP 跟踪确认流量命中实际 Redirect 端口 7892，并由 fw4 input 接受；DNS 命中 7874。核心自身 Google HTTPS 探测成功，不能据此证明 VPN 转发成功。备份后比较自动选择与负载均衡组、清空 DNS/Fake-IP 缓存、测试 fake-ip/redir-host、Mihomo alpha-gbc76c13/v1.19.32 和独立 TLS 探测，仍未确认根因，不能归结为单一端口、Fake-IP 或 alpha 版本问题。临时核心、DNS 模式和节点选择均已恢复；最终保留 Nikki 启用，Momo/OpenClash 和隔离关闭，移除临时接口与跟踪规则。精简的失败证据保存在 `artifacts/verification/2026-10-29-maintenance/openclash-device-findings.json`。
+
+深度清理移除约 **1.810 GiB** 可重新生成的工具链、依赖源码、虚拟环境、构建目录、Python 缓存，以及旧测试数据、截图和验证附件；保留安装包、备份、两份 Momo 私有配置、Git 历史、许可证与新的精简验证摘要。安装包、备份和私有配置共 27 个文件的清理前后 SHA-256 一致。旧记录中待手动删除的参考目录也纳入本轮清理；`.reference` 内容已删除，其空目录被 Codex 目录监听句柄保持在 Windows 待删除状态，句柄关闭后目录项消失。下次本地构建或运行浏览器回归需要重新准备依赖；使用方法见[构建与清理说明](BUILD.md)。本地和 GitHub 分支均核对为仅 main，没有遗漏待合并的分支。
+
 ## 2026-10-28 普通代理启动时序与运行端口诊断
 
 管理页更新为 0.6.2-r1。确认并修复普通模式接入先等待 nft 规则、随后才启用代理入口的前置依赖：核心运行但 `proxy.enabled=0` 时没有规则可等。现在先应用 VPN 接入配置再等待生成；配置已一致的重复启动事件只等待就绪，不再重启代理或写闪存。

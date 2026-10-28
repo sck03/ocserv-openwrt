@@ -1,4 +1,7 @@
 """Check workspace cleanup against disposable Git repositories on Windows."""
+import contextlib
+import ctypes
+from ctypes import wintypes
 import os
 from pathlib import Path
 import shutil
@@ -45,7 +48,22 @@ class CleanupTests(unittest.TestCase):
     def clean(self, *args):
         return subprocess.run([POWERSHELL, "-NoProfile", "-ExecutionPolicy", "Bypass", "-File",
                                str(self.root / "scripts/clean-workspace.ps1"), *args],
-                              capture_output=True, text=True, timeout=30)
+                              capture_output=True, text=True, errors="replace", timeout=30)
+
+    @contextlib.contextmanager
+    def hold_directory(self, path, sharing=7, access=0):
+        kernel = ctypes.WinDLL('kernel32', use_last_error=True)
+        kernel.CreateFileW.argtypes = [wintypes.LPCWSTR, wintypes.DWORD, wintypes.DWORD,
+                                      ctypes.c_void_p, wintypes.DWORD, wintypes.DWORD, wintypes.HANDLE]
+        kernel.CreateFileW.restype = wintypes.HANDLE
+        kernel.CloseHandle.argtypes = [wintypes.HANDLE]
+        # Match an editor watcher: the open directory handle permits deletion.
+        handle = kernel.CreateFileW(str(path), access, sharing, None, 3, 0x02000000, None)
+        self.assertNotIn(handle, (None, ctypes.c_void_p(-1).value))
+        try:
+            yield
+        finally:
+            kernel.CloseHandle(handle)
 
     def test_preview_does_not_delete(self):
         result = self.clean()
@@ -106,6 +124,35 @@ class CleanupTests(unittest.TestCase):
         self.assertIn("tracked source files", result.stderr)
         self.assertTrue((self.root / "build/cache.bin").is_file())
         self.assertTrue((self.root / ".tools/tool.exe").is_file())
+
+    def test_deep_clean_continues_after_watcher_defers_directory_deletion(self):
+        reference = self.root / '.reference'
+        with self.hold_directory(reference):
+            result = self.clean('-DeepClean', '-Apply')
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn('Windows directory deletion pending: .reference', result.stdout)
+            self.assertFalse((self.root / '.venv').exists())
+            self.assertFalse((self.root / 'artifacts/validation').exists())
+            self.assertTrue((self.root / 'private-configs/momo/config.json').is_file())
+        self.assertFalse(reference.exists())
+
+    def test_access_denied_is_not_reported_as_pending_deletion(self):
+        with self.hold_directory(self.root / '.reference', sharing=3, access=1):
+            result = self.clean('-DeepClean', '-Apply')
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn('Cleanup did not finish', result.stderr)
+            self.assertNotIn('Windows directory deletion pending', result.stdout)
+
+    def test_deep_clean_accepts_already_pending_directory(self):
+        reference = self.root / '.reference'
+        with self.hold_directory(reference):
+            shutil.rmtree(reference)
+            result = self.clean('-DeepClean', '-Apply')
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn('Windows directory deletion pending: .reference', result.stdout)
+            self.assertFalse((self.root / 'build').exists())
+            self.assertFalse((self.root / '.venv').exists())
+        self.assertFalse(reference.exists())
 
 
 if __name__ == "__main__":

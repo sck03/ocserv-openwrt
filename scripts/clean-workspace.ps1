@@ -31,7 +31,60 @@ function Assert-WorkspacePath([string]$Path) {
     return $full
 }
 
+function Test-PendingDirectoryDeletion([string]$Path) {
+    if (!('LansyraMaintenance.DirectoryDeletion' -as [type])) {
+        Add-Type -TypeDefinition @'
+using System;
+using System.Runtime.InteropServices;
+namespace LansyraMaintenance {
+    public static class DirectoryDeletion {
+        [StructLayout(LayoutKind.Sequential)]
+        private struct UnicodeString { public ushort Length, MaximumLength; public IntPtr Buffer; }
+        [StructLayout(LayoutKind.Sequential)]
+        private struct ObjectAttributes {
+            public int Length; public IntPtr RootDirectory, ObjectName;
+            public uint Attributes; public IntPtr SecurityDescriptor, SecurityQualityOfService;
+        }
+        [StructLayout(LayoutKind.Sequential)]
+        private struct IoStatus { public IntPtr Status, Information; }
+        [DllImport("ntdll.dll")]
+        private static extern int NtOpenFile(out IntPtr handle, uint access,
+            ref ObjectAttributes attributes, out IoStatus status, uint sharing, uint options);
+        [DllImport("kernel32.dll")]
+        private static extern bool CloseHandle(IntPtr handle);
+        public static bool IsPending(string path) {
+            string nativePath = @"\??\" + path;
+            IntPtr text = Marshal.StringToHGlobalUni(nativePath);
+            IntPtr name = Marshal.AllocHGlobal(Marshal.SizeOf(typeof(UnicodeString)));
+            IntPtr handle = IntPtr.Zero;
+            try {
+                ushort length = checked((ushort)(nativePath.Length * 2));
+                Marshal.StructureToPtr(new UnicodeString {
+                    Length = length, MaximumLength = length, Buffer = text
+                }, name, false);
+                var attributes = new ObjectAttributes {
+                    Length = Marshal.SizeOf(typeof(ObjectAttributes)), ObjectName = name,
+                    Attributes = 0x40
+                };
+                IoStatus status;
+                // Read attributes only; share deletion and never follow a reparse point.
+                int result = NtOpenFile(out handle, 0x80, ref attributes, out status, 7, 0x200001);
+                return result == unchecked((int)0xC0000056); // STATUS_DELETE_PENDING
+            } finally {
+                if (handle != IntPtr.Zero) CloseHandle(handle);
+                Marshal.FreeHGlobal(name);
+                Marshal.FreeHGlobal(text);
+            }
+        }
+    }
+}
+'@
+    }
+    return [LansyraMaintenance.DirectoryDeletion]::IsPending($Path)
+}
+
 $candidates = [System.Collections.Generic.List[string]]::new()
+$pendingDirectories = [System.Collections.Generic.List[string]]::new()
 function Add-Candidate([string]$Relative) {
     $path = Assert-WorkspacePath (Join-Path $cleanupRoot $Relative)
     if ((Test-Path -LiteralPath $path) -and !$candidates.Contains($path)) {
@@ -74,14 +127,22 @@ $plan = @(foreach ($path in $candidates) {
             throw "A running process uses $relative (PID $($process.ProcessId)). Stop it before cleaning."
         }
     }
-    $item = Get-Item -LiteralPath $path -Force
-    if ($item.PSIsContainer) {
-        $entries = @(Get-ChildItem -LiteralPath $path -Recurse -Force)
-        if (@($entries | Where-Object { $_.Attributes -band [IO.FileAttributes]::ReparsePoint }).Count) {
-            throw "A target contains a symbolic link or junction: $relative"
+    try {
+        $item = Get-Item -LiteralPath $path -Force
+        if ($item.PSIsContainer) {
+            $entries = @(Get-ChildItem -LiteralPath $path -Recurse -Force)
+            if (@($entries | Where-Object { $_.Attributes -band [IO.FileAttributes]::ReparsePoint }).Count) {
+                throw "A target contains a symbolic link or junction: $relative"
+            }
+            $bytes = ($entries | Where-Object { !$_.PSIsContainer } | Measure-Object -Property Length -Sum).Sum
+        } else { $bytes = $item.Length }
+    } catch {
+        if (Test-PendingDirectoryDeletion $path) {
+            $pendingDirectories.Add($relative)
+            continue
         }
-        $bytes = ($entries | Where-Object { !$_.PSIsContainer } | Measure-Object -Property Length -Sum).Sum
-    } else { $bytes = $item.Length }
+        throw
+    }
     [pscustomobject]@{ Path = $path; Relative = $relative; Bytes = [long]$bytes }
 })
 
@@ -91,6 +152,7 @@ $plan | Sort-Object Bytes -Descending |
 $totalBytes = ($plan | Measure-Object -Property Bytes -Sum).Sum
 Write-Output ('Selected {0} targets, {1:N3} GiB.' -f $plan.Count, ($totalBytes / 1GB))
 if (!$Apply) {
+    foreach ($relative in $pendingDirectories) { Write-Output "Windows directory deletion pending: $relative" }
     Write-Output 'Preview only. Add -Apply to delete the listed files.'
     return
 }
@@ -98,14 +160,20 @@ if (!$Apply) {
 foreach ($target in $plan) {
     $resolved = (Resolve-Path -LiteralPath (Assert-WorkspacePath $target.Path)).Path
     if ($resolved -ne $target.Path) { throw "A reviewed path changed: $($target.Path)" }
-    # A directory can remain pending deletion while Windows closes child handles.
-    # Finish each traversal and retry briefly; never report success with leftovers.
+    # Directory watchers can retain an empty directory after Windows accepts deletion.
+    # Only the exact native pending-deletion status is deferred; access errors still fail.
     for ($attempt = 0; $attempt -lt 3 -and (Test-Path -LiteralPath $resolved); $attempt++) {
         Remove-Item -LiteralPath $resolved -Recurse -Force -ErrorAction SilentlyContinue -ErrorVariable cleanupErrors
         if (Test-Path -LiteralPath $resolved) { Start-Sleep -Milliseconds 200 }
     }
-    if (Test-Path -LiteralPath $resolved) { throw "Cleanup did not finish: $resolved; $($cleanupErrors[0])" }
+    if (Test-Path -LiteralPath $resolved) {
+        if (Test-PendingDirectoryDeletion $resolved) { $pendingDirectories.Add($target.Relative) }
+        else { throw "Cleanup did not finish: $resolved; $($cleanupErrors[0])" }
+    }
 }
 Write-Output ('Deleted {0:N3} GiB of generated files.' -f ($totalBytes / 1GB))
+foreach ($relative in $pendingDirectories) {
+    Write-Output "Windows directory deletion pending: $relative; it disappears when the existing watcher closes its handle."
+}
 Write-Output 'Release packages, backups, private configurations and source files were retained.'
 if ($DeepClean) { Write-Output 'Run the documented dependency setup before the next local build or test.' }
