@@ -17,7 +17,7 @@
 
 管理页 0.6.4 使用 procd 的服务归属核对核心，避免把 Nikki 的 Mihomo 误认成 OpenClash；停止的服务不再显示其他软件共用的 TUN。三款代理的隔离启用检查等待有效 DNS 重定向目标和实际 TCP/UDP 监听，Nikki/Momo 还需 VPN 接口集合。后台普通接入同样检查 Nikki/Momo 的规则和监听。切换期间服务和防火墙会重建，待状态完成后重新连接 VPN。
 
-本轮 N1 的 Nikki/Momo 三阶段流量检查通过。OpenClash 在当前设备上仍有间歇性 TLS 转发失败，尚未通过完整实机验收；进程、监听或管理页确认成功不能替代 VPN 外网测试。具体证据和恢复状态见[验证记录](VALIDATION.md)。
+本轮 N1 的 Nikki/Momo 与 OpenClash 三阶段流量检查均通过。此前 OpenClash 的 TLS 提前关闭已定位到冷启动时大型规则提供器尚未初始化完成：同一配置等待加载后自动恢复，嗅探开启也通过。启动后先等待规则提供器完成，再用 VPN 客户端验证外网；进程、监听、内部测速或 `Initial configuration complete` 不能证明完整转发就绪。当前管理页检查仍侧重规则和监听，本轮未修改其就绪逻辑。具体证据和恢复状态见[验证记录](VALIDATION.md)。
 
 | 访问方式 | 开启后的行为 |
 |---|---|
@@ -71,4 +71,4 @@
 
 Nikki/Momo 的上游入口只接受 OpenWrt 逻辑接口，无法直接描述 ocserv 后续生成的接口。本功能在事务中精确修改 `/etc/nikki/ucode/hijack.ut` 或 `/etc/momo/ucode/hijack.ut` 的入口数组；模板结构不匹配时拒绝启用，重启后还会检查实际 nft 接口集合。**升级或重装 Nikki/Momo、切换代理前，先关闭本开关；完成后再开启。** 模板被外部修改时不会强制覆盖，恢复结果会提示保留了外部修改。
 
-2026-10-28 核对来源：[Nikki 78e1a75](https://github.com/nikkinikki-org/OpenWrt-nikki/tree/78e1a751d55ed0762811f054ee699049473da7b8)、[Momo f177d79](https://github.com/nikkinikki-org/OpenWrt-momo/tree/f177d79d88ced747c74779e2fddc1e5b50663010)。浏览器回归使用模拟服务边界，CI 隔离网络测试使用真实 nftables 和模拟代理监听器。2026-10-29 另在用户 N1 上使用实际 Nikki/Momo 核心通过六阶段流量检查，但接口由网络命名空间模拟，不包含真实 ocserv 登录。实际 N1/OPL 固件的 CSTP/DTLS、非 DNS UDP、重启持久化和长期运行仍需进一步验收；OpenClash 的重复 HTTPS 转发尚未通过。
+2026-10-28 核对来源：[Nikki 78e1a75](https://github.com/nikkinikki-org/OpenWrt-nikki/tree/78e1a751d55ed0762811f054ee699049473da7b8)、[Momo f177d79](https://github.com/nikkinikki-org/OpenWrt-momo/tree/f177d79d88ced747c74779e2fddc1e5b50663010)。浏览器回归使用模拟服务边界，CI 隔离网络测试使用真实 nftables 和模拟代理监听器。2026-10-29 另在用户 N1 上使用实际 Nikki/Momo 核心通过六阶段流量检查；OpenClash 等待规则初始化后通过重复 HTTP/SOCKS/VPN HTTPS、三阶段隔离切换及两组下发 DNS 检查，共 31 项。接口由网络命名空间模拟，不包含真实 ocserv 登录。实际 N1/OPL 固件的 CSTP/DTLS、非 DNS UDP、IPv6、重启持久化和长期运行仍需进一步验收。
