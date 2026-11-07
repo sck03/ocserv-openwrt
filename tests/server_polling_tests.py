@@ -375,6 +375,91 @@ with sync_playwright() as pw:
     page.unroute('**/easy/status')
     page.unroute('**/easy/data')
     page.unroute('**/easy/action')
+    # Superseded reads release their fetch immediately, without waiting for the
+    # timeout. Use abort-aware promises so no router or real clock is involved.
+    def stall_reads(paths):
+        page.evaluate("""paths => {
+            const original = window.fetch;
+            window.stalledReads = [];
+            window.fetch = (url, options) => {
+                if (!paths.some(path => url.endsWith('/' + path))) return original(url, options);
+                window.stalledReads.push({url, signal: options.signal});
+                return new Promise((resolve, reject) => {
+                    options.signal.addEventListener('abort', () => reject(new Error('aborted')), {once: true});
+                });
+            };
+        }""", paths)
+
+    page.reload(wait_until='networkidle')
+    stall_reads(['data', 'status'])
+    page.clock.run_for(3000)
+    page.wait_for_function('window.stalledReads.length === 1')
+    page.get_by_role('button', name='刷新', exact=True).click()
+    assert page.evaluate('window.stalledReads[0].signal.aborted'), 'full refresh retained the obsolete status query'
+    page.route('**/easy/action', lambda route: route.fulfill(status=409, json={'ok': False, 'error': 'stale_revision'}))
+    page.get_by_role('button', name='关闭开机启动', exact=True).click()
+    expect(page.locator('#ocserv-easy .easy-notice.error')).to_contain_text('配置已被其他页面修改')
+    assert page.evaluate('window.stalledReads.every(read => read.signal.aborted)'), 'mutation retained an obsolete read'
+    checks.append('full refresh cancels polling and a mutation cancels the superseded full refresh')
+    page.unroute('**/easy/action')
+
+    page.reload(wait_until='networkidle')
+    stall_reads(['data'])
+    page.get_by_role('tab', name='服务设置', exact=True).click()
+    for index in range(50):
+        page.get_by_role('button', name='刷新', exact=True).click()
+        page.get_by_label('每个账号最多在线设备数', exact=True).fill(str(index % 3 + 1))
+        assert page.evaluate('window.stalledReads.every(read => read.signal.aborted)'), 'editing retained an obsolete refresh'
+    assert page.evaluate('window.stalledReads.length') == 50, 'canceled refresh blocked its replacement'
+    expect(page.get_by_label('每个账号最多在线设备数', exact=True)).to_have_value('2')
+    checks.append('50 refresh/edit cycles retain the input and leave no obsolete fetches')
+    page.get_by_role('button', name='刷新', exact=True).click()
+    page.get_by_role('tab', name='账号与在线用户', exact=True).click()
+    page.get_by_role('button', name='＋ 添加账号', exact=True).click()
+    assert page.evaluate('window.stalledReads.every(read => read.signal.aborted)'), 'opening a form retained the old refresh'
+    checks.append('opening an editing dialog cancels the obsolete full refresh')
+
+    # Cancellation can race a response already buffered by fetch. The old
+    # completion must neither publish nor release the newer request's slot.
+    page.reload(wait_until='networkidle')
+    full = page.request.get(args.url + 'easy/data').json()
+    page.evaluate("""() => {
+        const original = window.fetch;
+        window.delayedReads = [];
+        window.fetch = (url, options) => url.endsWith('/data')
+            ? new Promise((resolve, reject) => window.delayedReads.push({resolve, reject}))
+            : original(url, options);
+    }""")
+    page.get_by_role('tab', name='服务设置', exact=True).click()
+    page.get_by_role('button', name='刷新', exact=True).click()
+    page.get_by_label('每个账号最多在线设备数', exact=True).fill('3')
+    page.get_by_role('button', name='刷新', exact=True).click()
+    page.evaluate("window.delayedReads[0].reject(new Error('obsolete failure'))")
+    page.get_by_role('button', name='刷新', exact=True).click()
+    assert page.evaluate('window.delayedReads.length') == 2, 'old completion released its replacement'
+    expect(page.locator('#ocserv-easy > .easy-notice.error')).to_have_count(0)
+    page.evaluate("data => window.delayedReads[1].resolve({ok:true,json:async () => data})", full)
+    expect(page.get_by_label('每个账号最多在线设备数', exact=True)).to_have_value(full['data']['settings']['max_same'])
+    checks.append('a late canceled failure cannot publish an error or release the newer read slot')
+
+    page.reload(wait_until='networkidle')
+    stall_reads(['status'])
+    page.clock.run_for(3000)
+    page.wait_for_function('window.stalledReads.length === 1')
+    page.evaluate("""() => {
+        Object.defineProperty(document, 'hidden', {configurable:true, value:true});
+        document.dispatchEvent(new Event('visibilitychange'));
+    }""")
+    assert page.evaluate('window.stalledReads[0].signal.aborted'), 'hidden page retained a status fetch'
+    page.clock.run_for(60000)
+    assert page.evaluate('window.stalledReads.length') == 1
+    page.evaluate("""() => {
+        Object.defineProperty(document, 'hidden', {configurable:true, value:false});
+        document.dispatchEvent(new Event('visibilitychange'));
+    }""")
+    page.clock.run_for(3000)
+    page.wait_for_function('window.stalledReads.length === 2')
+    checks.append('hiding a page aborts polling immediately and showing it resumes one query')
     assert not errors, errors
     browser.close()
 report = {'passed': len(checks), 'checks': checks, 'browser_errors': errors}

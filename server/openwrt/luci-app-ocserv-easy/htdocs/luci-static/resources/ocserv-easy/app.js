@@ -126,6 +126,28 @@
             throw error;
         } finally { clearTimeout(timer); }
     }
+    // A read owns its fetch and completion. Cancellation frees the slot at once;
+    // an old completion cannot clear a replacement or publish stale data/errors.
+    function readSlot(path) {
+        var controller=null, slot={pending:null};
+        slot.cancel=function(){
+            var previous=controller; controller=null; slot.pending=null;
+            if(previous)previous.abort();
+        };
+        slot.run=function(consume){
+            if(!slot.pending){
+                var active=new AbortController(); controller=active;
+                slot.pending=request(path,null,active).then(function(data){
+                    return controller===active ? (consume?consume(data):data) : false;
+                }).catch(function(error){
+                    if(controller!==active)return false;
+                    throw error;
+                }).finally(function(){if(controller===active){controller=null;slot.pending=null;}});
+            }
+            return slot.pending;
+        };
+        return slot;
+    }
     var effects={saved:t('已保存，下次启动服务时生效。','Saved for the next service start.'),updated_live:t('账号已生效，其他在线用户保持连接。','Account updated. Other users remain connected.'),terminated:t('账号已更新，该账号的旧登录已失效。','Account updated and its previous sessions revoked.'),restarted:t('配置已应用，VPN 服务已重新启动。','Configuration applied and VPN service restarted.'),disconnected:t('已断开该连接。账号仍可重新登录。','Connection disconnected. The account can sign in again.'),service_changed:t('服务操作已执行，状态将自动刷新。','Service operation submitted. Status will refresh automatically.')};
     effects.address_saved=t('连接地址已保存，当前 VPN 连接保持不变。','Connection address saved. Current VPN connections are unchanged.');
     effects.firewall_repaired=t('基础 VPN 防火墙规则已同步。','Baseline VPN firewall rules were synchronized.');
@@ -141,7 +163,7 @@
         busy=true;
         // One operation owns both the submission and its refreshed revision.
         ++loadGeneration;
-        loadPending=null;
+        loadRead.cancel(); statusRead.cancel();
         var controls=Array.from(root.querySelectorAll('button,input,select,textarea')).map(function(node){var old=node.disabled;node.disabled=true;return [node,old];});
         try {
             payload.revision=state.revision;
@@ -164,7 +186,7 @@
     function showModal(title, children, submit, label, cleanup) {
         closeModal();
         modalCleanup=cleanup;
-        ++editGeneration;
+        loadRead.cancel(); statusRead.cancel();
         var errorBox=element('div',{className:'easy-notice error',hidden:true});
         var submitButton=element('button',{type:'submit',className:'cbi-button cbi-button-apply',text:label || t('保存','Save')});
         var form=element('form',{},[element('h3',{id:'easy-modal-title',text:title})].concat(children,[errorBox,element('div',{className:'easy-buttons'},[button(t('取消','Cancel'),closeModal),submitButton])]));
@@ -188,18 +210,16 @@
         var first=form.querySelector('input:not([type="checkbox"]),select,button'); if(first)first.focus();
     }
     function showReader(title,children,refreshLabel,path,format) {
-        var output=element('pre',{className:'easy-guard-log',tabindex:'0'}), controller=null, closed=false;
+        var output=element('pre',{className:'easy-guard-log',tabindex:'0'}), reader=readSlot(path), closed=false;
         async function refresh() {
-            if(controller || closed)return;
-            controller=new AbortController(); output.textContent=t('正在读取…','Loading…');
+            if(reader.pending || closed)return;
+            output.textContent=t('正在读取…','Loading…');
             try {
-                var data=await request(path,null,controller);
-                if(!closed){output.textContent=format(data);output.scrollTop=output.scrollHeight;}
+                await reader.run(function(data){output.textContent=format(data);output.scrollTop=output.scrollHeight;});
             } catch(error) { if(!closed)output.textContent=errorText(error); }
-            finally {controller=null;}
         }
         showModal(title,children.concat([button(refreshLabel,refresh),output]),async function(){},t('关闭','Close'),function(){
-            closed=true; if(controller)controller.abort();
+            closed=true; reader.cancel();
         });
         readerOpen=true; refresh();
     }
@@ -437,7 +457,7 @@
             serviceButton,
             mutationButton(state.autostart?t('关闭开机启动','Disable autostart'):t('开机自动启动','Enable autostart'),function(){complete({action:'service',command:state.autostart?'disable':'enable'}).catch(function(e){notice(errorText(e),true);});})
         ]);
-        root.appendChild(element('div',{className:'easy-heading'},[element('div',{},[element('h2',{text:'岚序 Lansyra'}),element('span',{className:'easy-muted',text:t('管理页 ','UI ')+(state.ui_version || '0.6.11')+' · ocserv '+state.version})]),actions]));
+        root.appendChild(element('div',{className:'easy-heading'},[element('div',{},[element('h2',{text:'岚序 Lansyra'}),element('span',{className:'easy-muted',text:t('管理页 ','UI ')+(state.ui_version || '0.6.12')+' · ocserv '+state.version})]),actions]));
         messageBox=element('div',{className:'easy-notice',hidden:true});root.appendChild(messageBox);
         statusBox=element('div',{className:'easy-summary'});statusKey=null;root.appendChild(statusBox);renderStatus();
         if(state.installation_pending)root.appendChild(element('p',{className:'easy-notice error',text:t('安装尚未完成。请在完整服务端套装目录重新运行 sh install.sh，完成证书和 VPN 网络初始化。','Installation is incomplete. Run sh install.sh again from the complete server bundle to finish certificate and VPN network initialization.')}));
@@ -448,39 +468,31 @@
         [['users',t('账号与在线用户','Accounts and connections')],['settings',t('服务设置','Service settings')],['guard',t('VPN 专用上网','VPN-only access')],['export',t('客户端配置','Client profiles')]].forEach(function(item){var b=button(item[1],function(){activeTab=item[0];renderTab();});b.dataset.tab=item[0];b.setAttribute('role','tab');tabs.appendChild(b);});
         root.appendChild(tabs);content=element('div',{});root.appendChild(content);renderTab();
     }
-    var loadPending=null, loadGeneration=0, editGeneration=0, formEdited=false, backgroundRefresh=false;
+    var loadRead=readSlot('data'), statusRead=readSlot('status'), loadGeneration=0, formEdited=false, backgroundRefresh=false;
     function edited(event) {
-        ++editGeneration;
+        loadRead.cancel();
         if(!modal && event.target.closest('form'))formEdited=true;
     }
     root.addEventListener('input',edited);
     root.addEventListener('change',edited);
+    document.addEventListener('visibilitychange',function(){if(document.hidden)statusRead.cancel();});
     function load(preserveDialog) {
-        if(!loadPending) {
-            var generation=loadGeneration, editing=editGeneration;
-            var pending=request('data').then(function(data){
-                // A refresh may finish after the user starts a new edit/dialog.
-                if(generation!==loadGeneration || editing!==editGeneration)return false;
-                backgroundRefresh=false;
-                state=data;
-                if(preserveDialog && readerOpen){renderStatus();renderTab();}else render();
-                return true;
-            }).catch(function(error){
-                if(generation!==loadGeneration || editing!==editGeneration)return false;
-                throw error;
-            }).finally(function(){if(loadPending===pending)loadPending=null;});
-            loadPending=pending;
-        }
-        return loadPending;
+        statusRead.cancel();
+        return loadRead.run(function(data){
+            backgroundRefresh=false;
+            state=data;
+            if(preserveDialog && readerOpen){renderStatus();renderTab();}else render();
+            return true;
+        });
     }
     var statusPending=false;
     setInterval(async function(){
-        if(!state || busy || loadPending || (modal && !readerOpen) || document.hidden || statusPending)return;
+        if(!state || busy || loadRead.pending || (modal && !readerOpen) || document.hidden || statusPending)return;
         statusPending=true;
         try {
             var snapshot=state, generation=loadGeneration;
-            var current=await request('status');
-            if(busy || loadPending || state!==snapshot || generation!==loadGeneration || document.hidden || (modal && !readerOpen))return;
+            var current=await statusRead.run();
+            if(!current || busy || loadRead.pending || state!==snapshot || generation!==loadGeneration || document.hidden || (modal && !readerOpen))return;
             state.running=current.running;state.online=current.online;state.online_error=current.online_error;
             var previous=state.guard && state.guard.phase;
             // Lightweight disabled status omits topology. Retain the last full
