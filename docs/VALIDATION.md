@@ -10,6 +10,10 @@
 
 真实 Chrome 针对 OpenClash、Nikki、Momo 各通过 19 项页面流程，22 项请求生命周期检查通过，无浏览器脚本错误。代理运行边界 13、生命周期 6、控制器 8、配置生成 4、进程边界 9、服务端打包 8、构建参数 13、发行元数据 6、发布脚本 13、清理脚本 10 项通过；47 份 Python、5 份工作流 YAML、13 份 Shell、管理页 JavaScript 及 Git 差异检查通过。
 
+应用提交 [`be85c7c`](https://github.com/sck03/ocserv-openwrt/commit/be85c7c) 的 [GitHub 验证 42344766845](https://github.com/sck03/ocserv-openwrt/actions/runs/42344766845) 全部通过，额外确认 Linux 安装/恢复与锁竞争 49、证书 14、密码文件 9、真实 nftables 报文 22 项；上述服务端逻辑、事务和浏览器回归也由 CI 再次通过。本次使用 `validate_only=true`、`publish_release=false`，未生成六架构 APK 或发布 Release。
+
+本地及 CI 的精简证据归档在 `artifacts/verification/2026-11-07-storage/`；CI 附件已验证 GitHub SHA-256 和 ZIP CRC，只保留 JSON 与小型日志。停止临时预览后清理约 1.9 MiB 的测试生成物、Python 缓存及临时验证工具；安装包、私有配置和备份共 85 个文件的清理前后 SHA-256 一致。已合并重复的运行逻辑，其余运行模块和许可证仍有用途，予以保留。
+
 客户端运行代码未修改，本轮未重编译客户端，未连接真实 N1 或手机；未测量实际转发吞吐和长期内存。源码推送不会更新设备或现有 `dist/` 安装包。
 
 ## 2026-11-07 提交周期与只读弹窗资源回收
