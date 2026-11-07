@@ -24,12 +24,6 @@ def fail(key):
     return False
 if name=='lua':
     if args[:1]==['-e']:
-        if 'easy-guard/state.json' in args[1]:
-            try:
-                state=json.loads((root/'etc/ocserv/easy-guard/state.json').read_text())
-                valid=state.get('version')==1 and state.get('phase')=='enabled' and isinstance(state.get('ops'),list) and isinstance(state.get('info'),dict)
-            except (ValueError,AttributeError):valid=False
-            sys.exit(0 if valid else 1)
         sys.exit(1 if os.environ.get('INSTALL_MISSING_LOCK_RUNTIME') and not (root/'lock-runtime').exists() else 0)
     from lupa.lua51 import LuaRuntime
     runtime=LuaRuntime(unpack_returned_tuples=True)
@@ -308,14 +302,26 @@ with tempfile.TemporaryDirectory(prefix='lansyra-install-test-') as temporary:
         assert 'apk update' not in (root/'commands').read_text() and not list((root/'root').iterdir())
     checks.append('an unconfirmed, interrupted or invalid guard transaction blocks upgrades before service changes')
 
-    root=fixture('guard_enabled',existing=True)
-    (root/'etc/ocserv/easy-guard').mkdir()
-    record=json.dumps({'version':1,'phase':'enabled','ops':[],'info':{}})
-    (root/'etc/ocserv/easy-guard/state.json').write_text(record)
-    result=run(root)
-    assert result.returncode==0,result.stdout+result.stderr
-    assert (root/'etc/ocserv/easy-guard/state.json').read_text()==record
-    checks.append('upgrades retain an already confirmed VPN-only guard')
+    for version in (1,2,3):
+        root=fixture('guard_enabled_'+str(version),existing=True)
+        (root/'etc/ocserv/easy-guard').mkdir()
+        record=json.dumps({'version':version,'phase':'enabled','ops':[],'info':{}})
+        (root/'etc/ocserv/easy-guard/state.json').write_text(record)
+        result=run(root)
+        assert result.returncode!=0 and '原管理页' in result.stderr
+        assert (root/'etc/ocserv/easy-guard/state.json').read_text()==record
+        assert 'apk update' not in (root/'commands').read_text() and not list((root/'root').iterdir())
+    checks.append('every confirmed guard schema must be restored before replacing its runtime')
+
+    for kind in ('empty','directory'):
+        root=fixture('guard_record_'+kind,existing=True)
+        (root/'etc/ocserv/easy-guard').mkdir()
+        marker=root/'etc/ocserv/easy-guard/state.json'
+        marker.mkdir() if kind=='directory' else marker.write_text('')
+        result=run(root)
+        assert result.returncode!=0 and marker.exists()
+        assert 'apk update' not in (root/'commands').read_text() and not list((root/'root').iterdir())
+    checks.append('empty or non-file guard records block upgrades without deleting recovery data')
 
     root=fixture('interrupted_network')
     assert run(root,INSTALL_INTERRUPT_NETWORK='1').returncode!=0

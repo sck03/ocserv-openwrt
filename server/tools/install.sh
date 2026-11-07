@@ -51,13 +51,9 @@ fi
     echo '存在待恢复的管理页事务，请等待后台恢复完成，或先在 LuCI 处理恢复错误后再安装。' >&2
     exit 1
 }
-if [ -f /etc/ocserv/easy-guard/state.json ]; then
-    # A confirmed guard can survive an upgrade. Never interrupt its activation,
-    # confirmation deadline, rollback, or an invalid recovery record.
-    if ! lua -e 'local f=assert(io.open("/etc/ocserv/easy-guard/state.json","rb")); local raw=f:read(2097153); f:close(); assert(raw and #raw<=2097152); local s=require("luci.jsonc").parse(raw); assert(type(s)=="table" and s.version==1 and s.phase=="enabled" and type(s.ops)=="table" and type(s.info)=="table")' >/dev/null 2>&1; then
-        echo 'VPN 专用上网尚在应用、待确认或恢复阶段；请先在 LuCI 完成或恢复该操作后再安装。' >&2
-        exit 1
-    fi
+if [ -e /etc/ocserv/easy-guard/state.json ]; then
+    echo '存在 VPN 专用上网恢复记录；请先在原管理页关闭隔离并等待恢复完成后再安装。' >&2
+    exit 1
 fi
 
 pending=/etc/ocserv/easy-install-pending
