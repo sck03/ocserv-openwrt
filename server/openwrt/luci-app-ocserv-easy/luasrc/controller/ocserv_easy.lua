@@ -57,6 +57,7 @@ function action()
         logic.require(can_write(),"forbidden")
         local raw=require("luci.http").formvalue("payload")
         logic.require(type(raw)=="string" and #raw<=65536,"bad_request")
+        logic.require(not logic.json_has_null(raw),"bad_request")
         local request=require("luci.jsonc").parse(raw)
         if type(request)=="table" then
             local packages=request.action=="guard" and {"firewall","dhcp"} or request.action=="settings" and {"firewall"} or {}

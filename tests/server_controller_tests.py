@@ -11,12 +11,12 @@ lua.execute('package.preload[...] = assert(loadstring(select(2,...)))',
 lua.execute('package.preload[...] = assert(loadstring(select(2,...)))',
             "luci.model.ocserv_easy.proxy_registry", (model / "proxy_registry.lua").read_text(encoding="utf-8"))
 lua.execute('''
-permissions={ocserv=true}; payload={action="settings"}; calls=0
+permissions={ocserv=true}; payload={action="settings"}; raw="fixture"; calls=0
 package.loaded["luci.dispatcher"]={context={authsession="fixture"}}
 package.loaded["luci.util"]={ubus=function(_,_,request)return {access=permissions[request.object]==true}end}
 package.loaded["luci.http"]={
     header=function()end, prepare_content=function()end,
-    formvalue=function()return "fixture"end, getenv=function()return "192.168.19.2"end,
+    formvalue=function()return raw end, getenv=function()return "192.168.19.2"end,
     status=function(code)response_code=code end,write_json=function(value)reply=value end
 }
 package.loaded["luci.jsonc"]={parse=function()return payload end}
@@ -34,5 +34,12 @@ permissions.openclash=true;action();assert(reply.error=="forbidden" and calls==1
 permissions.nikki=true;action();assert(reply.error=="forbidden" and calls==1)
 permissions.momo=true;action();assert(reply.ok and calls==2)
 permissions.ocserv=false;action();assert(reply.error=="forbidden" and calls==2)
+permissions.ocserv=true;payload.action="settings"
+raw='{"settings":{"dns":["1.1.1.1",null]}}'
+action();assert(reply.error=="bad_request" and calls==2)
+raw='{"settings":{"routes":["192.168.19.0/24",null]}}'
+action();assert(reply.error=="bad_request" and calls==2)
+raw='{"password":"null","enabled":false}'
+action();assert(reply.ok and calls==3)
 ''')
-print(json.dumps({"passed": 8, "boundary": "Actual LuCI controller; simulated session ACL and backend"}))
+print(json.dumps({"passed": 11, "boundary": "Actual LuCI controller; simulated session ACL and backend"}))

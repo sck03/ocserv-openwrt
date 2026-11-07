@@ -19,6 +19,20 @@ local old_hash="$6$existingSalt$"..string.rep("a",86)
 local test_pin="pin-sha256:"..TEST_BASE64(string.rep("a",32))
 local function hasher() return "$6$newSalt$"..string.rep("b",86) end
 local original={{id="employee",name="employee01",group="*",password=old_hash}}
+test("JSON null tokens are rejected before jsonc can discard fields or array tails",function()
+    for _,raw in ipairs({'null','{"dns":["1.1.1.1",null]}','{"routes":[null]}',
+        '{"settings":{"udp":null}}','{"password":"null","settings":null}'}) do
+        check(logic.json_has_null(raw),raw)
+    end
+end)
+test("JSON null filtering preserves quoted text and escaped string boundaries",function()
+    for _,raw in ipairs({'{"password":"null"}','{"null":"annulled","enabled":false}',
+        [[{"password":"escaped\"null"}]],[[{"password":"backslash\\null"}]],
+        [[{"password":"escaped\"null\\","enabled":true}]],'{"dns":[]}'}) do
+        check(not logic.json_has_null(raw),raw)
+    end
+    check(logic.json_has_null([[{"password":"backslash\\","dns":[null]}]]))
+end)
 test("1.6 minimum and future versions",function()
     for _,v in ipairs({"1.6.0","1.6.0-r1","1.7.0","2.0.0"}) do check(logic.supported_version(v)) end
     for _,v in ipairs({"1.5.0","1.5.9","unknown","1.6","invalid"}) do check(not logic.supported_version(v)) end
