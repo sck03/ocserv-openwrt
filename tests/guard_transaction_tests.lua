@@ -446,6 +446,24 @@ end)
 test("log write failure cannot prevent configuration recovery",function()
     reset(); enable(); S.fail_write="/var/run/ocserv-easy/guard-log.json"; disable(); check(not guard.active())
 end)
+test("unreadable logs are reported and never overwritten by later events",function()
+    for _,failure in ipairs({"fail_open","fail_read"}) do
+        reset();log.add("apply","start")
+        local path="/var/run/ocserv-easy/guard-log.json"
+        local saved=S.files[path];S[failure]=path
+        expect("read_failed",function()log.read()end)
+        log.add("restore","completed");check(S.files[path]==saved)
+        S[failure]=nil;check(#log.read().entries==1)
+    end
+end)
+test("failed log replacement retains history and removes its temporary file",function()
+    reset();log.add("apply","start")
+    local path="/var/run/ocserv-easy/guard-log.json"
+    local saved=S.files[path];S.fail_write=path
+    log.add("restore","failed");check(S.files[path]==saved)
+    for name in pairs(S.files) do check(name==path or name:sub(1,#path)~=path,"stranded log temporary") end
+    log.add("restore","completed");check(#log.read().entries==2)
+end)
 local function use_proxy(name)
     S.cfg.openclash.config.enable="0"
     S.cfg[name]={config=row("config",{enabled="1",core_only="0",profile="subscription:fixture"}),

@@ -3,13 +3,13 @@
 local nixio=require "nixio"
 local fs=require "nixio.fs"
 local json=require "luci.jsonc"
+local storage=require "luci.model.ocserv_easy.storage"
 local M={}
 local directory="/var/run/ocserv-easy"
 local path=directory.."/guard-log.json"
 local ttl=86400
 local function access(event)
-    if not fs.stat(directory) then assert(fs.mkdir(directory,"700")) end
-    assert(fs.chmod(directory,"700"))
+    storage.directory(directory)
     local lock=assert(nixio.open(directory.."/guard-log.lock","w","600"))
     local acquired=false
     for _=1,100 do
@@ -18,9 +18,8 @@ local function access(event)
     end
     if not acquired then lock:close(); error("log busy") end
     local ok,result=pcall(function()
-        local f=io.open(path,"rb")
-        local raw=f and f:read(262145); if f then f:close() end
-        local rows=raw and #raw<=262144 and json.parse(raw) or {}
+        local raw=storage.read(path)
+        local rows=raw and json.parse(raw) or {}
         if type(rows)~="table" then rows={} end
         local recent,now={},os.time()
         local capacity=event and 255 or 256
@@ -39,11 +38,7 @@ local function access(event)
         if #kept==0 then
             if raw then assert(fs.remove(path)) end
         elseif event or #kept~=#rows then
-            local temp=path..".new"
-            local out=assert(nixio.open(temp,nixio.open_flags("wronly","creat","trunc"),"600"))
-            local value=json.stringify(kept); local offset=1
-            while offset<=#value do local n=out:write(value:sub(offset)); if not n or n==0 then out:close(); error("log write failed") end; offset=offset+n end
-            out:close(); assert(fs.rename(temp,path))
+            storage.atomic(path,json.stringify(kept))
         end
         return kept
     end)

@@ -12,9 +12,10 @@ class ProcessTests(unittest.TestCase):
         lua.globals().mode = mode
         lua.execute('''
             reads, polls, reaped, closed, killed, now = 0, 0, false, false, {}, 0
+            forked, output_closed = false, false
             local input = {
                 close=function() closed=true end,
-                setblocking=function() end,
+                setblocking=function() return mode~="blocking_failure" end,
                 read=function()
                     reads=reads+1
                     assert(reads<1000, "unbounded pipe drain")
@@ -25,24 +26,29 @@ class ProcessTests(unittest.TestCase):
                     if mode=="eof" then return "" end
                     if mode=="normal" and reads==1 then return "hello" end
                     if mode=="normal" and reaped and reads==3 then return " tail" end
-                    return nil
+                    if mode=="read_failure" or (mode=="tail_failure" and reaped) then return nil,5,"I/O error" end
+                    return false,11,"Try again"
                 end
             }
             package.preload.nixio=function() return {
-                pipe=function() return input,{close=function() end} end,
-                fork=function() return 42 end,
+                pipe=function() return input,{close=function() output_closed=true end} end,
+                fork=function() forked=true; return 42 end,
                 gettimeofday=function() error("wall clock must not control deadlines") end,
                 sysinfo=function() return {uptime=now} end,
                 waitpid=function(pid,flag)
-                    if flag and (mode=="idle" or mode=="flood" or mode=="slow" or mode=="eof") then return nil end
+                    if flag and mode=="wait_failure" then return nil,10,"No child processes" end
+                    if flag and (mode=="idle" or mode=="flood" or mode=="slow" or mode=="eof" or mode=="poll_failure" or (mode=="interrupted" and polls==0)) then return false end
                     reaped=true
                     return pid,mode=="signal" and "signaled" or "exited",mode=="failure" and 7 or 0
                 end,
                 kill=function(pid) killed[#killed+1]=pid end,
                 poll=function(fds)
                     polls=polls+1
+                    if mode=="poll_failure" then return nil,5,"I/O error" end
+                    if mode=="interrupted" then return nil,4,"Interrupted system call" end
                     if mode=="eof" then assert(#fds==0,"EOF pipe causes a busy loop") end
                     now=now+1; assert(polls<100,"unbounded wait")
+                    return 0
                 end,
                 poll_flags=function() return 1 end
             } end
@@ -50,6 +56,7 @@ class ProcessTests(unittest.TestCase):
         runner = lua.execute((ROOT / "server/openwrt/luci-app-ocserv-easy/luasrc/model/ocserv_easy/process.lua").read_text(encoding="utf-8"))
         code, output = runner.run(lua.table_from(["fixture"]), 5)
         self.assertTrue(lua.globals().closed)
+        self.assertTrue(lua.globals().output_closed)
         return code, output, lua.globals()
 
     def test_normal_exit_preserves_tail(self):
@@ -94,6 +101,65 @@ class ProcessTests(unittest.TestCase):
         code, output, state = self.run_case("tail_flood")
         self.assertEqual((code, len(output)), (124, 131072))
         self.assertEqual(list(state.killed.values()), [-42])
+
+    def test_nonblocking_failure_closes_pipe_without_starting_child(self):
+        code, output, state = self.run_case("blocking_failure")
+        self.assertEqual((code, output), (125, ""))
+        self.assertFalse(state.forked)
+        self.assertEqual(state.reads, 0)
+
+    def test_pipe_error_cannot_report_success(self):
+        code, output, state = self.run_case("read_failure")
+        self.assertEqual((code, output), (125, ""))
+        self.assertTrue(state.reaped)
+        self.assertEqual(list(state.killed.values()), [-42, 42])
+
+    def test_tail_error_cannot_report_success(self):
+        code, output, state = self.run_case("tail_failure")
+        self.assertEqual((code, output), (125, ""))
+        self.assertEqual(list(state.killed.values()), [-42])
+
+    def test_wait_error_fails_without_polling(self):
+        code, _, state = self.run_case("wait_failure")
+        self.assertEqual(code, 125)
+        self.assertEqual(state.polls, 0)
+        self.assertEqual(list(state.killed.values()), [-42])
+
+    def test_poll_error_fails_without_spinning(self):
+        code, _, state = self.run_case("poll_failure")
+        self.assertEqual(code, 125)
+        self.assertEqual(state.polls, 1)
+        self.assertTrue(state.reaped)
+
+    def test_interrupted_poll_retries(self):
+        code, _, state = self.run_case("interrupted")
+        self.assertEqual(code, 0)
+        self.assertEqual(state.polls, 1)
+        self.assertEqual(len(state.killed), 0)
+
+    def test_child_setup_failure_never_executes_command(self):
+        for failure in ("session", "null", "stdin", "stdout", "stderr"):
+            with self.subTest(failure=failure):
+                lua = LuaRuntime(unpack_returned_tuples=True)
+                lua.globals().failure = failure
+                lua.execute('''
+                    executed=false
+                    os.exit=function(code) error("child exit "..code) end
+                    local fd={close=function() end,setblocking=function() return true end}
+                    package.preload.nixio=function() return {
+                        pipe=function() return fd,fd end,
+                        fork=function() return 0 end,
+                        setsid=function() return failure~="session" end,
+                        open=function() if failure~="null" then return fd end end,
+                        stdin="stdin",stdout="stdout",stderr="stderr",
+                        dup=function(_,target) return target~=failure end,
+                        exec=function() executed=true end
+                    } end
+                ''')
+                runner = lua.execute((ROOT / "server/openwrt/luci-app-ocserv-easy/luasrc/model/ocserv_easy/process.lua").read_text(encoding="utf-8"))
+                with self.assertRaisesRegex(Exception, "child exit 127"):
+                    runner.run(lua.table_from(["fixture"]), 5)
+                self.assertFalse(lua.globals().executed)
 
 
 if __name__ == "__main__":
