@@ -32,10 +32,7 @@ local function monotonic()
 end
 
 local function read(path)
-    local f=io.open(path,"rb"); if not f then return nil end
-    local value=f:read(2097153); f:close()
-    logic.require(not value or #value<=2097152,"guard_state_invalid")
-    return value
+    return storage.read(path,2097152)
 end
 local directory=storage.directory
 local function random()

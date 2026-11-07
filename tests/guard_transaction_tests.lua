@@ -112,8 +112,12 @@ function fs.rename(from,to)
 end
 function fs.readlink(path) if S.running and path=="/proc/101/exe" then return "/usr/sbin/ocserv" end end
 io.open=function(path)
-    if S.files[path]==nil then return nil end
-    return {read=function(_,n)return S.files[path]:sub(1,n)end,close=function()end}
+    if S.fail_open==path then return nil,"Permission denied",13 end
+    if S.files[path]==nil then return nil,"No such file",2 end
+    return {read=function(_,n)
+        if S.fail_read==path then return nil,"Input/output error",5 end
+        local data=S.files[path]:sub(1,n);return #data>0 and data or nil
+    end,close=function()end}
 end
 os.time=function() return S.now end
 local nixio={bin={},open_flags=function()return 1 end}
@@ -123,7 +127,7 @@ function nixio.open(path,flags,permissions)
     if flags=="r" then return {sync=function()return true end,close=function()end} end
     mode(permissions)
     S.files[path]=""
-    return {write=function(_,v)S.files[path]=S.files[path]..v;return #v end,sync=function()return true end,close=function()end,lock=function()return not S.locked end}
+    return {write=function(_,v,offset)local part=v:sub((offset or 0)+1);S.files[path]=S.files[path]..part;return #part end,sync=function()return true end,close=function()end,lock=function()return not S.locked end}
 end
 function nixio.poll(_,ms)
     S.now=S.now+ms/1000
@@ -377,6 +381,22 @@ test("confirmation tokens are bound to the management address",function()
 end)
 test("corrupt recovery records are reported instead of treated as disabled",function()
     reset(); S.files[root.."state.json"]="invalid"; check(guard.status(admin).phase=="recovery_failed" and guard.status(admin).reason=="guard_state_invalid")
+end)
+test("unreadable guard journals cannot disable isolation or start another operation",function()
+    for _,failure in ipairs({"fail_open","fail_read"}) do
+        reset();enable();local files=clone(S.files);local cfg=clone(S.cfg)
+        S[failure]=root.."state.json"
+        local status=guard.status(admin,false)
+        check(status.phase=="recovery_failed" and status.enabled)
+        expect("read_failed",function()guard.begin("enable",admin)end)
+        check(equal(files,S.files) and equal(cfg,S.cfg) and S.nft)
+        S[failure]=nil;disable()
+    end
+end)
+test("empty guard journals are invalid rather than an absent transaction",function()
+    reset();S.files[root.."state.json"]=""
+    check(guard.status(admin,false).phase=="recovery_failed")
+    expect("guard_state_invalid",function()guard.begin("enable",admin)end)
 end)
 local log=require "luci.model.ocserv_easy.guard_log"
 test("failed restart and restoration remain visible in structured logs",function()

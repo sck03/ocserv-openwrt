@@ -212,8 +212,12 @@ local function reset()
 end
 local original_io_open=io.open
 io.open=function(path)
-    if not S or S.files[path]==nil then return nil end
-    return {read=function(_,limit)return S.files[path]:sub(1,limit)end,close=function()end}
+    if S and S.fail_open==path then return nil,"Permission denied",13 end
+    if not S or S.files[path]==nil then return nil,"No such file",2 end
+    return {read=function(_,limit)
+        if S.fail_read==path then return nil,"Input/output error",5 end
+        local data=S.files[path]:sub(1,limit);return #data>0 and data or nil
+    end,close=function()S.closed_read=path end}
 end
 local function mode(value)
     check(type(value)=="string" and value:match("^[0-7][0-7][0-7]$"),"nixio expects octal permission digits, not decimal bit masks")
@@ -252,7 +256,12 @@ nixio.open=function(path,flags,permissions)
     end,close=function()end} end
     mode(permissions)
     S.files[path]=""
-    return {write=function(_,data)S.files[path]=S.files[path]..data;return #data end,sync=function()S.disk_events[#S.disk_events+1]="sync:"..path;return true end,close=function()end,lock=function()return not S.busy end}
+    return {write=function(_,data,offset)
+        S.write_sizes=S.write_sizes or {};S.write_sizes[#S.write_sizes+1]=#data
+        if S.write_stalled then return 0 end
+        local part=data:sub((offset or 0)+1,(offset or 0)+(S.write_chunk or #data))
+        S.files[path]=S.files[path]..part;return #part
+    end,sync=function()S.disk_events[#S.disk_events+1]="sync:"..path;return true end,close=function()end,lock=function()return not S.busy end}
 end
 local function cursor(directory,savedir)
     directory=directory or "/etc/config"
@@ -352,6 +361,56 @@ test("atomic replacement syncs the file before rename and its directory afterwar
     check(#events==3 and events[1]:match("^sync:/etc/config/ocserv%.easy%-") and
         events[2]=="rename:/etc/config/ocserv" and events[3]=="sync:/etc/config")
 end)
+test("bounded reads distinguish missing and empty files and accept the exact limit",function()
+    reset();local storage=require "luci.model.ocserv_easy.storage"
+    check(storage.read("/missing")==nil)
+    S.files["/empty"]="";check(storage.read("/empty")=="")
+    S.files["/bounded"]="1234";check(storage.read("/bounded",4)=="1234")
+    expect("file_too_large",function()storage.read("/bounded",3)end)
+    check(S.closed_read=="/bounded")
+end)
+test("unreadable config cannot be treated as an absent snapshot",function()
+    reset();local before=clone(S.files);S.fail_open="/etc/config/ocserv"
+    expect("read_failed",function()request(edit("FixturePassword"))end)
+    check(logic.equal(before,S.files) and #S.disk_events==0)
+end)
+test("read errors close the file and preserve password data before any commit",function()
+    reset();local revision=backend.data().revision;local before=clone(S.files);S.disk_events={}
+    S.fail_read="/var/etc/ocpasswd"
+    local payload=edit("FixturePassword");payload.revision=revision
+    expect("read_failed",function()backend.action(payload)end)
+    check(S.closed_read==S.fail_read and #S.disk_events==1) -- online cache invalidation only
+    check(S.files["/etc/config/ocserv"]==before["/etc/config/ocserv"] and
+        S.files["/var/etc/ocpasswd"]==before["/var/etc/ocpasswd"])
+    check(not require("luci.model.ocserv_easy.configuration").pending())
+end)
+test("unreadable recovery journals remain pending without touching live files",function()
+    for _,failure in ipairs({"fail_open","fail_read"}) do
+        reset();local tx=require "luci.model.ocserv_easy.configuration"
+        local before=S.files["/etc/config/ocserv"];local state=tx.begin(false)
+        tx.replace(state,"ocserv",before,before.."\ninterrupted")
+        local files=clone(S.files);local writes=#S.disk_events
+        S[failure]="/etc/ocserv/easy-transaction/state.json"
+        expect("read_failed",function()backend.recover(false)end)
+        check(tx.pending() and #S.disk_events==writes and
+            S.files["/etc/config/ocserv"]==files["/etc/config/ocserv"] and
+            S.files["/etc/ocserv/easy-transaction/state.json"]==files["/etc/ocserv/easy-transaction/state.json"])
+        S[failure]=nil;check(backend.recover(false) and S.files["/etc/config/ocserv"]==before)
+    end
+end)
+test("short writes reuse the original buffer and preserve all bytes",function()
+    reset();local storage=require "luci.model.ocserv_easy.storage"
+    local data=string.rep("abcd",16384);S.write_chunk=997
+    storage.atomic("/short",data)
+    check(S.files["/short"]==data and #S.write_sizes>1)
+    for _,size in ipairs(S.write_sizes) do check(size==#data,"short writes copied a suffix") end
+end)
+test("stalled writes remove their candidate and retain the original file",function()
+    reset();local storage=require "luci.model.ocserv_easy.storage"
+    local before=clone(S.files);S.write_stalled=true
+    expect("write_failed",function()storage.atomic("/etc/config/ocserv","replacement")end)
+    check(logic.equal(S.files,before))
+end)
 test("directory sync failure after replacement is recovered before reporting failure",function()
     reset();local before=S.files["/etc/config/ocserv"]
     S.fail_directory_sync="/etc/config"
@@ -401,6 +460,14 @@ test("failed forced refresh cannot revive a previous cached success",function()
     cache.get("test","one",300,function()return {value="old"}end)
     cache.get("test","one",300,function()return {cacheable=false}end,true)
     check(cache.get("test","one",300,function()return {value="new"}end).value=="new")
+end)
+test("an unreadable disposable cache still returns the live query",function()
+    reset();local cache=require "luci.model.ocserv_easy.query_cache"
+    cache.get("test","one",300,function()return {value="old"}end)
+    S.fail_read="/var/run/ocserv-easy/query-test.json"
+    check(cache.get("test","one",300,function()return {value="live"}end).value=="live")
+    S.fail_read=nil
+    check(cache.get("test","one",300,function()error("cache not replaced")end).value=="live")
 end)
 test("cache write failure preserves the live result without reviving stale online rows",function()
     reset();S.online={{ID=1,Username="old"}};check(backend.status().online[1].name=="old")

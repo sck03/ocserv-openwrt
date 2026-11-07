@@ -6,10 +6,17 @@ local logic = require "luci.model.ocserv_easy.logic"
 local M = { limit = 262144 }
 
 function M.read(path, limit)
-    local f = io.open(path, "rb")
-    if not f then return nil end
-    local data = f:read((limit or M.limit) + 1) or ""
+    local f, _, code = io.open(path, "rb")
+    if not f then
+        -- Only ENOENT means absent; failed snapshots must never become empty
+        -- backups or make an outstanding recovery journal disappear.
+        logic.require(code == 2, "read_failed")
+        return nil
+    end
+    local data, err = f:read((limit or M.limit) + 1)
     f:close()
+    logic.require(err == nil, "read_failed")
+    data = data or "" -- A successful read at EOF is an empty, existing file.
     logic.require(#data <= (limit or M.limit), "file_too_large")
     return data
 end
@@ -50,9 +57,11 @@ function M.atomic(path, data, limit)
     local temp = path .. ".easy-" .. nixio.bin.hexlify(M.random(16))
     local file = nixio.open(temp, nixio.open_flags("wronly", "creat", "excl"), "600")
     logic.require(file, "write_failed")
-    local offset, ok = 1, true
-    while offset <= #data do
-        local count = file:write(data:sub(offset))
+    local offset, ok = 0, true
+    while offset < #data do
+        -- nixio accepts a zero-based buffer offset; retry partial writes without
+        -- allocating a copy of the remaining (up to 2 MiB) transaction state.
+        local count = file:write(data, offset)
         if not count or count == 0 then ok = false; break end
         offset = offset + count
     end

@@ -95,6 +95,7 @@
         invalid_domain:t('默认域名格式无效。','The default domain is invalid.'),
         invalid_port:t('端口范围为 1–65535。','Ports must be between 1 and 65535.'),
         invalid_client_limit:t('同账号在线数不能大于总在线数。','The per-account limit cannot exceed the total connection limit.'),
+        read_failed:t('读取文件失败，请检查文件权限和存储状态后重试。','Reading a file failed. Check file permissions and storage health, then retry.'),
         write_failed:t('保存失败，请检查剩余空间及文件权限。','Saving failed. Check free space and file permissions.'),
         service_failed:t('服务操作失败，请检查 ocserv 日志。','Service operation failed. Check the ocserv log.'),
         unknown_schema:t('未找到标准 ocserv UCI 配置，请先安装并初始化 ocserv。','Standard ocserv UCI configuration was not found. Install and initialize ocserv first.'),
@@ -435,7 +436,7 @@
             serviceButton,
             mutationButton(state.autostart?t('关闭开机启动','Disable autostart'):t('开机自动启动','Enable autostart'),function(){complete({action:'service',command:state.autostart?'disable':'enable'}).catch(function(e){notice(errorText(e),true);});})
         ]);
-        root.appendChild(element('div',{className:'easy-heading'},[element('div',{},[element('h2',{text:'岚序 Lansyra'}),element('span',{className:'easy-muted',text:t('管理页 ','UI ')+(state.ui_version || '0.6.6')+' · ocserv '+state.version})]),actions]));
+        root.appendChild(element('div',{className:'easy-heading'},[element('div',{},[element('h2',{text:'岚序 Lansyra'}),element('span',{className:'easy-muted',text:t('管理页 ','UI ')+(state.ui_version || '0.6.7')+' · ocserv '+state.version})]),actions]));
         messageBox=element('div',{className:'easy-notice',hidden:true});root.appendChild(messageBox);
         statusBox=element('div',{className:'easy-summary'});statusKey=null;root.appendChild(statusBox);renderStatus();
         if(state.installation_pending)root.appendChild(element('p',{className:'easy-notice error',text:t('安装尚未完成。请在完整服务端套装目录重新运行 sh install.sh，完成证书和 VPN 网络初始化。','Installation is incomplete. Run sh install.sh again from the complete server bundle to finish certificate and VPN network initialization.')}));
