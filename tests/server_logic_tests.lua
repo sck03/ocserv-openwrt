@@ -311,8 +311,8 @@ local function run(argv)
         if S.capabilities_timeout then return 124,"" end
         return 0,"terminate user\nshow sessions all"
     end
-    if command:find("occtl -j show users",1,true)then return 0,"ONLINE"end
-    if command:find("occtl -j show sessions all",1,true)then return S.bad_sessions and 1 or 0,"SESSIONS"end
+    if command:find("occtl -j show users",1,true)then return S.online_code or 0,S.online_output or "[ONLINE]"end
+    if command:find("occtl -j show sessions all",1,true)then return S.bad_sessions and 1 or 0,S.sessions_output or "[SESSIONS]"end
     if command:find("occtl terminate user",1,true)then return S.fail_terminate and 1 or 0,""end
     if command:find("occtl disconnect id",1,true)then return 0,"disconnected"end
     if command=="/etc/init.d/ocserv enabled"then return 0,""end
@@ -334,7 +334,8 @@ package.loaded["luci.model.ocserv_easy.process"]={run=run}
 package.loaded["luci.jsonc"]={
     stringify=function(value) S.json=S.json or {};local key="JSON"..tostring(#S.json+1);S.json[#S.json+1]=clone(value);return key end,
     parse=function(value)
-        if value=="ONLINE"then return clone(S.online)elseif value=="SESSIONS"then return clone(S.sessions)end
+        if value=="[ONLINE]"then return clone(S.online)elseif value=="[SESSIONS]"then return clone(S.sessions)end
+        if value=="{}"then return {} end
         local index=type(value)=="string" and tonumber(value:match("^JSON(%d+)$"))
         return index and S.json and clone(S.json[index]) or nil
     end
@@ -562,6 +563,35 @@ test("frequent online snapshots avoid repeated occtl and explicit refresh stays 
     request(edit("FixturePassword"));count=#S.commands
     backend.status();check(#S.commands==count+1)
 end)
+test("malformed online replies never become an empty or partial successful list",function()
+    for _,rows in ipairs({{error="unavailable"}, {[2]={ID=2,Username="user"}},
+        {{ID=1,Username="valid"},false}, {{ID=0,Username="user"}},
+        {{ID=1.5,Username="user"}}, {{ID=math.huge,Username="user"}},
+        {{ID=2147483648,Username="user"}}, {{ID=1,Username={}}}}) do
+        reset();S.online=rows
+        local status=backend.status()
+        check(status.online_error and #status.online==0,"malformed online response was accepted")
+    end
+    reset();S.online_output="{}"
+    check(backend.status().online_error,"empty JSON object was accepted as a session list")
+end)
+test("online parsing retains valid fields and bounds displayed text",function()
+    reset();S.online={{ID="2147483647",Username=string.rep("u",100),Groupname="staff",
+        ["Remote IP"]="192.0.2.1",IPv4="10.77.0.2",["Last connected at"]="now",State="connected"}}
+    local status=backend.status();local row=status.online[1]
+    check(not status.online_error and row.id=="2147483647" and #row.name==64 and row.group=="staff")
+    check(row.ip=="192.0.2.1" and row.vpn_ip=="10.77.0.2" and row.since=="now" and row.state=="connected")
+end)
+test("IPv6-only online sessions display their assigned VPN address",function()
+    reset();S.online={{ID=1,Username="ipv6-user",IPv6="fd77::2",["Last connected at"]="now"}}
+    check(backend.status().online[1].vpn_ip=="fd77::2")
+end)
+test("failed online command cannot publish partial output as success",function()
+    reset();S.online_code=124;S.online={{ID=1,Username="partial"}}
+    check(backend.status().online_error)
+    S.online_code=0
+    check(backend.status(true).online[1].name=="partial")
+end)
 test("repeated refresh and invalidation leave bounded runtime files",function()
     reset();local cache=require "luci.model.ocserv_easy.query_cache"
     for _=1,100 do
@@ -653,6 +683,21 @@ end)
 test("offline account with no cached sessions may be deleted",function()
     reset();S.fail_terminate=true;S.sessions={};request({action="delete_user",id="employee"})
     check(#backend.data().users==0 and contains_command("show sessions all"))
+end)
+test("unverifiable revocation replies roll back both account files",function()
+    for _,rows in ipairs({{{}},{{Username=false}},{{Username=""}},
+        {[2]={Username="other"}}, {error="unavailable"}}) do
+        reset();S.fail_terminate=true;S.sessions=rows
+        local config,passwd=S.files["/etc/config/ocserv"],S.files["/var/etc/ocpasswd"]
+        expect("terminate_failed",function()request(edit("FixturePassword"))end)
+        check(S.files["/etc/config/ocserv"]==config and S.files["/var/etc/ocpasswd"]==passwd)
+    end
+    reset();S.fail_terminate=true;S.sessions_output="{}"
+    expect("terminate_failed",function()request(edit("FixturePassword"))end)
+end)
+test("offline account revocation tolerates unrelated valid sessions",function()
+    reset();S.fail_terminate=true;S.sessions={{Username="other"}}
+    check(request(edit("FixturePassword")).effect=="terminated")
 end)
 test("custom password paths fail closed",function()
     reset();S.files["/var/etc/ocserv.conf"]='auth = "plain[passwd=/etc/custom]"\n'

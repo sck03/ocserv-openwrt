@@ -2,6 +2,7 @@
 import argparse
 import json
 from pathlib import Path
+from urllib.parse import parse_qs
 
 ROOT = Path(__file__).resolve().parents[1]
 from playwright.sync_api import sync_playwright, expect
@@ -316,6 +317,64 @@ with sync_playwright() as pw:
     actions[0].abort()
     page.unroute('**/easy/action')
     checks.append('mutation timeout reports uncertain outcome and never automatically retries')
+
+    # Background guard transitions must not erase a form edited before the poll.
+    page.reload(wait_until='networkidle')
+    full = page.request.get(args.url + 'easy/data').json()
+    original_revision = full['data']['revision']
+    status = page.request.get(args.url + 'easy/status').json()
+    page.route('**/easy/status', lambda route: route.fulfill(json=status))
+    background_loads, confirmations = [], []
+    def background_data(route):
+        background_loads.append(route)
+        route.fulfill(json=full)
+    page.route('**/easy/data', background_data)
+    page.route('**/easy/action', lambda route: confirmations.append(route))
+    page.get_by_role('tab', name='服务设置', exact=True).click()
+    page.get_by_label('每个账号最多在线设备数', exact=True).fill('3')
+    for phase in ('restoring', 'disabled'):
+        status['data']['guard'] = {'phase': phase, 'enabled': phase != 'disabled'}
+        with page.expect_response('**/easy/status'):
+            page.clock.run_for(3000)
+        page.wait_for_timeout(100)
+    expect(page.get_by_label('每个账号最多在线设备数', exact=True)).to_have_value('3')
+    assert not background_loads, 'guard recovery refreshed an unsaved form'
+    checks.append('guard recovery preserves existing unsaved settings without extra full-data requests')
+
+    status['data']['guard'] = {'phase': 'pending', 'enabled': True, 'token': 'pending-fixture'}
+    full['data']['guard'] = status['data']['guard'].copy()
+    full['data']['revision'] = 'new-guard-revision'
+    with page.expect_response('**/easy/status'):
+        page.clock.run_for(3000)
+    page.wait_for_timeout(100)
+    expect(page.get_by_label('每个账号最多在线设备数', exact=True)).to_have_value('3')
+    assert not background_loads and not confirmations, 'automatic confirmation replaced the form revision'
+    checks.append('automatic guard confirmation waits while an unsaved form owns its original revision')
+
+    page.get_by_role('button', name='保存并应用', exact=True).click()
+    with page.expect_request('**/easy/action') as submitted:
+        page.get_by_role('dialog').get_by_role('button', name='确认', exact=True).click()
+    payload = json.loads(parse_qs(submitted.value.post_data)['payload'][0])
+    assert payload['revision'] == original_revision and payload['settings']['max_same'] == '3'
+    confirmations[0].fulfill(status=409, json={'ok': False, 'error': 'stale_revision'})
+    expect(page.get_by_role('dialog')).to_contain_text('配置已被其他页面修改')
+    page.get_by_role('dialog').get_by_role('button', name='取消', exact=True).click()
+    expect(page.get_by_label('每个账号最多在线设备数', exact=True)).to_have_value('3')
+    checks.append('saving the retained form uses its original revision and preserves input on a conflict')
+
+    page.get_by_role('tab', name='VPN 专用上网', exact=True).click()
+    full = page.request.get(args.url + 'easy/data').json()
+    status = page.request.get(args.url + 'easy/status').json()
+    with page.expect_response('**/easy/data'):
+        page.clock.run_for(3000)
+    expect(page.get_by_role('button', name='开启', exact=True)).to_be_enabled()
+    assert len(background_loads) == 1
+    page.clock.run_for(9000)
+    assert len(background_loads) == 1, 'completed deferred refresh was repeated'
+    checks.append('leaving the edited form performs one deferred refresh and restores guard availability')
+    page.unroute('**/easy/status')
+    page.unroute('**/easy/data')
+    page.unroute('**/easy/action')
     assert not errors, errors
     browser.close()
 report = {'passed': len(checks), 'checks': checks, 'browser_errors': errors}

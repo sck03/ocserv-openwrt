@@ -421,6 +421,7 @@
         [[t('VPN 服务','VPN service'),state.running?t('运行中','Running'):t('已停止','Stopped'),state.running?'easy-good':'easy-muted'],[t('在线连接','Online connections'),state.online_error?'—':String(array(state.online).length),''],[t('登录账号','Accounts'),String(array(state.users).length),'']].forEach(function(item){statusBox.appendChild(element('div',{className:'easy-card'},[element('span',{className:'easy-muted',text:item[0]}),element('strong',{className:item[2],text:item[1]})]));});
     }
     function renderTab() {
+        formEdited=false;
         onlineKey=null;
         content.replaceChildren();
         if(activeTab==='users')renderUsers(); else if(activeTab==='settings')renderSettings(); else if(activeTab==='guard')renderGuard(); else renderExport();
@@ -436,7 +437,7 @@
             serviceButton,
             mutationButton(state.autostart?t('关闭开机启动','Disable autostart'):t('开机自动启动','Enable autostart'),function(){complete({action:'service',command:state.autostart?'disable':'enable'}).catch(function(e){notice(errorText(e),true);});})
         ]);
-        root.appendChild(element('div',{className:'easy-heading'},[element('div',{},[element('h2',{text:'岚序 Lansyra'}),element('span',{className:'easy-muted',text:t('管理页 ','UI ')+(state.ui_version || '0.6.10')+' · ocserv '+state.version})]),actions]));
+        root.appendChild(element('div',{className:'easy-heading'},[element('div',{},[element('h2',{text:'岚序 Lansyra'}),element('span',{className:'easy-muted',text:t('管理页 ','UI ')+(state.ui_version || '0.6.11')+' · ocserv '+state.version})]),actions]));
         messageBox=element('div',{className:'easy-notice',hidden:true});root.appendChild(messageBox);
         statusBox=element('div',{className:'easy-summary'});statusKey=null;root.appendChild(statusBox);renderStatus();
         if(state.installation_pending)root.appendChild(element('p',{className:'easy-notice error',text:t('安装尚未完成。请在完整服务端套装目录重新运行 sh install.sh，完成证书和 VPN 网络初始化。','Installation is incomplete. Run sh install.sh again from the complete server bundle to finish certificate and VPN network initialization.')}));
@@ -447,15 +448,20 @@
         [['users',t('账号与在线用户','Accounts and connections')],['settings',t('服务设置','Service settings')],['guard',t('VPN 专用上网','VPN-only access')],['export',t('客户端配置','Client profiles')]].forEach(function(item){var b=button(item[1],function(){activeTab=item[0];renderTab();});b.dataset.tab=item[0];b.setAttribute('role','tab');tabs.appendChild(b);});
         root.appendChild(tabs);content=element('div',{});root.appendChild(content);renderTab();
     }
-    var loadPending=null, loadGeneration=0, editGeneration=0;
-    root.addEventListener('input',function(){++editGeneration;});
-    root.addEventListener('change',function(){++editGeneration;});
+    var loadPending=null, loadGeneration=0, editGeneration=0, formEdited=false, backgroundRefresh=false;
+    function edited(event) {
+        ++editGeneration;
+        if(!modal && event.target.closest('form'))formEdited=true;
+    }
+    root.addEventListener('input',edited);
+    root.addEventListener('change',edited);
     function load(preserveDialog) {
         if(!loadPending) {
             var generation=loadGeneration, editing=editGeneration;
             var pending=request('data').then(function(data){
                 // A refresh may finish after the user starts a new edit/dialog.
                 if(generation!==loadGeneration || editing!==editGeneration)return false;
+                backgroundRefresh=false;
                 state=data;
                 if(preserveDialog && readerOpen){renderStatus();renderTab();}else render();
                 return true;
@@ -481,8 +487,9 @@
             // probe until refresh; enabling always validates it again on the router.
             state.guard=previous==='disabled' && current.guard && current.guard.phase==='disabled'
                 ? Object.assign({},state.guard,current.guard) : current.guard;
+            if(previous!==(state.guard && state.guard.phase))backgroundRefresh=true;
             renderStatus();
-            if(state.guard && state.guard.phase==='pending' && state.guard.token && writable()) {
+            if(!formEdited && state.guard && state.guard.phase==='pending' && state.guard.token && writable()) {
                 // A successful authenticated request from the retained management IP
                 // confirms connectivity. No confirmation is sent after a failed request.
                 if(!await load(readerOpen))return;
@@ -492,8 +499,10 @@
                 }
             } else if(previous!== (state.guard && state.guard.phase) && !modal) {
                 if(activeTab==='guard')renderTab();
-                if(state.guard && state.guard.phase==='disabled')await load();
             }
+            // Preserve both unsaved fields and their revision. Refresh once the
+            // form is left, explicitly refreshed, or successfully submitted.
+            if(backgroundRefresh && !formEdited && !modal)await load();
         }
         catch(_){ /* Explicit refresh shows errors; background polling never interrupts typing. */ }
         finally {statusPending=false;}

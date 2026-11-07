@@ -2,7 +2,6 @@
 local nixio = require "nixio"
 local fs = require "nixio.fs"
 local uci = require "luci.model.uci"
-local json = require "luci.jsonc"
 local logic = require "luci.model.ocserv_easy.logic"
 local guard = require "luci.model.ocserv_easy.guard"
 local firewall = require "luci.model.ocserv_easy.firewall"
@@ -11,6 +10,7 @@ local storage = require "luci.model.ocserv_easy.storage"
 local configuration = require "luci.model.ocserv_easy.configuration"
 local query_cache = require "luci.model.ocserv_easy.query_cache"
 local proxy = require "luci.model.ocserv_easy.proxy"
+local sessions = require "luci.model.ocserv_easy.occtl"
 local read, atomic, directory, random_bytes = storage.read, storage.atomic, storage.directory, storage.random
 local M = {}
 local config_path="/etc/config/ocserv"
@@ -67,28 +67,11 @@ local function snapshot()
         firewall_loaded=firewall_loaded,firewall_raw=firewall_raw,template=template,extra=extra,
         revision=logic.revision(raw.."\0"..(firewall_raw or "").."\0"..template.."\0"..extra)}
 end
-local function safe(value,limit) return type(value)=="string" and value:sub(1,limit or 128) or "" end
 function M.status(fresh)
     local result={running=running(),online={},recovery_pending=configuration.pending()}
     if not result.running then return result end
     local identity=read("/var/run/ocserv.pid",64) or ""
-    local online=query_cache.get("online",identity,5,function()
-    local code,output=run({occtl,"-j","show","users"},4)
-    local parsed=code==0 and json.parse(output) or nil
-    if type(parsed)~="table" then return {online={},online_error=true} end
-    local rows={}
-    for _,row in ipairs(parsed) do
-        if type(row)=="table" then
-            local id=tonumber(row.ID)
-            if id and id>0 then
-                rows[#rows+1]={id=tostring(id),name=safe(row.Username,64),group=safe(row.Groupname),
-                    ip=safe(row["Remote IP"]),vpn_ip=safe(row["VPN IP"] or row["IPv4"] or row["VPN IPv4"] or row["IPv4 Address"]),
-                    since=safe(row["Connected at"] or row["Connected"]),state=safe(row.State)}
-            end
-        end
-    end
-    return {online=rows}
-    end,fresh)
+    local online=query_cache.get("online",identity,5,sessions.online,fresh)
     result.online=online.online
     result.online_error=online.online_error
     return result
@@ -96,7 +79,7 @@ end
 function M.data(admin)
     local s=snapshot(); local state=M.status(true)
     state.version=version()
-    state.ui_version="0.6.10"
+    state.ui_version="0.6.11"
     state.supported=logic.supported_version(state.version)
     state.capabilities=capabilities()
     state.revision=s.revision
@@ -265,12 +248,7 @@ local function change_user(s,request)
             if code~=0 then
                 -- occtl also returns 1 when an offline user has no remaining cookies.
                 -- Verify the complete session list before treating that case as success.
-                local rc,output=run({occtl,"-j","show","sessions","all"},5)
-                local sessions=rc==0 and json.parse(output) or nil
-                logic.require(type(sessions)=="table","terminate_failed")
-                for key,row in pairs(sessions) do
-                    logic.require(type(key)=="number" and type(row)=="table" and row.Username~=revoke,"terminate_failed")
-                end
+                logic.require(sessions.absent(revoke),"terminate_failed")
             end
             effect="terminated"
         end
