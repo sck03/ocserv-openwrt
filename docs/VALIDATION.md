@@ -12,6 +12,10 @@
 
 本地精简证据位于 `artifacts/verification/2026-11-07-cache-generation/`。Lua 回归使用实际 Lua 5.1 与模拟 OpenWrt 边界；浏览器使用模拟后端。本轮未修改客户端运行代码、未连接真实 N1 或手机，源码推送不会更新现有 `dist/` 安装包或设备。
 
+应用提交 [`c56baef`](https://github.com/sck03/ocserv-openwrt/commit/c56baef) 的 [GitHub 验证 42364933148](https://github.com/sck03/ocserv-openwrt/actions/runs/42364933148) 全部通过，另确认 Linux 安装/恢复与锁竞争 49、证书 14、密码文件 9、真实 nftables 报文 22 项。附件核对 GitHub SHA-256 与 ZIP CRC 后，仅保留 JSON 和小型日志至证据目录的 `ci/` 子目录。本次 `validate_only=true`、`publish_release=false`，未生成六架构 APK 或发布 Release。
+
+临时预览进程均已退出，清理约 1.9 MiB 的测试生成物、临时验证脚本和 Python 缓存；安装包、私有配置与备份共 85 个文件的清理前后 SHA-256 一致。缓存保持固定文件数量，工作区保留仍被引用的模块、源码和许可证。
+
 ## 2026-11-07 命令执行器与日志写入边界优化
 
 服务端管理页更新为 0.6.8-r1。命令执行器现在在 fork 前确认管道进入非阻塞模式，区分 EAGAIN、EINTR 与真实 I/O 错误；管道读取、等待、轮询或标准输入输出重定向失败返回非零状态，不再把失败读取当作成功。失败路径共用进程组终止和子进程回收，已经失去归属的 PID 不再按正 PID 发送信号。输出仍限制为 128 KiB，截止时间使用设备 uptime，EOF 后不会忙等，轮询对象在一次调用内复用。
