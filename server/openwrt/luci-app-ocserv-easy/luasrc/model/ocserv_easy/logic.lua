@@ -263,22 +263,24 @@ function M.validate_settings(input)
     end
     M.require(out.default_domain=="" or M.domain(out.default_domain), "invalid_domain")
     M.require(out.easy_public_url=="" or M.url(out.easy_public_url), "invalid_url")
-    M.require(type(input.dns)=="table" and #input.dns>=1 and #input.dns<=3, "invalid_dns")
+    M.require(M.array(input.dns,3) and #input.dns>=1, "invalid_dns")
     local dns,seen={},{}
     local _,endpoint=M.url(out.easy_public_url)
+    endpoint=address_key(endpoint)
     for _,address in ipairs(input.dns) do
         local number=M.ipv4(address)
         M.require((number and number>0 and number<3758096384 and math.floor(number/16777216)~=127) or
             unicast6(ipv6_key(address)), "invalid_dns")
         local key=address_key(address)
-        M.require(key~=address_key(endpoint), "dns_is_endpoint")
+        M.require(key~=endpoint, "dns_is_endpoint")
         M.require(not seen[key], "duplicate_dns"); seen[key]=true
         dns[#dns+1]={ip=address}
     end
     M.require(input.route_mode=="all" or input.route_mode=="split", "invalid_route_mode")
     local routes={}
     if input.route_mode=="split" then
-        M.require(type(input.routes)=="table" and #input.routes>=1 and #input.routes<=128, "invalid_routes")
+        M.require(M.array(input.routes,128) and #input.routes>=1, "invalid_routes")
+        local seen={}
         for _,route in ipairs(input.routes) do
             M.require(M.text(route,100), "invalid_routes")
             local address,mask=route:match("^([^/]+)/([^/]+)$")
@@ -289,8 +291,15 @@ function M.validate_settings(input)
             else
                 M.require(mask and mask:match("^%d+$") and network6(ipv6_key(address),tonumber(mask)), "invalid_routes")
                 M.require(out.ip6addr~="", "route_needs_ipv6")
+                mask=tostring(tonumber(mask))
             end
-            routes[#routes+1]={ip=address,netmask=mask}
+            -- Equivalent spelling must not multiply UCI sections or advertised
+            -- routes. Keep the first occurrence and preserve distinct prefixes.
+            local key=address_key(address).."/"..mask
+            if not seen[key] then
+                seen[key]=true
+                routes[#routes+1]={ip=address,netmask=mask}
+            end
         end
     end
     return out,dns,routes

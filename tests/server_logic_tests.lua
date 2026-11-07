@@ -107,6 +107,35 @@ test("network defaults generate native UCI values",function()
     local config,dns,routes=logic.validate_settings(fixture_settings())
     check(config.netmask=="255.255.255.0" and dns[1].ip=="10.77.0.1" and routes[1].netmask=="255.255.255.0")
 end)
+test("DNS and split routes reject sparse or object-shaped lists",function()
+    for _,field in ipairs({"dns","routes"}) do
+        local value=field=="dns" and "1.1.1.1" or "192.168.19.0/24"
+        for _,list in ipairs({{value,nil,value},{nil,value,value},{["1"]=value},{value,extra=value},{}}) do
+            local s=fixture_settings(); s[field]=list
+            expect("invalid_"..field,function()logic.validate_settings(s)end)
+        end
+    end
+end)
+test("network lists enforce input budgets before normalization",function()
+    for _,field in ipairs({"dns","routes"}) do
+        local s=fixture_settings(); s[field]={}
+        local limit=field=="dns" and 3 or 128
+        for i=1,limit+1 do s[field][i]=field=="dns" and "1.1.1.1" or "192.168.19.0/24" end
+        expect("invalid_"..field,function()logic.validate_settings(s)end)
+    end
+end)
+test("equivalent routes are emitted once while distinct prefixes retain order",function()
+    local s=fixture_settings(); s.ip6addr="fd77::/64"
+    s.routes={"192.168.19.0/24","2001:db8::/64","192.168.19.0/255.255.255.0",
+        "2001:0DB8:0:0:0:0:0:0/064","192.168.19.0/25","2001:db8::/65"}
+    local cfg,dns,routes=logic.validate_settings(s)
+    check(#routes==4 and routes[1].ip=="192.168.19.0" and routes[2].ip=="2001:db8::")
+    check(routes[3].netmask=="255.255.255.128" and routes[4].netmask=="65")
+    local _,count=logic.render(TEST_TEMPLATE,"",cfg,dns,routes):gsub("\nroute = ","")
+    check(count==4,"duplicate routes reached the daemon configuration")
+    s.routes={"192.168.19.0/24","192.168.19.0/24","invalid"}
+    expect("invalid_routes",function()logic.validate_settings(s)end)
+end)
 test("invalid pool, DNS endpoint and routes rejected",function()
     local s=fixture_settings();s.ipaddr="10.77.0.1";expect("pool_not_network",function()logic.validate_settings(s)end)
     s=fixture_settings();s.netmask="255.0.255.0";expect("invalid_pool",function()logic.validate_settings(s)end)
@@ -711,6 +740,34 @@ test("configuration is tested before commit",function()
     reset();local raw=S.files["/etc/config/ocserv"];S.bad_config=true
     expect("config_check_failed",function()request({action="settings",settings=fixture_settings(),allow_restart=true})end)
     check(S.files["/etc/config/ocserv"]==raw and not contains_command("restart"))
+end)
+test("invalid network lists leave live files untouched and never restart services",function()
+    for _,field in ipairs({"dns","routes"}) do
+        reset(); local settings=fixture_settings()
+        settings[field]={[2]=settings[field][1],[3]=settings[field][1]}
+        local data=backend.data(); local files=clone(S.files); S.commands={}
+        expect("invalid_"..field,function()
+            backend.action({action="settings",settings=settings,revision=data.revision,allow_restart=true})
+        end)
+        for path,value in pairs(files) do
+            if path:match("^/etc/") or path:match("^/var/etc/") then check(S.files[path]==value,path) end
+        end
+        check(S.files["/etc/ocserv/easy-transaction/state.json"]==nil and
+            S.files["/etc/ocserv/easy-backup/ocserv.uci"]==nil)
+        check(not contains_command("/etc/init.d/") and not contains_command("--test-config"))
+    end
+end)
+test("duplicate-only route edits avoid configuration writes and service restarts",function()
+    reset(); local settings=fixture_settings()
+    request({action="settings",settings=settings,allow_restart=true})
+    local data=backend.data(); local before=clone(S.files); S.disk_events={}; S.commands={}
+    data.settings.routes={"192.168.19.0/24","192.168.19.0/255.255.255.0"}
+    local result=backend.action({action="settings",settings=data.settings,revision=data.revision})
+    check(result.effect=="unchanged" and not contains_command("/etc/init.d/"))
+    for _,event in ipairs(S.disk_events) do
+        check(not event:find(":/etc/",1,true) and not event:find(":/var/etc/",1,true),event)
+    end
+    check(S.files["/etc/config/ocserv"]==before["/etc/config/ocserv"])
 end)
 test("network settings apply after validation and preserve users",function()
     reset();local settings=fixture_settings();settings.port="5443"
