@@ -379,7 +379,10 @@ test("read errors close the file and preserve password data before any commit",f
     S.fail_read="/var/etc/ocpasswd"
     local payload=edit("FixturePassword");payload.revision=revision
     expect("read_failed",function()backend.action(payload)end)
-    check(S.closed_read==S.fail_read and #S.disk_events==1) -- online cache invalidation only
+    check(S.closed_read==S.fail_read)
+    for _,event in ipairs(S.disk_events) do
+        check(event:find(":/var/run/ocserv-easy",1,true),"failed read wrote persistent data")
+    end
     check(S.files["/etc/config/ocserv"]==before["/etc/config/ocserv"] and
         S.files["/var/etc/ocpasswd"]==before["/var/etc/ocpasswd"])
     check(not require("luci.model.ocserv_easy.configuration").pending())
@@ -461,6 +464,81 @@ test("failed forced refresh cannot revive a previous cached success",function()
     cache.get("test","one",300,function()return {cacheable=false}end,true)
     check(cache.get("test","one",300,function()return {value="new"}end).value=="new")
 end)
+test("an invalidated in-flight query cannot repopulate the next snapshot",function()
+    reset();local cache=require "luci.model.ocserv_easy.query_cache"
+    local peer=package.preload["luci.model.ocserv_easy.query_cache"]()
+    check(cache.get("test","one",300,function()
+        peer.invalidate("test")
+        return {value="stale"}
+    end).value=="stale")
+    check(cache.get("test","one",300,function()return {value="live"}end).value=="live",
+        "in-flight query revived an invalidated snapshot")
+end)
+test("invalidation during publication still rejects the late snapshot",function()
+    reset();local cache=require "luci.model.ocserv_easy.query_cache"
+    local rename=fs.rename
+    fs.rename=function(from,to)
+        if to=="/var/run/ocserv-easy/query-test.json" then
+            fs.rename=rename
+            cache.invalidate("test")
+        end
+        return rename(from,to)
+    end
+    cache.get("test","one",300,function()return {value="old"}end)
+    check(cache.get("test","one",300,function()return {value="live"}end).value=="live")
+end)
+test("invalidation between snapshot and marker reads rejects the old value",function()
+    reset();local cache=require "luci.model.ocserv_easy.query_cache"
+    cache.get("test","one",300,function()return {value="old"}end)
+    local storage=require "luci.model.ocserv_easy.storage";local read=storage.read
+    storage.read=function(path,limit)
+        local value=read(path,limit)
+        if path=="/var/run/ocserv-easy/query-test.json" then
+            storage.read=read;cache.invalidate("test")
+        end
+        return value
+    end
+    check(cache.get("test","one",300,function()return {value="live"}end).value=="live")
+end)
+test("failed generation writes preserve live queries and reject pending old writers",function()
+    reset();local cache=require "luci.model.ocserv_easy.query_cache"
+    cache.get("test","one",300,function()
+        S.fail_write="/var/run/ocserv-easy/query-test.generation"
+        check(cache.get("test","one",300,function()return {value="new"}end,true).value=="new")
+        return {value="old"}
+    end)
+    check(cache.get("test","one",300,function()return {value="live"}end).value=="live")
+end)
+test("missing corrupt and unreadable markers fall back to live queries",function()
+    local marker="/var/run/ocserv-easy/query-test.generation"
+    local cache=require "luci.model.ocserv_easy.query_cache"
+    for _,failure in ipairs({"missing","corrupt","oversized","unreadable"}) do
+        reset();cache.get("test","one",300,function()return {value="old"}end)
+        if failure=="missing" then S.files[marker]=nil
+        elseif failure=="corrupt" then S.files[marker]="invalid"
+        elseif failure=="oversized" then S.files[marker]=string.rep("x",33)
+        else S.fail_read=marker end
+        check(cache.get("test","one",300,function()return {value="live"}end).value=="live",failure)
+    end
+end)
+test("a late query cannot replace a completed forced refresh",function()
+    reset();local cache=require "luci.model.ocserv_easy.query_cache"
+    cache.get("test","one",300,function()
+        cache.get("test","one",300,function()return {value="new"}end,true)
+        return {value="old"}
+    end)
+    check(cache.get("test","one",300,function()error("new snapshot was lost")end).value=="new",
+        "late query replaced a newer result")
+end)
+test("a failed concurrent refresh cannot be replaced by an older success",function()
+    reset();local cache=require "luci.model.ocserv_easy.query_cache"
+    cache.get("test","one",300,function()
+        local ok=pcall(function()cache.get("test","one",300,function()error("offline")end,true)end)
+        check(not ok)
+        return {value="old"}
+    end)
+    check(cache.get("test","one",300,function()return {value="live"}end).value=="live")
+end)
 test("an unreadable disposable cache still returns the live query",function()
     reset();local cache=require "luci.model.ocserv_easy.query_cache"
     cache.get("test","one",300,function()return {value="old"}end)
@@ -477,12 +555,27 @@ test("cache write failure preserves the live result without reviving stale onlin
     check(backend.status().online[1].name=="new")
 end)
 test("frequent online snapshots avoid repeated occtl and explicit refresh stays live",function()
-    reset();backend.status();local count=#S.commands
+    reset();backend.status();local count=#S.commands;local writes=#S.disk_events
     for _=1,100 do backend.status()end
-    check(#S.commands==count)
+    check(#S.commands==count and #S.disk_events==writes)
     backend.status(true);check(#S.commands==count+1)
     request(edit("FixturePassword"));count=#S.commands
     backend.status();check(#S.commands==count+1)
+end)
+test("repeated refresh and invalidation leave bounded runtime files",function()
+    reset();local cache=require "luci.model.ocserv_easy.query_cache"
+    for _=1,100 do
+        cache.get("test","one",300,function()return {value="live"}end,true)
+        cache.invalidate("test")
+    end
+    local count=0
+    for path in pairs(S.files) do
+        if path:find("/var/run/ocserv-easy/",1,true) then
+            check(path=="/var/run/ocserv-easy/query-test.generation",path)
+            count=count+1
+        end
+    end
+    check(count==1)
 end)
 test("the official ocserv version banner enables the page",function()
     reset();check(backend.data().supported and backend.data().version=="1.6.0")
