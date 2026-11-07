@@ -862,6 +862,36 @@ test("recovery keeps its journal when a later editor changed a committed file",f
     expect("rollback_failed",function()backend.recover(false)end)
     check(tx.pending() and S.files["/etc/config/ocserv"]=="later administrator changes")
 end)
+test("malformed recovery lists never discard a journal or partially restore files",function()
+    local tx=require "luci.model.ocserv_easy.configuration"
+    local json=require "luci.jsonc"
+    local marker="/etc/ocserv/easy-transaction/state.json"
+    for _,shape in ipairs({"object","mixed","hole","invalid_tail","duplicate"}) do
+        reset();local before=S.files["/etc/config/ocserv"];local state=tx.begin(true)
+        tx.replace(state,"ocserv",before,before.."\ninterrupted")
+        local item=state.files[1]
+        if shape=="object" then state.files={ocserv=item}
+        elseif shape=="mixed" then state.files.extra=item
+        elseif shape=="hole" then state.files={[1]=item,[3]={name="firewall",existed=true}}
+        elseif shape=="invalid_tail" then state.files[2]={name="unknown",existed=true}
+        else state.files[2]=clone(item) end
+        S.files[marker]=json.stringify(state)
+        local lease=require "luci.model.ocserv_easy.lease";lease.release(assert(lease.acquire()))
+        local files=clone(S.files);local writes=#S.disk_events;local commands=#S.commands
+        expect("rollback_failed",function()backend.recover(false)end)
+        check(logic.equal(files,S.files) and #S.disk_events==writes and #S.commands==commands,shape)
+    end
+end)
+test("repeated restoration skips unchanged files and retains the journal for runtime recovery",function()
+    reset();local tx=require "luci.model.ocserv_easy.configuration"
+    local before=S.files["/etc/config/ocserv"];local state=tx.begin(true)
+    tx.replace(state,"ocserv",before,before.."\ninterrupted")
+    tx.replace(state,"nikki_template",nil,"new template")
+    tx.restore();local writes=#S.disk_events
+    check(S.files["/etc/config/ocserv"]==before and S.files["/etc/nikki/ucode/hijack.ut"]==nil)
+    tx.restore();check(#S.disk_events==writes and tx.pending())
+    tx.finish();check(not tx.pending())
+end)
 test("boot recovery restores configuration without starting runtime services",function()
     reset();local tx=require "luci.model.ocserv_easy.configuration"
     local before=S.files["/etc/config/ocserv"];local state=tx.begin(false)

@@ -8,6 +8,7 @@ local logic=require "luci.model.ocserv_easy.logic"
 local storage=require "luci.model.ocserv_easy.storage"
 local lease=require "luci.model.ocserv_easy.lease"
 local proxy=require "luci.model.ocserv_easy.proxy"
+local state_schema=require "luci.model.ocserv_easy.guard_state"
 local equal=logic.equal
 local run=require("luci.model.ocserv_easy.process").run
 local log=require "luci.model.ocserv_easy.guard_log"
@@ -18,14 +19,11 @@ local function command(step,args,timeout)
     return code,output
 end
 local M={}
-local root="/etc/ocserv/easy-guard"
+local root=state_schema.root
 local statefile=root.."/state.json"
 local rulefile=root.."/guard.nft"
 local work="/var/run/ocserv-easy"
-local configs={"firewall","dhcp"}
-for _,name in ipairs(proxy.names(true)) do configs[#configs+1]=name end
-configs[#configs+1]="ocserv"
-local phases={queued=true,applying=true,pending=true,enabled=true,restoring=true,recovery_failed=true}
+local configs=state_schema.configs
 local function monotonic()
     local info=nixio.sysinfo and nixio.sysinfo()
     return info and info.uptime or os.time()
@@ -44,8 +42,7 @@ end
 local function saved()
     local raw=read(statefile); if not raw then return nil end
     local state=json.parse(raw)
-    logic.require(type(state)=="table" and state.version==2 and phases[state.phase] and type(state.ops)=="table" and type(state.info)=="table" and type(state.files)=="table" and type(state.before)=="table","guard_state_invalid")
-    logic.require(proxy.supports(state.info.proxy),"guard_state_invalid")
+    state_schema.validate(state)
     return state
 end
 local function save(state) atomic(statefile,json.stringify(state)) end
@@ -134,7 +131,7 @@ local function running()
     return executable=="/usr/sbin/ocserv" or executable=="/usr/sbin/ocserv (deleted)"
 end
 local function plan(c,info)
-    local state={version=2,phase="queued",ops={},before={},files={},info=info,token=random(),deadline=monotonic()+240,was_running=running()}
+    local state={version=state_schema.version,phase="queued",started=false,ops={},before={},files={},info=info,token=random(),deadline=monotonic()+240,was_running=running()}
     logic.require(state.was_running,"guard_requires_ocserv")
     pending(c)
     for _,package in ipairs(configs) do state.before[package]=read("/etc/config/"..package) or false end

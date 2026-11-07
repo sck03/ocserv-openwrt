@@ -4,6 +4,17 @@ local M = {}
 
 function M.fail(code) error({ code = code }, 0) end
 function M.require(ok, code) if not ok then M.fail(code) end return ok end
+-- JSON objects and sparse tables must not silently lose entries in ipairs().
+function M.array(value, limit)
+    if type(value) ~= "table" then return false end
+    local size, count = #value, 0
+    if limit and size > limit then return false end
+    for key in pairs(value) do
+        if type(key) ~= "number" or key % 1 ~= 0 or key < 1 or key > size then return false end
+        count = count + 1
+    end
+    return count == size
+end
 function M.equal(a,b)
     if type(a)~=type(b) then return false end
     if type(a)~="table" then return a==b end

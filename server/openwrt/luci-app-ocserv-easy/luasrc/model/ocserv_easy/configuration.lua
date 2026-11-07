@@ -65,8 +65,8 @@ function M.restore()
     local raw = storage.read(statefile)
     if not raw then return nil end
     local state = json.parse(raw)
-    logic.require(type(state) == "table" and state.version == 1 and type(state.files) == "table" and
-        #state.files <= 7 and type(state.was_running) == "boolean" and
+    logic.require(type(state) == "table" and state.version == 1 and logic.array(state.files, 7) and
+        type(state.was_running) == "boolean" and
         (state.proxy==nil or state.proxy=="nikki" or state.proxy=="momo") and
         type(state.service) == "boolean" and type(state.firewall) == "boolean", "rollback_failed")
     local changes, seen = {}, {}
@@ -80,13 +80,13 @@ function M.restore()
         logic.require((not item.existed or before) and after, "rollback_failed")
         local current = storage.read(paths[item.name]) or false
         logic.require(current == before or current == after, "rollback_failed")
-        changes[#changes + 1] = { path = paths[item.name], before = before, current = current }
+        -- Keep only the bytes still needed for recovery, not a second copy of
+        -- every live file or originals that have already been restored.
+        if current ~= before then changes[#changes + 1] = { path = paths[item.name], before = before } end
     end
     for _, item in ipairs(changes) do
-        if item.current ~= item.before then
-            if item.before == false then storage.remove(item.path, "rollback_failed")
-            else storage.atomic(item.path, item.before) end
-        end
+        if item.before == false then storage.remove(item.path, "rollback_failed")
+        else storage.atomic(item.path, item.before) end
     end
     return state -- Keep the journal until runtime services have also recovered.
 end

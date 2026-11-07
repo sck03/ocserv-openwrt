@@ -312,7 +312,7 @@ test("partial UCI commit failure restores committed packages",function()
 end)
 test("power loss with unconfirmed settings restores before firewall boot",function()
     reset(); local before=clone(S.cfg); enable()
-    local state=decode(S.files[root.."state.json"]); state.phase="pending"; S.files[root.."state.json"]=encode(state)
+    local state=decode(S.files[root.."state.json"]); state.phase="pending"; state.token="fixture-token"; S.files[root.."state.json"]=encode(state)
     guard.work(true); check(equal(before,S.cfg) and not S.nft and not guard.active())
 end)
 test("queued request made stale never overwrites the other editor",function()
@@ -335,7 +335,7 @@ test("queued request cannot overwrite a newly created guard file",function()
 end)
 test("boot recovery does not require network or fw4 to be running",function()
     reset(); local before=clone(S.cfg); enable()
-    local state=decode(S.files[root.."state.json"]); state.phase="applying"; S.files[root.."state.json"]=encode(state)
+    local state=decode(S.files[root.."state.json"]); state.phase="applying"; state.token="fixture-token"; S.files[root.."state.json"]=encode(state)
     S.fail_command="/sbin/fw4 check"; guard.work(true)
     check(equal(before,S.cfg) and not guard.active() and S.fail_command=="/sbin/fw4 check")
 end)
@@ -381,6 +381,76 @@ test("confirmation tokens are bound to the management address",function()
 end)
 test("corrupt recovery records are reported instead of treated as disabled",function()
     reset(); S.files[root.."state.json"]="invalid"; check(guard.status(admin).phase=="recovery_failed" and guard.status(admin).reason=="guard_state_invalid")
+end)
+test("malformed guard lists cannot silently skip isolation restoration",function()
+    for _,field in ipairs({"ops","files"}) do
+        for _,shape in ipairs({"object","mixed","hole","invalid_tail","duplicate"}) do
+            reset();enable();local state=decode(S.files[root.."state.json"])
+            local item=state[field][1]
+            if shape=="object" then state[field]={entry=item}
+            elseif shape=="mixed" then state[field].extra=item
+            elseif shape=="hole" then state[field][1]=nil
+            elseif shape=="invalid_tail" then state[field][#state[field]+1]={}
+            else state[field][#state[field]+1]=clone(item) end
+            S.files[root.."state.json"]=encode(state)
+            local files=clone(S.files);local cfg=clone(S.cfg);local commands=#S.commands
+            check(guard.status(admin,false).phase=="recovery_failed",field..":"..shape)
+            expect("guard_state_invalid",function()guard.begin("disable",admin)end)
+            expect("guard_state_invalid",function()guard.work(true)end)
+            check(equal(files,S.files) and equal(cfg,S.cfg) and #S.commands==commands and S.nft)
+        end
+    end
+end)
+test("incomplete guard metadata is reported without breaking status or losing recovery",function()
+    for _,field in ipairs({"pool","prefix","lan","admin","deadline","was_running","started","before"}) do
+        reset();enable();local state=decode(S.files[root.."state.json"])
+        if field=="pool" or field=="prefix" or field=="lan" or field=="admin" then state.info[field]=nil
+        elseif field=="before" then state.before.ocserv=nil
+        else state[field]=nil end
+        S.files[root.."state.json"]=encode(state)
+        local files=clone(S.files);local cfg=clone(S.cfg)
+        local status=guard.status(admin,false)
+        check(status.phase=="recovery_failed" and status.reason=="guard_state_invalid",field)
+        expect("guard_state_invalid",function()guard.begin("disable",admin)end)
+        check(equal(files,S.files) and equal(cfg,S.cfg) and S.nft)
+    end
+end)
+test("invalid guard targets and UCI values are rejected before any recovery side effect",function()
+    local corruptions={
+        function(s)s.ops[1].package="network"end,
+        function(s)s.ops[1].id=1 end,
+        function(s)s.ops[1].key={}end,
+        function(s)s.ops[1].before=nil end,
+        function(s)s.ops[1].after={named="not a UCI list"}end,
+        function(s)s.files[1].path="/etc/unrelated"end,
+        function(s)s.files[1].before=nil end,
+        function(s)s.files[1].after=false end,
+        function(s)s.before.unrelated="unexpected snapshot"end,
+        function(s)s.phase="restoring";s.started=nil end,
+        function(s)s.deadline=math.huge end,
+        function(s)s.ops={}end
+    }
+    for _,corrupt in ipairs(corruptions) do
+        reset();enable();local state=decode(S.files[root.."state.json"]);corrupt(state)
+        S.files[root.."state.json"]=encode(state)
+        local files=clone(S.files);local cfg=clone(S.cfg);local commands=#S.commands
+        check(guard.status(admin,false).phase=="recovery_failed")
+        expect("guard_state_invalid",function()guard.work(true)end)
+        check(equal(files,S.files) and equal(cfg,S.cfg) and #S.commands==commands and S.nft)
+    end
+end)
+test("obsolete guard schemas are retained for inspection without implicit migration",function()
+    reset();enable();local state=decode(S.files[root.."state.json"]);state.version=2
+    S.files[root.."state.json"]=encode(state)
+    local files=clone(S.files);local cfg=clone(S.cfg)
+    expect("guard_state_invalid",function()guard.begin("disable",admin)end)
+    check(equal(files,S.files) and equal(cfg,S.cfg) and S.nft)
+end)
+test("a queued cancellation records that application never started",function()
+    reset();local cfg=clone(S.cfg);guard.begin("enable",admin)
+    check(decode(S.files[root.."state.json"]).started==false)
+    guard.begin("disable",admin);guard.work(true)
+    check(equal(cfg,S.cfg) and not S.nft and not guard.active())
 end)
 test("unreadable guard journals cannot disable isolation or start another operation",function()
     for _,failure in ipairs({"fail_open","fail_read"}) do
@@ -524,7 +594,7 @@ for _,name in ipairs({"nikki","momo"}) do
     end)
     test(name.." restores before boot without requiring the proxy process",function()
         reset(); use_proxy(name); local before=clone(S.cfg); enable()
-        local state=decode(S.files[root.."state.json"]); state.phase="pending"; S.files[root.."state.json"]=encode(state)
+        local state=decode(S.files[root.."state.json"]); state.phase="pending"; state.token="fixture-token"; S.files[root.."state.json"]=encode(state)
         S.proxy_running=nil; guard.work(true)
         check(equal(before,S.cfg) and not guard.active())
     end)
