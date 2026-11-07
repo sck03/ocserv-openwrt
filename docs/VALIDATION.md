@@ -12,6 +12,10 @@
 
 精简证据位于 `artifacts/verification/2026-11-08-session-ui/`。本地使用 Lua 5.1 和模拟 OpenWrt 边界；未连接真实路由器，没有测量峰值内存或 VPN 吞吐。此次修改减少编辑期间的无效完整刷新，不改变数据面。源码推送不会更新现有设备或 `dist/` 中的安装包。
 
+应用提交 [`623da93`](https://github.com/sck03/ocserv-openwrt/commit/623da93) 的 [GitHub 验证 42391754675](https://github.com/sck03/ocserv-openwrt/actions/runs/42391754675) 全部通过，额外确认 Linux 安装/恢复与锁竞争 50、证书 14、密码文件 9、真实 nftables 报文 22 项。附件通过 GitHub SHA-256 与 ZIP CRC 校验，保留 14 份 JSON/日志到 `ci/`。本次使用 `validate_only=true`、`publish_release=false`，没有生成六架构 APK 或发布 Release。
+
+临时预览进程已退出，清理约 2.35 MiB 的测试输出和 Python 缓存，移除本轮临时验证脚本及重复日志；保留精简验证证据。安装包、私有配置及备份共 85 个文件的清理前后 SHA-256 一致。
+
 ## 2026-11-07 恢复记录完整性与恢复内存优化
 
 管理页更新为 0.6.10-r1。修改前回归已复现普通恢复清单变成对象时被跳过、隔离事务接受异常清单的问题。普通事务现在拒绝稀疏或带额外键的清单；独立的纯逻辑模块 `guard_state` 统一检查隔离记录的清单、重复目标、UCI 值、固定文件路径及状态字段。缺失字段不再导致状态查询异常或被当作未开始应用；失败时保留记录与配置。新隔离记录为 schema 3，显式保存 `started`，不迁移旧格式；已有测试设备须在原版本关闭隔离并完成恢复后更新。
