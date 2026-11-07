@@ -10,7 +10,11 @@
 
 本地通过 Lua 逻辑 78、事务 93、代理运行边界 13、生命周期 6、控制器 8、配置生成 4、进程边界 9、服务端打包 8 项；真实 Chrome 针对 OpenClash、Nikki、Momo 各通过 19 项页面流程，另通过 14 项请求/轮询检查，无浏览器脚本错误。构建参数 13、客户端构建 13、移动构建 19、发行元数据 6、发布脚本 13 项及 Python、工作流 YAML、安装 Shell、管理页 JS 语法检查通过。未修改客户端运行代码，本轮未重新编译 Windows、Android、Apple 或 Linux 客户端。
 
-本地验证使用模拟 UCI/代理和真实浏览器，不包含真实 N1、手机、VPN 登录、转发吞吐或长时间资源测量；Linux 安装与真实 nftables 报文验证由 GitHub 单独执行。未发布 Release 或生成新版六架构 APK，现有 `dist/` 安装包不会因源码推送而更新。
+应用提交 [`36eb22d`](https://github.com/sck03/ocserv-openwrt/commit/36eb22d) 的 [GitHub 验证 42336799715](https://github.com/sck03/ocserv-openwrt/actions/runs/42336799715) 全部通过：Linux 安装/恢复与锁竞争 49、证书 14、密码文件 9、真实 nftables 报文 22 项；上述逻辑、事务、三款代理页面流程和 14 项轮询回归也再次通过。验证附件已核对 GitHub SHA-256 和 ZIP CRC，只保留 JSON 与小型日志，连同本地摘要归档到 `artifacts/verification/2026-11-07-maintenance/`。
+
+已停止临时预览服务并删除约 2.33 MiB 的 Python 缓存、测试截图及临时验证工具，保留源码、许可证、安装包、私有配置、备份及精简验证证据。没有发现经确认可删除的运行模块；本轮清理针对可重新生成的文件。
+
+本地验证使用模拟 UCI/代理和真实浏览器，GitHub 使用隔离 Linux 网络命名空间；均不包含真实 N1、手机、VPN 登录、转发吞吐或长时间资源测量。未发布 Release 或生成新版六架构 APK，现有 `dist/` 安装包不会因源码推送而更新。
 
 ## 2026-10-29 OpenClash 冷启动核实与私有配置优化
 
