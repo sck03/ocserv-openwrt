@@ -22,6 +22,92 @@ with sync_playwright() as pw:
     page.get_by_role('tab', name='VPN 专用上网', exact=True).click()
     expect(page.get_by_role('button', name='开启', exact=True)).to_be_enabled()
 
+    # A save owns the controls until its follow-up snapshot has finished.
+    page.get_by_role('tab', name='账号与在线用户', exact=True).click()
+    page.get_by_role('button', name='＋ 添加账号', exact=True).click()
+    dialog = page.get_by_role('dialog')
+    dialog.get_by_label('登录账号', exact=True).fill('operation-fixture')
+    dialog.get_by_label('密码', exact=True).fill('FixturePassword123')
+    dialog.get_by_label('再次输入密码', exact=True).fill('FixturePassword123')
+    pending_actions, pending_data = [], []
+    page.route('**/easy/action', lambda route: pending_actions.append(route))
+    page.route('**/easy/data', lambda route: pending_data.append(route))
+    dialog.get_by_role('button', name='保存并生效', exact=True).click()
+    expect(dialog.get_by_label('登录账号', exact=True)).to_be_disabled()
+    expect(dialog.get_by_label('密码', exact=True)).to_be_disabled()
+    expect(page.get_by_role('button', name='刷新', exact=True)).to_be_disabled()
+    assert len(pending_actions) == 1
+    checks.append('a pending save locks editable fields as well as buttons')
+    pending_actions[0].fulfill(response=pending_actions[0].fetch())
+    page.wait_for_function('true')
+    assert len(pending_data) == 1
+    expect(dialog.get_by_role('button', name='保存并生效', exact=True)).to_be_disabled()
+    expect(dialog.get_by_role('button', name='取消', exact=True)).to_be_disabled()
+    page.clock.run_for(12000)
+    assert len(pending_actions) == len(pending_data) == 1
+    checks.append('a successful save keeps controls locked while refreshing its result')
+    pending_data[0].abort()
+    expect(page.get_by_role('dialog')).to_have_count(0)
+    expect(page.locator('#ocserv-easy .easy-notice.error')).to_contain_text('操作已成功，但状态刷新失败')
+    expect(page.get_by_role('button', name='刷新', exact=True)).to_be_enabled()
+    assert len(pending_actions) == 1
+    saved = page.request.get(args.url + 'easy/data').json()['data']['users']
+    assert sum(user['name'] == 'operation-fixture' for user in saved) == 1
+    checks.append('a failed post-save refresh closes the saved form and reports success without retrying')
+    page.unroute('**/easy/action')
+    page.unroute('**/easy/data')
+
+    # Rejected saves retain the form, values and original disabled constraints.
+    page.get_by_role('tab', name='客户端配置', exact=True).click()
+    page.get_by_label('客户端实际连接的服务器地址', exact=True).fill('retry.example.com:4443')
+    page.route('**/easy/action', lambda route: route.fulfill(status=409, json={'ok': False, 'error': 'stale_revision'}))
+    page.get_by_role('button', name='保存客户端设置', exact=True).click()
+    expect(page.locator('#ocserv-easy .easy-notice.error')).to_contain_text('配置已被其他页面修改')
+    expect(page.get_by_label('客户端实际连接的服务器地址', exact=True)).to_have_value('retry.example.com:4443')
+    expect(page.get_by_label('客户端实际连接的服务器地址', exact=True)).to_be_enabled()
+    page.unroute('**/easy/action')
+    checks.append('a rejected save restores editable controls and preserves entered values')
+
+    # Each read-only dialog owns and cancels its request, including on replacement.
+    page.evaluate("""() => {
+        const original = window.fetch;
+        window.readerSignals = [];
+        window.fetch = (url, options) => {
+            if (url.endsWith('/guard-log') || url.endsWith('/proxy-status')) {
+                window.readerSignals.push(options.signal);
+                return new Promise((resolve, reject) => {
+                    options.signal.addEventListener('abort', () => reject(new Error('aborted')), {once: true});
+                });
+            }
+            return original(url, options);
+        };
+    }""")
+    page.get_by_role('tab', name='VPN 专用上网', exact=True).click()
+    page.get_by_role('button', name='查看日志', exact=True).click()
+    page.get_by_role('dialog').get_by_role('button', name='刷新日志', exact=True).click()
+    assert page.evaluate('window.readerSignals.length') == 1
+    page.get_by_role('dialog').get_by_role('button', name='关闭', exact=True).click()
+    assert page.evaluate('window.readerSignals[0].aborted'), 'closed log dialog retained its fetch'
+    checks.append('closing a log dialog aborts its single pending read')
+    page.get_by_role('button', name='检查代理', exact=True).click()
+    page.get_by_role('dialog').get_by_role('button', name='重新检查', exact=True).click()
+    assert page.evaluate('window.readerSignals.length') == 2
+    page.get_by_role('dialog').get_by_role('button', name='取消', exact=True).click()
+    assert page.evaluate('window.readerSignals[1].aborted'), 'closed diagnostics retained its fetch'
+    checks.append('closing diagnostics aborts its single pending read')
+    for index in range(50):
+        label = '查看日志' if index % 2 == 0 else '检查代理'
+        page.get_by_role('button', name=label, exact=True).click()
+        assert page.evaluate('window.readerSignals.filter(signal => !signal.aborted).length') == 1
+        page.get_by_role('dialog').press('Escape')
+    assert page.evaluate('window.readerSignals.every(signal => signal.aborted)')
+    checks.append('50 alternating log and diagnostic dialogs leave no live read requests')
+    page.get_by_role('button', name='查看日志', exact=True).click()
+    page.evaluate("() => [...document.querySelectorAll('button')].find(b => b.textContent === '刷新').click()")
+    expect(page.get_by_role('dialog')).to_have_count(0)
+    assert page.evaluate('window.readerSignals.every(signal => signal.aborted)')
+    checks.append('replacing the whole page also cancels the removed dialog read')
+
     page.evaluate("window.summaryNode = document.querySelector('.easy-summary').firstChild")
     for _ in range(3):
         with page.expect_response('**/easy/status'):

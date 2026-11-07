@@ -4,8 +4,8 @@
     var options = JSON.parse(document.getElementById('ocserv-easy-options').textContent);
     var root = document.getElementById('ocserv-easy');
     var chinese = /^zh/i.test(options.language || '');
-    var state, activeTab = 'users', busy = false, modal = null, guardLogOpen = false, messageBox, content, statusBox, serviceButton;
-    var statusKey = null, onlineKey = null;
+    var state, activeTab = 'users', busy = false, modal = null, readerOpen = false, messageBox, content, statusBox, serviceButton;
+    var statusKey = null, onlineKey = null, modalCleanup = null;
     function t(zh, en) { return chinese ? zh : en; }
     function array(value) { return Array.isArray(value) ? value : []; }
     function element(tag, attrs, children) {
@@ -106,8 +106,8 @@
     };
     function errorText(error) { return errors[error.code] || t('操作失败，请检查输入或刷新后重试。','Operation failed. Check the input or refresh and retry.') + ' (' + String(error.code || 'network_error') + ')'; }
     function notice(text, isError) { messageBox.textContent=text; messageBox.className='easy-notice'+(isError?' error':''); messageBox.hidden=!text; }
-    async function request(path, payload) {
-        var controller=new AbortController();
+    async function request(path, payload, controller) {
+        controller=controller || new AbortController();
         var timer=setTimeout(function(){controller.abort();},payload?120000:15000);
         var settings={credentials:'same-origin',cache:'no-store',signal:controller.signal};
         try {
@@ -125,16 +125,6 @@
             throw error;
         } finally { clearTimeout(timer); }
     }
-    async function mutate(payload) {
-        if (busy) throw {code:'busy'};
-        busy=true;
-        // Replies issued before this mutation cannot represent its result.
-        ++loadGeneration;
-        loadPending=null;
-        var buttons=Array.from(root.querySelectorAll('button')).map(function(b){var old=b.disabled;b.disabled=true;return [b,old];});
-        try { payload.revision=state.revision; return await request('action',payload); }
-        finally { busy=false; buttons.forEach(function(pair){pair[0].disabled=pair[1];}); }
-    }
     var effects={saved:t('已保存，下次启动服务时生效。','Saved for the next service start.'),updated_live:t('账号已生效，其他在线用户保持连接。','Account updated. Other users remain connected.'),terminated:t('账号已更新，该账号的旧登录已失效。','Account updated and its previous sessions revoked.'),restarted:t('配置已应用，VPN 服务已重新启动。','Configuration applied and VPN service restarted.'),disconnected:t('已断开该连接。账号仍可重新登录。','Connection disconnected. The account can sign in again.'),service_changed:t('服务操作已执行，状态将自动刷新。','Service operation submitted. Status will refresh automatically.')};
     effects.address_saved=t('连接地址已保存，当前 VPN 连接保持不变。','Connection address saved. Current VPN connections are unchanged.');
     effects.firewall_repaired=t('基础 VPN 防火墙规则已同步。','Baseline VPN firewall rules were synchronized.');
@@ -146,13 +136,33 @@
     effects.guard_enabled=t('已开启，仅 VPN 用户可通过 N1 使用代理上网。','Enabled. Only VPN clients can access the proxy through this N1.');
     effects.guard_disabled=t('已关闭，已恢复启用前的设置。','Disabled. Previous settings restored.');
     async function complete(payload,preserveDialog) {
-        var result=await mutate(payload); if(!await load(preserveDialog))return;
-        if(payload.action==='guard' && state.guard && state.guard.phase==='disabled' && payload.command==='disable')result.effect='guard_disabled';
-        notice(effects[result.effect] || t('操作完成。','Done.'));
+        if (busy) throw {code:'busy'};
+        busy=true;
+        // One operation owns both the submission and its refreshed revision.
+        ++loadGeneration;
+        loadPending=null;
+        var controls=Array.from(root.querySelectorAll('button,input,select,textarea')).map(function(node){var old=node.disabled;node.disabled=true;return [node,old];});
+        try {
+            payload.revision=state.revision;
+            var result=await request('action',payload);
+            try { if(!await load(preserveDialog))return; }
+            catch(_) {
+                // The write succeeded. Do not present a retryable save failure.
+                notice(t('操作已成功，但状态刷新失败。请刷新页面确认最新状态。','The operation succeeded, but refreshing its status failed. Refresh to see the latest state.'),true);
+                return;
+            }
+            if(payload.action==='guard' && state.guard && state.guard.phase==='disabled' && payload.command==='disable')result.effect='guard_disabled';
+            notice(effects[result.effect] || t('操作完成。','Done.'));
+        } finally { busy=false; controls.forEach(function(pair){pair[0].disabled=pair[1];}); }
     }
-    function closeModal() { if (modal && !busy) { modal.remove(); modal=null; if(guardLogOpen){guardLogOpen=false;renderTab();} } }
-    function showModal(title, children, submit, label) {
+    function removeModal() {
+        if(modalCleanup)modalCleanup(); modalCleanup=null;
+        if(modal)modal.remove(); modal=null; readerOpen=false;
+    }
+    function closeModal() { if (modal && !busy) { var refresh=readerOpen; removeModal(); if(refresh)renderTab(); } }
+    function showModal(title, children, submit, label, cleanup) {
         closeModal();
+        modalCleanup=cleanup;
         ++editGeneration;
         var errorBox=element('div',{className:'easy-notice error',hidden:true});
         var submitButton=element('button',{type:'submit',className:'cbi-button cbi-button-apply',text:label || t('保存','Save')});
@@ -175,6 +185,22 @@
         });
         root.appendChild(modal);
         var first=form.querySelector('input:not([type="checkbox"]),select,button'); if(first)first.focus();
+    }
+    function showReader(title,children,refreshLabel,path,format) {
+        var output=element('pre',{className:'easy-guard-log',tabindex:'0'}), controller=null, closed=false;
+        async function refresh() {
+            if(controller || closed)return;
+            controller=new AbortController(); output.textContent=t('正在读取…','Loading…');
+            try {
+                var data=await request(path,null,controller);
+                if(!closed){output.textContent=format(data);output.scrollTop=output.scrollHeight;}
+            } catch(error) { if(!closed)output.textContent=errorText(error); }
+            finally {controller=null;}
+        }
+        showModal(title,children.concat([button(refreshLabel,refresh),output]),async function(){},t('关闭','Close'),function(){
+            closed=true; if(controller)controller.abort();
+        });
+        readerOpen=true; refresh();
     }
     function confirm(title, description, payload) { showModal(title,[element('p',{text:description})],function(){return complete(payload);},t('确认','Confirm')); }
     function field(label,input,help,wide) {
@@ -286,59 +312,40 @@
         if(state.guard && state.guard.enabled)content.appendChild(element('p',{className:'easy-muted',text:errors.guard_settings_locked}));
     }
     function showGuardLog() {
-        var output=element('pre',{className:'easy-guard-log',tabindex:'0',text:t('正在读取日志…','Loading log…')});
-        var loading=false;
         var steps={proxy_connect:t('VPN 代理接入','VPN proxy connection'),request:t('操作请求','Request'),confirmation:t('管理连接确认','Management confirmation'),apply:t('启用配置','Apply'),restore:t('恢复配置','Restore'),operation_failed:t('操作失败','Operation failed'),restore_failed:t('恢复失败','Restore failed'),firewall_reload:t('重载防火墙','Reload firewall'),firewall_check:t('检查防火墙','Check firewall'),dns_restart:t('重启 DNS','Restart DNS'),openclash_restart:t('重启 OpenClash','Restart OpenClash'),openclash_ready:t('等待 OpenClash','Wait for OpenClash'),nikki_restart:t('重启 Nikki','Restart Nikki'),nikki_ready:t('等待 Nikki','Wait for Nikki'),momo_restart:t('重启 Momo','Restart Momo'),momo_ready:t('等待 Momo','Wait for Momo'),ocserv_restart:t('重启 VPN 服务','Restart VPN'),ocserv_ready:t('等待 VPN 服务','Wait for VPN'),ocserv_config_check:t('检查 VPN 配置','Check VPN configuration'),nft_check:t('检查隔离规则','Check isolation rules'),nft_apply:t('应用隔离规则','Apply isolation rules')};
         var codes={start:t('开始','Started'),completed:t('完成','Completed'),running:t('已运行','Running'),timeout:t('等待超时','Timed out'),pending:t('等待管理连接确认','Awaiting management confirmation'),enabled:t('已开启','Enabled'),enable:t('开启','Enable'),disable:t('关闭并恢复','Disable and restore'),confirm:t('确认','Confirm'),boot:t('开机恢复','Boot recovery')};
-        async function refresh() {
-            if(loading)return; loading=true;
-            try {
-                var log=await request('guard-log');
-                output.textContent=array(log.entries).map(function(row){
-                    var code=codes[row.code] || errors[row.code] || row.code;
-                    if(/^exit_/.test(row.code))code=t('退出码 ','Exit code ')+row.code.slice(5)+(row.code==='exit_124'?t('（超时或输出超限）',' (timeout or output limit)'):'');
-                    return new Date(row.time*1000).toLocaleString()+'  '+(steps[row.step] || row.step)+'：'+code+(row.detail?' — '+row.detail:'');
-                }).join('\n') || t('最近 24 小时暂无日志。','No logs in the last 24 hours.');
-                output.scrollTop=output.scrollHeight;
-            } catch(error) { output.textContent=errorText(error); }
-            finally {loading=false;}
-        }
-        showModal(t('VPN 专用上网服务日志','VPN-only service log'),[
-            element('p',{className:'easy-muted',text:t('仅保留最近 24 小时、最多 256 条日志；自动删除过期记录，设备重启后清空。记录操作步骤、退出码和常见错误类型，不保存账号、密码或订阅内容。','Keeps up to 256 entries for 24 hours, automatically expires them, and clears on router reboot. Records steps, exit codes and common error categories without accounts, passwords or subscriptions.')}),
-            button(t('刷新日志','Refresh log'),refresh),output
-        ],async function(){},t('关闭','Close'));
-        guardLogOpen=true; refresh();
+        showReader(t('VPN 专用上网服务日志','VPN-only service log'),[
+            element('p',{className:'easy-muted',text:t('仅保留最近 24 小时、最多 256 条日志；自动删除过期记录，设备重启后清空。记录操作步骤、退出码和常见错误类型，不保存账号、密码或订阅内容。','Keeps up to 256 entries for 24 hours, automatically expires them, and clears on router reboot. Records steps, exit codes and common error categories without accounts, passwords or subscriptions.')})
+        ],t('刷新日志','Refresh log'),'guard-log',function(log){
+            return array(log.entries).map(function(row){
+                var code=codes[row.code] || errors[row.code] || row.code;
+                if(/^exit_/.test(row.code))code=t('退出码 ','Exit code ')+row.code.slice(5)+(row.code==='exit_124'?t('（超时或输出超限）',' (timeout or output limit)'):'');
+                return new Date(row.time*1000).toLocaleString()+'  '+(steps[row.step] || row.step)+'：'+code+(row.detail?' — '+row.detail:'');
+            }).join('\n') || t('最近 24 小时暂无日志。','No logs in the last 24 hours.');
+        });
     }
     function showProxyStatus() {
-        var output=element('pre',{className:'easy-guard-log',tabindex:'0'}), loading=false;
         function status(value){return value===true?t('正常','OK'):value===false?t('未就绪','Not ready'):t('未知','Unknown');}
         function listener(value){return value===true?t('已监听','Listening'):value===false?t('未监听','Not listening'):t('未知','Unknown');}
-        async function refresh(){
-            if(loading)return; loading=true; output.textContent=t('正在检查…','Checking…');
-            try{
-                var p=await request('proxy-status');
-                var lines=[t('代理：','Proxy: ')+(p.label || p.proxy),t('核心进程：','Core process: ')+status(p.running)];
-                if(p.supported===false)lines.push(errors.guard_proxy_unsupported);
-                else if(p.proxy!=='openclash'){
-                    lines.push(t('VPN 入口：','VPN ingress: ')+status(p.ingress_ready));
-                    if(!p.ingress_ready)lines.push(t('VPN 流量尚未接入代理，请查看接入日志。','VPN traffic is not connected to the proxy. Check the integration log.'));
-                    lines.push('TCP: '+p.tcp_mode+'; UDP: '+p.udp_mode);
-                    [['lan_dns_hijack','DNS'],['lan_redirect','Redirect'],['lan_tproxy','TPROXY']].forEach(function(item){
-                        var target=(p.targets || {})[item[0]]; if(!target)return;
-                        lines.push(item[1]+t(' 规则：',' rules: ')+status(target.available));
-                        array(target.ports).forEach(function(port){lines.push('  '+port.port+'  TCP: '+listener(port.tcp)+'; UDP: '+listener(port.udp));});
-                        if(!array(target.ports).length)lines.push(t('  未发现目标端口','  No target port found'));
-                    });
-                    if(p.tun)lines.push('TUN: '+(p.tun.device || '?')+'; '+t('路由表 ','table ')+(p.tun.table || '?')+'; '+t('策略规则：','policy rule: ')+status(p.tun.rule));
-                    if(p.tcp_mode==='redirect')lines.push(t('Redirect 使用 TCP；UDP 按上方所选模式接管。','Redirect uses TCP; UDP follows the mode shown above.'));
-                }
-                lines.push(t('端口来自当前运行规则；监听存在不代表节点或外网已连通。','Ports come from live rules; a listener does not verify the upstream node or internet connection.'));
-                output.textContent=lines.join('\n');
-            }catch(error){output.textContent=errorText(error);}
-            finally{loading=false;}
-        }
-        showModal(t('代理接入诊断','Proxy integration diagnostics'),[button(t('重新检查','Check again'),refresh),output],async function(){},t('关闭','Close'));
-        guardLogOpen=true; refresh();
+        showReader(t('代理接入诊断','Proxy integration diagnostics'),[],t('重新检查','Check again'),'proxy-status',function(p){
+            var lines=[t('代理：','Proxy: ')+(p.label || p.proxy),t('核心进程：','Core process: ')+status(p.running)];
+            if(p.supported===false)lines.push(errors.guard_proxy_unsupported);
+            else if(p.proxy!=='openclash'){
+                lines.push(t('VPN 入口：','VPN ingress: ')+status(p.ingress_ready));
+                if(!p.ingress_ready)lines.push(t('VPN 流量尚未接入代理，请查看接入日志。','VPN traffic is not connected to the proxy. Check the integration log.'));
+                lines.push('TCP: '+p.tcp_mode+'; UDP: '+p.udp_mode);
+                [['lan_dns_hijack','DNS'],['lan_redirect','Redirect'],['lan_tproxy','TPROXY']].forEach(function(item){
+                    var target=(p.targets || {})[item[0]]; if(!target)return;
+                    lines.push(item[1]+t(' 规则：',' rules: ')+status(target.available));
+                    array(target.ports).forEach(function(port){lines.push('  '+port.port+'  TCP: '+listener(port.tcp)+'; UDP: '+listener(port.udp));});
+                    if(!array(target.ports).length)lines.push(t('  未发现目标端口','  No target port found'));
+                });
+                if(p.tun)lines.push('TUN: '+(p.tun.device || '?')+'; '+t('路由表 ','table ')+(p.tun.table || '?')+'; '+t('策略规则：','policy rule: ')+status(p.tun.rule));
+                if(p.tcp_mode==='redirect')lines.push(t('Redirect 使用 TCP；UDP 按上方所选模式接管。','Redirect uses TCP; UDP follows the mode shown above.'));
+            }
+            lines.push(t('端口来自当前运行规则；监听存在不代表节点或外网已连通。','Ports come from live rules; a listener does not verify the upstream node or internet connection.'));
+            return lines.join('\n');
+        });
     }
     function renderGuard() {
         var g=state.guard || {phase:'disabled'}, labels={disabled:t('已关闭','Disabled'),queued:t('等待应用…','Queued…'),applying:t('正在应用…','Applying…'),pending:t('正在确认管理连接…','Checking management connectivity…'),enabled:t('已开启','Enabled'),restoring:t('正在恢复…','Restoring…'),recovery_failed:t('恢复需要重试','Restoration needs a retry')};
@@ -419,7 +426,7 @@
         root.querySelectorAll('[role="tab"]').forEach(function(b){b.setAttribute('aria-selected',String(b.dataset.tab===activeTab));});
     }
     function render() {
-        if(modal)modal.remove(); modal=null; guardLogOpen=false; root.replaceChildren();
+        removeModal(); root.replaceChildren();
         serviceButton=mutationButton('',function(){
             confirm(state.running?t('停止 VPN','Stop VPN'):t('启动 VPN','Start VPN'),state.running?t('所有 VPN 连接将断开。','All VPN connections will close.'):t('使用已保存的配置启动服务。','Start the service with saved settings.'),{action:'service',command:state.running?'stop':'start',allow_restart:true});
         });
@@ -428,7 +435,7 @@
             serviceButton,
             mutationButton(state.autostart?t('关闭开机启动','Disable autostart'):t('开机自动启动','Enable autostart'),function(){complete({action:'service',command:state.autostart?'disable':'enable'}).catch(function(e){notice(errorText(e),true);});})
         ]);
-        root.appendChild(element('div',{className:'easy-heading'},[element('div',{},[element('h2',{text:'岚序 Lansyra'}),element('span',{className:'easy-muted',text:t('管理页 ','UI ')+(state.ui_version || '0.6.5')+' · ocserv '+state.version})]),actions]));
+        root.appendChild(element('div',{className:'easy-heading'},[element('div',{},[element('h2',{text:'岚序 Lansyra'}),element('span',{className:'easy-muted',text:t('管理页 ','UI ')+(state.ui_version || '0.6.6')+' · ocserv '+state.version})]),actions]));
         messageBox=element('div',{className:'easy-notice',hidden:true});root.appendChild(messageBox);
         statusBox=element('div',{className:'easy-summary'});statusKey=null;root.appendChild(statusBox);renderStatus();
         if(state.installation_pending)root.appendChild(element('p',{className:'easy-notice error',text:t('安装尚未完成。请在完整服务端套装目录重新运行 sh install.sh，完成证书和 VPN 网络初始化。','Installation is incomplete. Run sh install.sh again from the complete server bundle to finish certificate and VPN network initialization.')}));
@@ -449,7 +456,7 @@
                 // A refresh may finish after the user starts a new edit/dialog.
                 if(generation!==loadGeneration || editing!==editGeneration)return false;
                 state=data;
-                if(preserveDialog && guardLogOpen){renderStatus();renderTab();}else render();
+                if(preserveDialog && readerOpen){renderStatus();renderTab();}else render();
                 return true;
             }).catch(function(error){
                 if(generation!==loadGeneration || editing!==editGeneration)return false;
@@ -461,12 +468,12 @@
     }
     var statusPending=false;
     setInterval(async function(){
-        if(!state || busy || loadPending || (modal && !guardLogOpen) || document.hidden || statusPending)return;
+        if(!state || busy || loadPending || (modal && !readerOpen) || document.hidden || statusPending)return;
         statusPending=true;
         try {
             var snapshot=state, generation=loadGeneration;
             var current=await request('status');
-            if(busy || loadPending || state!==snapshot || generation!==loadGeneration || document.hidden || (modal && !guardLogOpen))return;
+            if(busy || loadPending || state!==snapshot || generation!==loadGeneration || document.hidden || (modal && !readerOpen))return;
             state.running=current.running;state.online=current.online;state.online_error=current.online_error;
             var previous=state.guard && state.guard.phase;
             // Lightweight disabled status omits topology. Retain the last full
@@ -477,10 +484,10 @@
             if(state.guard && state.guard.phase==='pending' && state.guard.token && writable()) {
                 // A successful authenticated request from the retained management IP
                 // confirms connectivity. No confirmation is sent after a failed request.
-                if(!await load(guardLogOpen))return;
+                if(!await load(readerOpen))return;
                 if(state.guard && state.guard.phase==='pending' && state.guard.token) {
                     var confirmation={action:'guard',command:'confirm',token:state.guard.token};
-                    await complete(confirmation,guardLogOpen);
+                    await complete(confirmation,readerOpen);
                 }
             } else if(previous!== (state.guard && state.guard.phase) && !modal) {
                 if(activeTab==='guard')renderTab();
