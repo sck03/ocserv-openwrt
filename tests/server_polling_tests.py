@@ -29,6 +29,94 @@ with sync_playwright() as pw:
     assert page.evaluate("window.summaryNode === document.querySelector('.easy-summary').firstChild"), 'unchanged status rebuilt the summary'
     checks.append('unchanged router status preserves existing summary controls')
 
+    # Only changed regions should be redrawn; polling must also update actions.
+    page.get_by_role('tab', name='账号与在线用户', exact=True).click()
+    status = page.request.get(args.url + 'easy/status').json()
+    status['data']['online'] = [{'id': '7', 'name': 'poll-fixture', 'ip': '192.0.2.1',
+                                'vpn_ip': '10.77.0.7', 'since': 'now', 'state': 'connected'}]
+    page.route('**/easy/status', lambda route: route.fulfill(json=status))
+    page.clock.run_for(3000)
+    expect(page.get_by_role('cell', name='192.0.2.1', exact=True)).to_be_visible()
+    page.evaluate("window.summaryNode = document.querySelector('.easy-summary').firstChild")
+    status['data']['online'][0]['ip'] = '192.0.2.2'
+    page.clock.run_for(3000)
+    expect(page.get_by_role('cell', name='192.0.2.2', exact=True)).to_be_visible()
+    assert page.evaluate("window.summaryNode === document.querySelector('.easy-summary').firstChild"), 'online details rebuilt unchanged summary'
+    checks.append('online detail changes update the list without rebuilding summary cards')
+
+    page.evaluate("window.onlineNode = document.querySelector('#easy-online table')")
+    status['data']['running'] = False
+    page.clock.run_for(3000)
+    expect(page.get_by_role('button', name='启动服务', exact=True)).to_be_visible()
+    assert page.evaluate("window.onlineNode === document.querySelector('#easy-online table')"), 'service state rebuilt unchanged online list'
+    page.get_by_role('button', name='启动服务', exact=True).click()
+    expect(page.get_by_role('dialog')).to_contain_text('使用已保存的配置启动服务')
+    page.get_by_role('button', name='取消', exact=True).click()
+    checks.append('service state changes update the action and preserve unchanged online controls')
+    page.unroute('**/easy/status')
+    page.clock.run_for(3000)
+    expect(page.get_by_role('button', name='停止服务', exact=True)).to_be_visible()
+
+    # Even a failed mutation invalidates a poll started before it.
+    obsolete = []
+    page.route('**/easy/status', lambda route: obsolete.append(route))
+    page.clock.run_for(3000)
+    page.wait_for_function('true')
+    assert len(obsolete) == 1
+    page.route('**/easy/action', lambda route: route.fulfill(status=409, json={'ok': False, 'error': 'stale_revision'}))
+    page.get_by_role('button', name='关闭开机启动', exact=True).click()
+    expect(page.locator('#ocserv-easy .easy-notice.error')).to_contain_text('配置已被其他页面修改')
+    obsolete[0].fulfill(json=status)
+    page.wait_for_timeout(100)
+    expect(page.get_by_role('button', name='停止服务', exact=True)).to_be_visible()
+    expect(page.locator('.easy-summary').first).to_contain_text('运行中')
+    checks.append('a delayed pre-mutation poll is discarded even when the mutation fails')
+    page.unroute('**/easy/status')
+    page.unroute('**/easy/action')
+
+    # Hiding a tab while its poll is in flight must not redraw or confirm state.
+    obsolete.clear()
+    page.route('**/easy/status', lambda route: obsolete.append(route))
+    page.clock.run_for(3000)
+    page.wait_for_function('true')
+    assert len(obsolete) == 1
+    page.evaluate("Object.defineProperty(document, 'hidden', {configurable:true, value:true})")
+    obsolete[0].fulfill(json=status)
+    page.wait_for_timeout(100)
+    expect(page.locator('.easy-summary').first).to_contain_text('运行中')
+    checks.append('an in-flight poll does not update a tab hidden before its response')
+    page.evaluate("Object.defineProperty(document, 'hidden', {configurable:true, value:false})")
+    page.unroute('**/easy/status')
+    page.get_by_role('tab', name='VPN 专用上网', exact=True).click()
+
+    # A full refresh started before editing must not discard the new input.
+    refreshes = []
+    def delayed_refresh(route):
+        refreshes.append((route, route.fetch()))
+    page.route('**/easy/data', delayed_refresh)
+    page.get_by_role('button', name='刷新', exact=True).click()
+    page.wait_for_function('true')
+    page.get_by_role('tab', name='服务设置', exact=True).click()
+    page.get_by_label('每个账号最多在线设备数', exact=True).fill('3')
+    refreshes[0][0].fulfill(response=refreshes[0][1])
+    page.wait_for_timeout(100)
+    expect(page.get_by_label('每个账号最多在线设备数', exact=True)).to_have_value('3')
+    page.unroute('**/easy/data', delayed_refresh)
+    checks.append('a delayed full refresh preserves input entered after the request started')
+
+    page.route('**/easy/data', delayed_refresh)
+    page.get_by_role('button', name='刷新', exact=True).click()
+    page.wait_for_function('true')
+    page.get_by_role('tab', name='账号与在线用户', exact=True).click()
+    page.get_by_role('button', name='＋ 添加账号', exact=True).click()
+    refreshes[1][0].fulfill(response=refreshes[1][1])
+    page.wait_for_timeout(100)
+    expect(page.get_by_role('dialog')).to_be_visible()
+    page.get_by_role('button', name='取消', exact=True).click()
+    page.unroute('**/easy/data', delayed_refresh)
+    checks.append('a delayed full refresh preserves a dialog opened after the request started')
+    page.get_by_role('tab', name='VPN 专用上网', exact=True).click()
+
     # A network request that never returns must be aborted, then polled again.
     requests = []
     def stalled(route):

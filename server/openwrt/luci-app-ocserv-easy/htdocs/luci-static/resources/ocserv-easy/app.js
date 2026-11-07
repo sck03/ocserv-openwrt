@@ -4,7 +4,8 @@
     var options = JSON.parse(document.getElementById('ocserv-easy-options').textContent);
     var root = document.getElementById('ocserv-easy');
     var chinese = /^zh/i.test(options.language || '');
-    var state, activeTab = 'users', busy = false, modal = null, guardLogOpen = false, messageBox, content, statusBox, statusKey = null;
+    var state, activeTab = 'users', busy = false, modal = null, guardLogOpen = false, messageBox, content, statusBox, serviceButton;
+    var statusKey = null, onlineKey = null;
     function t(zh, en) { return chinese ? zh : en; }
     function array(value) { return Array.isArray(value) ? value : []; }
     function element(tag, attrs, children) {
@@ -152,6 +153,7 @@
     function closeModal() { if (modal && !busy) { modal.remove(); modal=null; if(guardLogOpen){guardLogOpen=false;renderTab();} } }
     function showModal(title, children, submit, label) {
         closeModal();
+        ++editGeneration;
         var errorBox=element('div',{className:'easy-notice error',hidden:true});
         var submitButton=element('button',{type:'submit',className:'cbi-button cbi-button-apply',text:label || t('保存','Save')});
         var form=element('form',{},[element('h3',{id:'easy-modal-title',text:title})].concat(children,[errorBox,element('div',{className:'easy-buttons'},[button(t('取消','Cancel'),closeModal),submitButton])]));
@@ -227,6 +229,9 @@
     }
     function renderOnline() {
         var online=document.getElementById('easy-online'); if(!online)return;
+        var key=JSON.stringify([state.online,state.online_error]);
+        if(key===onlineKey)return;
+        onlineKey=key;
         online.replaceChildren(element('h3',{text:t('在线连接','Online connections')}),table([t('账号','Username'),t('来源 IP','Remote IP'),t('VPN IP','VPN IP'),t('连接时间','Connected'),t('操作','Actions')],array(state.online).map(function(row){
             return element('tr',{},[element('td',{text:row.name}),element('td',{text:row.ip}),element('td',{text:row.vpn_ip}),element('td',{text:row.since || row.state}),element('td',{},[mutationButton(t('断开','Disconnect'),function(){confirm(t('断开连接','Disconnect'),row.name+' — '+t('仅断开此连接；如需禁止登录，请停用账号。','Disconnect this connection. Disable the account to prevent sign-in.'),{action:'disconnect',id:row.id});})])]);
         })));
@@ -398,28 +403,32 @@
         ]));
     }
     function renderStatus() {
-        var key=JSON.stringify([state.running,state.online,state.online_error,array(state.users).length]);
+        var label=state.running?t('停止服务','Stop service'):t('启动服务','Start service');
+        if(serviceButton.textContent!==label)serviceButton.textContent=label;
+        renderOnline();
+        var key=JSON.stringify([state.running,array(state.online).length,state.online_error,array(state.users).length]);
         if(key===statusKey)return;
         statusKey=key;
         statusBox.replaceChildren();
         [[t('VPN 服务','VPN service'),state.running?t('运行中','Running'):t('已停止','Stopped'),state.running?'easy-good':'easy-muted'],[t('在线连接','Online connections'),state.online_error?'—':String(array(state.online).length),''],[t('登录账号','Accounts'),String(array(state.users).length),'']].forEach(function(item){statusBox.appendChild(element('div',{className:'easy-card'},[element('span',{className:'easy-muted',text:item[0]}),element('strong',{className:item[2],text:item[1]})]));});
-        renderOnline();
     }
     function renderTab() {
+        onlineKey=null;
         content.replaceChildren();
         if(activeTab==='users')renderUsers(); else if(activeTab==='settings')renderSettings(); else if(activeTab==='guard')renderGuard(); else renderExport();
         root.querySelectorAll('[role="tab"]').forEach(function(b){b.setAttribute('aria-selected',String(b.dataset.tab===activeTab));});
     }
     function render() {
         if(modal)modal.remove(); modal=null; guardLogOpen=false; root.replaceChildren();
+        serviceButton=mutationButton('',function(){
+            confirm(state.running?t('停止 VPN','Stop VPN'):t('启动 VPN','Start VPN'),state.running?t('所有 VPN 连接将断开。','All VPN connections will close.'):t('使用已保存的配置启动服务。','Start the service with saved settings.'),{action:'service',command:state.running?'stop':'start',allow_restart:true});
+        });
         var actions=element('div',{className:'easy-buttons'},[
             button(t('刷新','Refresh'),function(){load().catch(function(e){notice(errorText(e),true);});}),
-            mutationButton(state.running?t('停止服务','Stop service'):t('启动服务','Start service'),function(){
-                confirm(state.running?t('停止 VPN','Stop VPN'):t('启动 VPN','Start VPN'),state.running?t('所有 VPN 连接将断开。','All VPN connections will close.'):t('使用已保存的配置启动服务。','Start the service with saved settings.'),{action:'service',command:state.running?'stop':'start',allow_restart:true});
-            }),
+            serviceButton,
             mutationButton(state.autostart?t('关闭开机启动','Disable autostart'):t('开机自动启动','Enable autostart'),function(){complete({action:'service',command:state.autostart?'disable':'enable'}).catch(function(e){notice(errorText(e),true);});})
         ]);
-        root.appendChild(element('div',{className:'easy-heading'},[element('div',{},[element('h2',{text:'岚序 Lansyra'}),element('span',{className:'easy-muted',text:t('管理页 ','UI ')+(state.ui_version || '0.6.4')+' · ocserv '+state.version})]),actions]));
+        root.appendChild(element('div',{className:'easy-heading'},[element('div',{},[element('h2',{text:'岚序 Lansyra'}),element('span',{className:'easy-muted',text:t('管理页 ','UI ')+(state.ui_version || '0.6.5')+' · ocserv '+state.version})]),actions]));
         messageBox=element('div',{className:'easy-notice',hidden:true});root.appendChild(messageBox);
         statusBox=element('div',{className:'easy-summary'});statusKey=null;root.appendChild(statusBox);renderStatus();
         if(state.installation_pending)root.appendChild(element('p',{className:'easy-notice error',text:t('安装尚未完成。请在完整服务端套装目录重新运行 sh install.sh，完成证书和 VPN 网络初始化。','Installation is incomplete. Run sh install.sh again from the complete server bundle to finish certificate and VPN network initialization.')}));
@@ -430,17 +439,20 @@
         [['users',t('账号与在线用户','Accounts and connections')],['settings',t('服务设置','Service settings')],['guard',t('VPN 专用上网','VPN-only access')],['export',t('客户端配置','Client profiles')]].forEach(function(item){var b=button(item[1],function(){activeTab=item[0];renderTab();});b.dataset.tab=item[0];b.setAttribute('role','tab');tabs.appendChild(b);});
         root.appendChild(tabs);content=element('div',{});root.appendChild(content);renderTab();
     }
-    var loadPending=null, loadGeneration=0;
+    var loadPending=null, loadGeneration=0, editGeneration=0;
+    root.addEventListener('input',function(){++editGeneration;});
+    root.addEventListener('change',function(){++editGeneration;});
     function load(preserveDialog) {
         if(!loadPending) {
-            var generation=loadGeneration;
+            var generation=loadGeneration, editing=editGeneration;
             var pending=request('data').then(function(data){
-                if(generation!==loadGeneration)return false;
+                // A refresh may finish after the user starts a new edit/dialog.
+                if(generation!==loadGeneration || editing!==editGeneration)return false;
                 state=data;
                 if(preserveDialog && guardLogOpen){renderStatus();renderTab();}else render();
                 return true;
             }).catch(function(error){
-                if(generation!==loadGeneration)return false;
+                if(generation!==loadGeneration || editing!==editGeneration)return false;
                 throw error;
             }).finally(function(){if(loadPending===pending)loadPending=null;});
             loadPending=pending;
@@ -452,9 +464,9 @@
         if(!state || busy || loadPending || (modal && !guardLogOpen) || document.hidden || statusPending)return;
         statusPending=true;
         try {
-            var snapshot=state;
+            var snapshot=state, generation=loadGeneration;
             var current=await request('status');
-            if(busy || loadPending || state!==snapshot || (modal && !guardLogOpen))return;
+            if(busy || loadPending || state!==snapshot || generation!==loadGeneration || document.hidden || (modal && !guardLogOpen))return;
             state.running=current.running;state.online=current.online;state.online_error=current.online_error;
             var previous=state.guard && state.guard.phase;
             // Lightweight disabled status omits topology. Retain the last full

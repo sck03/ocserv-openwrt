@@ -383,6 +383,32 @@ test("query snapshots share live work, expire, refresh and survive corrupt cache
     cache.invalidate("test");check(not S.files["/var/run/ocserv-easy/query-test.json"])
     os.time=original_time
 end)
+test("cache lifetime starts after a slow query completes",function()
+    reset()
+    local cache=require "luci.model.ocserv_easy.query_cache"
+    local original_time=os.time
+    local time,calls=1000,0
+    os.time=function()return time end
+    local function query()calls=calls+1;time=time+4;return {value=calls}end
+    check(cache.get("test","one",5,query).value==1)
+    time=time+2
+    check(cache.get("test","one",5,query).value==1 and calls==1)
+    os.time=original_time
+end)
+test("failed forced refresh cannot revive a previous cached success",function()
+    reset()
+    local cache=require "luci.model.ocserv_easy.query_cache"
+    cache.get("test","one",300,function()return {value="old"}end)
+    cache.get("test","one",300,function()return {cacheable=false}end,true)
+    check(cache.get("test","one",300,function()return {value="new"}end).value=="new")
+end)
+test("cache write failure preserves the live result without reviving stale online rows",function()
+    reset();S.online={{ID=1,Username="old"}};check(backend.status().online[1].name=="old")
+    S.online={{ID=2,Username="new"}}
+    S.fail_write="/var/run/ocserv-easy/query-online.json"
+    check(backend.status(true).online[1].name=="new")
+    check(backend.status().online[1].name=="new")
+end)
 test("frequent online snapshots avoid repeated occtl and explicit refresh stays live",function()
     reset();backend.status();local count=#S.commands
     for _=1,100 do backend.status()end

@@ -31,11 +31,13 @@ function M.get(name, identity, seconds, query, fresh)
             type(cached.time) == "number" and cached.time <= time and time - cached.time < seconds and
             type(cached.value) == "table" then return cached.value end
     end
+    -- Once bypassed, an old success must not reappear after a failed refresh.
+    M.invalidate(name)
     local value = query()
     if type(value) == "table" and value.cacheable ~= false then
         pcall(function()
             storage.directory(root)
-            storage.atomic(path, json.stringify({identity = identity, time = time, value = value}))
+            storage.atomic(path, json.stringify({identity = identity, time = now(), value = value}))
         end)
     end
     return value
