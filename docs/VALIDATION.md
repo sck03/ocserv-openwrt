@@ -10,6 +10,10 @@
 
 精简证据位于 `artifacts/verification/2026-11-08-network-lists/`。本地使用实际 Lua 5.1 与模拟 OpenWrt 边界，未测量真实设备内存、吞吐或长期稳定性。本轮优化减少重复路由配置及无效重启，不更改 VPN 数据面；源码推送不会更新设备或已有安装包。
 
+最终应用提交 [`f79d0c6`](https://github.com/sck03/ocserv-openwrt/commit/f79d0c6) 的 [GitHub 验证 42412810353](https://github.com/sck03/ocserv-openwrt/actions/runs/42412810353) 全部通过，额外确认 Linux 安装/恢复与锁竞争 50、证书 14、密码文件 9 项及真实 nftables 报文回归。OpenClash、Nikki、Momo 各通过 19 项页面流程，31 项请求生命周期检查通过，无浏览器脚本错误。附件经过 GitHub SHA-256 与 ZIP CRC 校验，保留 14 份精简 JSON/日志。本次使用 `validate_only=true`、`publish_release=false`，未构建六架构 APK 或发布 Release。
+
+清理 47 个测试输出及 Python 缓存文件，共 545,032 字节；保留精简验证报告。发行包、私有配置与备份共 85 个文件清理前后 SHA-256 一致。
+
 ## 2026-11-08 只读请求取消与生命周期合并
 
 管理页更新为 0.6.12-r1。修改前的浏览器回归复现完整刷新后旧状态查询仍然存活。`readSlot` 现在统一管理完整刷新、状态轮询和只读弹窗的去重、取消及完成归属，移除重复的刷新 Promise 与编辑代次管理。编辑、打开弹窗或提交时主动取消旧读取；完整刷新取消旧轮询，隐藏页面取消正在进行的状态查询。取消后立即释放查询槽，旧成功、错误和收尾均不能覆盖或清空新请求。
