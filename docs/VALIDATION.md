@@ -12,6 +12,10 @@
 
 本地精简证据位于 `artifacts/verification/2026-11-09-snapshot-consistency/`。使用实际 Lua 5.1 与模拟 OpenWrt 边界；未连接真实设备，也未重新构建客户端。推送源码不更新已有设备或安装包。
 
+最终应用提交 [`3ad2d40`](https://github.com/sck03/ocserv-openwrt/commit/3ad2d40) 的 [GitHub 验证 42520524426](https://github.com/sck03/ocserv-openwrt/actions/runs/42520524426) 全部通过，额外确认 Linux 安装恢复与锁竞争 50、证书 14、密码文件 9 项及真实 nftables 报文回归；OpenClash、Nikki、Momo 各通过 19 项页面流程，31 项请求生命周期检查通过。页面版本直接使用后台字段，删除旧版本回退和安装完成提示中的重复版本常量，并同步 N1 安装文档。附件通过 GitHub SHA-256 与 ZIP CRC 校验，保留 14 份精简 JSON/日志。本次使用 `validate_only=true`、`publish_release=false`，未构建六架构 APK 或发布 Release。
+
+清理 51 个测试输出、临时验证工具及 Python 缓存文件，共 563,424 字节；保留精简验证报告。发行包、私有配置和备份共 85 个文件清理前后 SHA-256 一致。
+
 ## 2026-11-08 临时候选文件生命周期与事务精简
 
 管理页更新为 0.6.14-r1。修改前回归复现候选写入失败后遗留 `config-stage/ocserv`。现在 `configuration.with_stage` 统一管理原生 UCI 的创建、加载、执行与清理，覆盖恢复记录创建和事务收尾失败。普通保存与 Nikki/Momo 接入共用此作用域，删除后台重复的阶段管理、提前准备参数及恢复时对临时游标的无效回滚。配置预检写入失败同样移除临时密码文件。持久恢复记录与临时文件保持独立，收尾失败仍可继续恢复。
