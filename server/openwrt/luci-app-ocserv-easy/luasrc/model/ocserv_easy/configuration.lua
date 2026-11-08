@@ -17,6 +17,35 @@ end
 local function save(state) storage.atomic(statefile, json.stringify(state)) end
 local function file(name, suffix) return root .. "/" .. name .. "." .. suffix end
 
+-- Own the complete temporary UCI lifetime, including setup and journal failures.
+-- This directory is disposable; durable recovery files above are never removed here.
+function M.with_stage(files, operation)
+    local stage = "/var/run/ocserv-easy/config-stage"
+    local packages = {"ocserv", "firewall", "nikki", "momo"}
+    local ok, result = pcall(function()
+        storage.directory(stage)
+        storage.directory(stage .. "/delta")
+        for _, name in ipairs(packages) do
+            fs.remove(stage .. "/delta/" .. name)
+            if files[name] then storage.atomic(stage .. "/" .. name, files[name]) end
+        end
+        -- The LuCI rpcd bridge ignores directory arguments. Require native UCI
+        -- and verify isolation before loading or modifying any configuration.
+        local cursor = require("uci").cursor(stage, stage .. "/delta")
+        logic.require(cursor:get_confdir() == stage and cursor:get_savedir() == stage .. "/delta", "write_failed")
+        for _, name in ipairs(packages) do
+            if files[name] then logic.require(cursor:load(name), "write_failed") end
+        end
+        return operation(cursor, stage)
+    end)
+    for _, name in ipairs(packages) do
+        fs.remove(stage .. "/" .. name)
+        fs.remove(stage .. "/delta/" .. name)
+    end
+    if not ok then error(result, 0) end
+    return result
+end
+
 function M.pending() return fs.access(statefile) == true end
 
 function M.begin(was_running)

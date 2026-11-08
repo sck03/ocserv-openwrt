@@ -650,6 +650,20 @@ for _,name in ipairs({"nikki","momo"}) do
         check(connect().effect=="proxy_connected")
         check(S.cfg[name].proxy.enabled=="1" and not S.proxy_table_absent)
     end)
+    test(name.." failed preparation releases candidate files without changing the proxy",function()
+        for _,target in ipairs({"/etc/ocserv/easy-backup/ocserv.uci",
+            "/var/run/ocserv-easy/config-stage/"..name,"/etc/ocserv/easy-transaction/state.json"}) do
+            normal_proxy(name);local before=clone(S.cfg)
+            S.fail_write=target
+            expect("write_failed",connect)
+            check(equal(before,S.cfg) and not require("luci.model.ocserv_easy.configuration").pending())
+            for path in pairs(S.files) do
+                check(not path:match("^/var/run/ocserv%-easy/config%-stage/"),path)
+            end
+            for _,cmd in ipairs(S.commands) do check(cmd~="/etc/init.d/"..name.." restart") end
+            check(connect().effect=="proxy_connected")
+        end
+    end)
     test(name.." repeated startup events wait for rule generation without restarting again",function()
         normal_proxy(name);connect();S.proxy_table_absent=true
         local count=#S.commands;local writes=S.flash_writes

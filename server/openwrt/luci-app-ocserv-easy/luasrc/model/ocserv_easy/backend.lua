@@ -79,7 +79,7 @@ end
 function M.data(admin)
     local s=snapshot(); local state=M.status(true)
     state.version=version()
-    state.ui_version="0.6.13"
+    state.ui_version="0.6.14"
     state.supported=logic.supported_version(state.version)
     state.capabilities=capabilities()
     state.revision=s.revision
@@ -170,52 +170,27 @@ local function recover_locked(boot)
     end
     configuration.finish()
 end
-local function stage_cursor(s,include_firewall,proxy_name)
-    s.stage=work.."/config-stage"
-    directory(s.stage); directory(s.stage.."/delta")
-    for _,package in ipairs({"ocserv","firewall","nikki","momo"}) do
-        -- Fixed paths under the shared lease; clear only our private UCI deltas.
-        fs.remove(s.stage.."/delta/"..package)
-    end
-    atomic(s.stage.."/ocserv",s.raw)
-    if include_firewall then atomic(s.stage.."/firewall",s.firewall_raw) end
-    if proxy_name then atomic(s.stage.."/"..proxy_name,s.proxy_raw) end
-    -- The LuCI rpcd bridge ignores cursor directory arguments and commits to
-    -- /etc/config. Only the native binding can build a private candidate.
-    s.cursor=require("uci").cursor(s.stage,s.stage.."/delta")
-    logic.require(s.cursor:get_confdir()==s.stage and s.cursor:get_savedir()==s.stage.."/delta","write_failed")
-    logic.require(s.cursor:load("ocserv"),"write_failed")
-    if include_firewall then logic.require(s.cursor:load("firewall"),"write_failed") end
-    if proxy_name then logic.require(s.cursor:load(proxy_name),"write_failed") end
-end
-local function clear_stage(s)
-    for _,package in ipairs({"ocserv","firewall","nikki","momo"}) do
-        fs.remove(s.stage.."/"..package); fs.remove(s.stage.."/delta/"..package)
-    end
-end
-local function transaction(s,was_running,operation,include_firewall,proxy_name,prepared)
-    local old_passwd=read(passwd_path)
-    s.old_passwd=old_passwd
-    backup(s,old_passwd,include_firewall)
-    if not prepared then stage_cursor(s,include_firewall,proxy_name) end
-    s.journal=configuration.begin(was_running)
-    local function mark_service() configuration.mark(s.journal,"service") end
-    local function mark_firewall() configuration.mark(s.journal,"firewall") end
-    local ok,result=pcall(operation,mark_service,mark_firewall)
-    if ok then
+local function transaction(s,was_running,operation,include_firewall,proxy_name)
+    s.old_passwd=read(passwd_path)
+    backup(s,s.old_passwd,include_firewall)
+    local files={ocserv=s.raw}
+    if include_firewall then files.firewall=s.firewall_raw end
+    if proxy_name then files[proxy_name]=s.proxy_raw end
+    return configuration.with_stage(files,function(cursor,stage)
+        s.cursor,s.stage=cursor,stage
+        s.journal=configuration.begin(was_running)
+        local function mark_service() configuration.mark(s.journal,"service") end
+        local function mark_firewall() configuration.mark(s.journal,"firewall") end
+        local ok,result=pcall(operation,mark_service,mark_firewall)
+        if not ok then
+            -- Recovery uses durable snapshots, never the disposable UCI cursor.
+            local restored=pcall(recover_locked,false)
+            if not restored then logic.fail("rollback_failed") end
+            error(result,0)
+        end
         configuration.finish()
-        clear_stage(s)
         return result
-    end
-    local restored=pcall(function()
-        s.cursor:revert("ocserv"); s.cursor:unload("ocserv")
-        if include_firewall then s.cursor:revert("firewall"); s.cursor:unload("firewall") end
-        if proxy_name then s.cursor:revert(proxy_name); s.cursor:unload(proxy_name) end
-        recover_locked(false)
     end)
-    clear_stage(s)
-    if not restored then logic.fail("rollback_failed") end
-    error(result,0)
 end
 wait_running=function(expected,code)
     -- procd may return before the daemon writes its pidfile.
@@ -297,10 +272,13 @@ local function apply_settings(s,request)
     if was_running then logic.require(request.allow_restart==true,"restart_confirmation_required") end
     local test_config=work.."/check.conf"; local test_passwd=work.."/check.passwd"
     initcerts()
-    atomic(test_passwd,logic.passwd(s.users))
-    atomic(test_config,(candidate:gsub("/var/etc/ocpasswd",test_passwd)))
-    local code=run({"/usr/sbin/ocserv","--test-config","--config",test_config},8)
+    local ok,code=pcall(function()
+        atomic(test_passwd,logic.passwd(s.users))
+        atomic(test_config,(candidate:gsub("/var/etc/ocpasswd",test_passwd)))
+        return run({"/usr/sbin/ocserv","--test-config","--config",test_config},8)
+    end)
     fs.remove(test_config); fs.remove(test_passwd)
+    if not ok then error(code,0) end
     logic.require(code==0,"config_check_failed")
     logic.require(s.firewall_loaded and s.firewall_raw~=nil,"firewall_unavailable")
     return transaction(s,was_running,function(mark,mark_firewall)
@@ -343,10 +321,9 @@ local function connect_proxy(s,name)
     end
     s.proxy_raw=read("/etc/config/"..name)
     logic.require(s.proxy_raw,"write_failed")
-    stage_cursor(s,false,name)
-    proxy.connect(s.cursor,name,pool,values.ip6addr)
-    require("luci.model.ocserv_easy.guard_log").add("proxy_connect","start",name)
     return transaction(s,true,function()
+        proxy.connect(s.cursor,name,pool,values.ip6addr)
+        require("luci.model.ocserv_easy.guard_log").add("proxy_connect","start",name)
         storage.keep("/etc/ocserv/easy-backup/"..name..".uci",s.proxy_raw)
         storage.keep("/etc/ocserv/easy-backup/"..name.."-hijack.ut",before)
         if changed then
@@ -358,7 +335,7 @@ local function connect_proxy(s,name)
         logic.require(run({"/etc/init.d/"..name,"restart"},90)==0,"guard_proxy_failed")
         wait_proxy(name,true,"guard_proxy_failed")
         return {effect="proxy_connected",proxy=name}
-    end,false,name,true)
+    end,false,name)
 end
 function M.sync_proxy()
     -- Root-only lifecycle hook; do not change another editor's staged settings.

@@ -272,7 +272,10 @@ local fs={
     readlink=function(path)if S.running and path=="/proc/101/exe"then return "/usr/sbin/ocserv"end end,
     mkdir=function(path,value)S.dirs[path]={mode=mode(value)};return true end,
     chmod=function(path,value)mode(value);return true end,
-    remove=function(path)S.files[path]=nil;S.disk_events[#S.disk_events+1]="remove:"..path;return true end,
+    remove=function(path)
+        if S.fail_remove==path then S.fail_remove=nil;return nil end
+        S.files[path]=nil;S.disk_events[#S.disk_events+1]="remove:"..path;return true
+    end,
     rename=function(from,to)
         if S.fail_write==to then S.fail_write=nil;return nil end
         S.disk_events[#S.disk_events+1]="rename:"..to
@@ -314,7 +317,7 @@ local function cursor(directory,savedir)
     local function find_fw(id) return fw[id] end
     return {
         get_confdir=function()return directory end,get_savedir=function()return savedir end,
-        load=function()return true end,unload=function()end,
+        load=function(_,package)return directory=="/etc/config" or S.fail_load~=package end,unload=function()end,
         get=function(_,package,id,key)local row=package=="firewall" and find_fw(id) or find(id);return row and row[key or ".type"]end,
         get_all=function(_,package,id)return clone(package=="firewall" and find_fw(id) or find(id))end,
         get_first=function()return "lan"end,
@@ -387,6 +390,69 @@ local backend=require "luci.model.ocserv_easy.backend"
 local function request(payload)payload.revision=payload.revision or backend.data().revision;return backend.action(payload)end
 local function edit(password,enabled)return {action="save_user",id="employee",name="employee01",group="*",password=password or "",enabled=enabled~=false}end
 local function contains_command(part)for _,cmd in ipairs(S.commands)do if cmd:find(part,1,true)then return true end end return false end
+local function no_candidates()
+    for path in pairs(S.files) do
+        check(not path:match("^/var/run/ocserv%-easy/config%-stage/") and
+            not path:match("^/var/run/ocserv%-easy/check%."),"temporary candidate retained: "..path)
+    end
+end
+test("failed candidate writes release earlier staged configuration files",function()
+    reset();local before=S.files["/etc/config/ocserv"]
+    S.fail_write="/var/run/ocserv-easy/config-stage/firewall"
+    expect("write_failed",function()request({action="settings",settings=fixture_settings(),allow_restart=true})end)
+    no_candidates()
+    check(S.files["/etc/config/ocserv"]==before and not contains_command("restart"))
+end)
+test("failed journal creation releases the private UCI candidate",function()
+    reset();local before=S.files["/etc/config/ocserv"]
+    S.fail_write="/etc/ocserv/easy-transaction/state.json"
+    expect("write_failed",function()request(edit("FixturePassword"))end)
+    no_candidates()
+    check(S.files["/etc/config/ocserv"]==before and not contains_command("terminate user"))
+end)
+test("failed candidate loading removes all temporary UCI files",function()
+    reset();local before=S.files["/etc/config/ocserv"];S.fail_load="ocserv"
+    expect("write_failed",function()request(edit("FixturePassword"))end)
+    no_candidates()
+    check(S.files["/etc/config/ocserv"]==before and not contains_command("terminate user"))
+end)
+test("journal sync failure retains durable recovery but releases temporary files",function()
+    reset();local tx=require "luci.model.ocserv_easy.configuration"
+    local before=S.files["/etc/config/ocserv"]
+    S.fail_directory_sync="/etc/ocserv/easy-transaction"
+    expect("write_failed",function()request(edit("FixturePassword"))end)
+    no_candidates()
+    check(tx.pending() and S.files["/etc/config/ocserv"]==before)
+    check(backend.recover(false) and not tx.pending())
+end)
+test("completion failure releases candidates without discarding the recovery journal",function()
+    reset();local tx=require "luci.model.ocserv_easy.configuration"
+    local before,passwd=S.files["/etc/config/ocserv"],S.files["/var/etc/ocpasswd"]
+    S.fail_remove="/etc/ocserv/easy-transaction/state.json"
+    expect("write_failed",function()request(edit("FixturePassword"))end)
+    no_candidates()
+    check(tx.pending() and S.files["/etc/config/ocserv"]~=before)
+    check(backend.recover(false) and not tx.pending())
+    check(S.files["/etc/config/ocserv"]==before and S.files["/var/etc/ocpasswd"]==passwd)
+end)
+test("repeated failed transactions leave no candidate files and allow a later save",function()
+    reset();local before=S.files["/etc/config/ocserv"]
+    for _=1,100 do
+        S.fail_write="/etc/ocserv/easy-transaction/state.json"
+        expect("write_failed",function()request(edit("FixturePassword"))end)
+        no_candidates()
+        check(S.files["/etc/config/ocserv"]==before)
+    end
+    check(request(edit("FixturePassword")).effect=="terminated")
+    no_candidates()
+end)
+test("failed preflight writes release the temporary password file",function()
+    reset();local before=S.files["/etc/config/ocserv"]
+    S.fail_write="/var/run/ocserv-easy/check.conf"
+    expect("write_failed",function()request({action="settings",settings=fixture_settings(),allow_restart=true})end)
+    no_candidates()
+    check(S.files["/etc/config/ocserv"]==before and not contains_command("--test-config"))
+end)
 test("the shared maintenance lease excludes actions and recovery",function()
     reset();S.busy=true
     local before=S.files["/etc/config/ocserv"]
@@ -698,6 +764,7 @@ test("a non-isolated UCI cursor is rejected before changing live configuration",
     expect("write_failed",function()request(edit("FixturePassword"))end)
     package.loaded["uci"]=native
     check(S.files["/etc/config/ocserv"]==raw and S.files["/var/etc/ocpasswd"]==logic.passwd(original))
+    no_candidates()
 end)
 test("password reset sends only username to occtl",function()
     reset();request(edit("FixturePassword"));check(contains_command("occtl terminate user employee01"))
@@ -754,6 +821,7 @@ test("configuration is tested before commit",function()
     reset();local raw=S.files["/etc/config/ocserv"];S.bad_config=true
     expect("config_check_failed",function()request({action="settings",settings=fixture_settings(),allow_restart=true})end)
     check(S.files["/etc/config/ocserv"]==raw and not contains_command("restart"))
+    no_candidates()
 end)
 test("invalid network lists leave live files untouched and never restart services",function()
     for _,field in ipairs({"dns","routes"}) do
