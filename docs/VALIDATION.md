@@ -10,6 +10,10 @@
 
 精简证据位于 `artifacts/verification/2026-11-08-candidate-lifecycle/`。Lua 测试使用实际 Lua 5.1 与模拟 OpenWrt 边界；未测量真实设备内存或转发吞吐。本次改进缩短失败路径中临时配置和密码哈希文件的存留时间，不改变 VPN 数据面。强制终止进程仍可能留下固定临时路径，后续操作可覆盖，设备重启清空 `/var/run`；持久恢复记录不能按临时文件清理。
 
+应用提交 [`ce5edba`](https://github.com/sck03/ocserv-openwrt/commit/ce5edba) 的 [GitHub 验证 42482575342](https://github.com/sck03/ocserv-openwrt/actions/runs/42482575342) 全部通过，另确认 Linux 安装恢复与锁竞争 50、证书 14、密码文件 9 及真实 nftables 报文 22 项；OpenClash、Nikki、Momo 各通过 19 项页面流程，31 项请求生命周期检查通过，无浏览器脚本错误。附件通过 GitHub SHA-256 和 ZIP CRC 校验，保留 14 份精简 JSON/日志。本次使用 `validate_only=true`、`publish_release=false`，未生成六架构 APK 或发布 Release。
+
+清理 49 个测试输出、临时验证脚本及 Python 缓存文件，共 551,483 字节；保留精简验证报告。发行包、私有配置和备份共 85 个文件清理前后 SHA-256 一致。
+
 ## 2026-11-08 网络列表校验与重复路由精简
 
 管理页更新为 0.6.13-r1。修改前回归复现 DNS 稀疏列表未被拒绝的问题；DNS 与分流路由现在复用完整数组校验，拒绝空洞、对象键及超限输入，校验失败不写配置或执行服务命令。请求入口同时在 jsonc 解码前拒绝 `null` 值，防止解码器直接丢弃字段与数组末尾；字符串中的“null”、引号及反斜线转义不受影响。路由按数字地址与前缀合并等价项，保留首次出现顺序与不同前缀；输入预算先于去重，后续非法条目仍拒绝整次提交。DNS 的服务器地址比较键每次校验只计算一次。
