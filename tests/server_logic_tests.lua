@@ -49,6 +49,14 @@ test("revision respects OpenWrt signed 32-bit formatting",function()
     string.format=native_format
     check(ok and #result==24,"revision failed on OpenWrt's integer ABI")
 end)
+test("revision consumes complete chunks, empty fields and binary separators",function()
+    check(logic.revision("a","\0","bc","\0","def","\0","")=="d16bd13ac484f87400000009")
+    check(logic.revision("","a\0b","","c\0def\0")=="d16bd13ac484f87400000009")
+    local first,last=string.rep("x",262144),string.rep("y",262144)
+    check(logic.revision(first,"\0",last)==logic.revision(first.."\0"..last))
+    check(logic.revision(first,"\0",last)~=logic.revision(last,"\0",first))
+    check(logic.revision("a","\0","bc")~=logic.revision("ab","\0","c"))
+end)
 test("URL validation blocks credentials and injection",function()
     for _,s in ipairs({"https://vpn.example.com:4443","https://192.168.19.254:4443","https://[2001:db8::1]:443"}) do check(logic.url(s)) end
     for _,s in ipairs({"http://example.com","https://user:pass@example.com","https://example.com\nPassword=bad","https://example.com?secret","https://example.com:0","https://999.1.1.1","https://example.com\\bad","https://[:::1]"}) do check(not logic.url(s)) end
@@ -748,6 +756,55 @@ test("a malformed hash can be reset without treating the old record as valid",fu
 end)
 test("backend default plain auth and no hash disclosure",function()
     reset();local data=backend.data();check(data.auth=="plain" and data.supported and data.running and data.users[1].password==nil)
+end)
+test("configuration snapshots reject files changed after UCI loading or final field reads",function()
+    local uci=package.loaded["luci.model.uci"]
+    local original_cursor=uci.cursor
+    for _,package in ipairs({"ocserv","firewall"}) do
+        for _,phase in ipairs({"load","fields"}) do
+            reset()
+            local function change()
+                local writer=cursor()
+                if package=="ocserv" then writer:set(package,"config","max_clients","32")
+                else writer:set(package,"ocserv_vpn_entry","dest_port","5555") end
+                writer:commit(package)
+            end
+            uci.cursor=function()
+                local c=cursor()
+                if phase=="load" then change()
+                else
+                    local get=c.get_all
+                    c.get_all=function(...)
+                        local value=get(...);change();return value
+                    end
+                end
+                return c
+            end
+            local ok,err=pcall(backend.data)
+            uci.cursor=original_cursor
+            check(not ok and type(err)=="table" and err.code=="stale_revision",
+                "published old UCI fields with a new revision: "..package.."/"..phase)
+            check(#S.disk_events==0 and #S.commands==0,"inconsistent snapshot performed runtime work")
+            local data=backend.data()
+            if package=="ocserv" then check(data.settings.max_clients=="32") end
+            check(data.revision==logic.revision(S.files["/etc/config/ocserv"].."\0"..
+                S.files["/etc/config/firewall"].."\0"..TEST_TEMPLATE.."\0"))
+        end
+    end
+end)
+test("snapshot verification propagates reread failures without writes or commands",function()
+    local uci=package.loaded["luci.model.uci"]
+    local original_cursor=uci.cursor
+    for _,path in ipairs({"/etc/config/ocserv","/etc/config/firewall"}) do
+        reset()
+        uci.cursor=function()local c=cursor();S.fail_read=path;return c end
+        local ok,err=pcall(backend.data)
+        uci.cursor=original_cursor
+        check(not ok and type(err)=="table" and err.code=="read_failed")
+        check(#S.disk_events==0 and #S.commands==0 and S.closed_read==path)
+        S.fail_read=nil
+        check(backend.data().settings.max_clients=="16")
+    end
 end)
 test("saving an unchanged account avoids flash writes",function()
     reset();local result=request(edit());check(result.effect=="unchanged" and S.files["/etc/ocserv/easy-backup/ocserv.uci"]==nil)

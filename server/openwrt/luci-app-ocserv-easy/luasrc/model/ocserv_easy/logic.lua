@@ -150,13 +150,18 @@ function M.url(value)
     if port and (#port > 5 or tonumber(port) < 1 or tonumber(port) > 65535) then return nil end
     return value:gsub("/$", ""), host
 end
-function M.revision(value)
+function M.revision(...)
     -- Optimistic concurrency token, not a password hash or an authentication token.
-    local a, b = 1, 7
-    for i = 1,#value do local c=value:byte(i); a=(a*131+c)%4294967296; b=(b*65599+c)%4294967296 end
+    -- Consume bounded files separately instead of allocating a combined snapshot.
+    local a, b, size = 1, 7, 0
+    for part=1,select("#",...) do
+        local value=select(part,...)
+        size=size+#value
+        for i=1,#value do local c=value:byte(i); a=(a*131+c)%4294967296; b=(b*65599+c)%4294967296 end
+    end
     -- OpenWrt Lua uses a signed 32-bit lua_Integer and rejects %x arguments
     -- above INT_MAX. Format each checksum as two bounded 16-bit halves.
-    return string.format("%04x%04x%04x%04x%08x",math.floor(a/65536),a%65536,math.floor(b/65536),b%65536,#value)
+    return string.format("%04x%04x%04x%04x%08x",math.floor(a/65536),a%65536,math.floor(b/65536),b%65536,size)
 end
 function M.password_hash(value)
     return M.text(value,512) and value:match("^%$[A-Za-z0-9]+%$[^:%s]+%$[./A-Za-z0-9]+$")~=nil

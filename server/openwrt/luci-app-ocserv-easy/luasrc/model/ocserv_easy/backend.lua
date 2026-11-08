@@ -52,6 +52,8 @@ local function capabilities()
     end)
 end
 local function snapshot()
+    local raw=read(config_path) or ""
+    local firewall_raw=read(firewall_path)
     local c=uci.cursor()
     logic.require(c:load("ocserv") and c:get("ocserv","config")=="ocserv","unknown_schema")
     local firewall_loaded=c:load("firewall") == true
@@ -59,13 +61,15 @@ local function snapshot()
     c:foreach("ocserv","ocservusers",function(s) users[#users+1]={id=s[".name"],name=s.name,group=s.group,password=s.password} end)
     c:foreach("ocserv","dns",function(s) dns[#dns+1]={id=s[".name"],ip=s.ip} end)
     c:foreach("ocserv","routes",function(s) routes[#routes+1]={id=s[".name"],ip=s.ip,netmask=s.netmask} end)
-    local raw=read(config_path) or ""
-    local firewall_raw=read(firewall_path)
+    local config=c:get_all("ocserv","config")
+    -- LuCI reads can overlap a commit (including an editor outside our lease).
+    -- Never attach a newer file revision to fields loaded from older contents.
+    logic.require(raw==(read(config_path) or "") and firewall_raw==read(firewall_path),"stale_revision")
     local template=read(template_path) or ""
     local extra=read(local_path) or ""
-    return {cursor=c,config=c:get_all("ocserv","config"),users=users,dns=dns,routes=routes,raw=raw,
+    return {cursor=c,config=config,users=users,dns=dns,routes=routes,raw=raw,
         firewall_loaded=firewall_loaded,firewall_raw=firewall_raw,template=template,extra=extra,
-        revision=logic.revision(raw.."\0"..(firewall_raw or "").."\0"..template.."\0"..extra)}
+        revision=logic.revision(raw,"\0",firewall_raw or "","\0",template,"\0",extra)}
 end
 function M.status(fresh)
     local result={running=running(),online={},recovery_pending=configuration.pending()}
@@ -79,7 +83,7 @@ end
 function M.data(admin)
     local s=snapshot(); local state=M.status(true)
     state.version=version()
-    state.ui_version="0.6.14"
+    state.ui_version="0.6.15"
     state.supported=logic.supported_version(state.version)
     state.capabilities=capabilities()
     state.revision=s.revision
