@@ -6,8 +6,10 @@ import sys
 
 ROOT = Path(__file__).resolve().parents[1]
 from lupa.lua51 import LuaRuntime
+from lua_json import install
 
 lua = LuaRuntime(unpack_returned_tuples=True)
+install(lua)
 source = ROOT / 'server/openwrt/luci-app-ocserv-easy/luasrc'
 for path in source.rglob('*.lua'):
     lua.execute('assert(loadstring(...))', path.read_text(encoding='utf-8'))

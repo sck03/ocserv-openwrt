@@ -415,6 +415,41 @@ test("incomplete guard metadata is reported without breaking status or losing re
         check(equal(files,S.files) and equal(cfg,S.cfg) and S.nft)
     end
 end)
+test("wire null guard values cannot truncate recovery or discard UCI options",function()
+    local json=require "luci.jsonc";local parse=json.parse
+    for _,field in ipairs({"ops","files","option","list"}) do
+        reset();enable();local state=decode(S.files[root.."state.json"])
+        if field=="ops" or field=="files" then state[field][#state[field]+1]="NULL_FIXTURE"
+        else
+            local op
+            for _,item in ipairs(state.ops) do if item.key then op=item;break end end
+            check(op)
+            op.before=field=="list" and {"lan","NULL_FIXTURE"} or "NULL_FIXTURE"
+        end
+        local raw=TEST_JSON_ENCODE(state):gsub('"NULL_FIXTURE"','null')
+        S.files[root.."state.json"]=raw
+        json.parse=function(value)if value==raw then return TEST_JSON_DECODE(value)end return parse(value)end
+        local files=clone(S.files);local cfg=clone(S.cfg);local commands=#S.commands
+        local status=guard.status(admin,false)
+        check(status.phase=="recovery_failed" and status.reason=="guard_state_invalid",field)
+        expect("guard_state_invalid",function()guard.begin("disable",admin)end)
+        expect("guard_state_invalid",function()guard.work(true)end)
+        check(equal(files,S.files) and equal(cfg,S.cfg) and #S.commands==commands and S.nft)
+    end
+    json.parse=parse
+end)
+test("quoted null in guard snapshots survives wire decoding and restoration",function()
+    reset();S.files["/etc/ocserv/ocserv.conf.local"]='# annulled "null" \\ path\n'
+    local before=S.files["/etc/ocserv/ocserv.conf.local"]
+    enable();local state=decode(S.files[root.."state.json"])
+    local raw=TEST_JSON_ENCODE(state)
+    S.files[root.."state.json"]=raw
+    local json=require "luci.jsonc";local parse=json.parse
+    json.parse=function(value)if value==raw then return TEST_JSON_DECODE(value)end return parse(value)end
+    check(guard.status(admin,false).phase=="enabled")
+    disable();check(S.files["/etc/ocserv/ocserv.conf.local"]==before)
+    json.parse=parse
+end)
 test("invalid guard targets and UCI values are rejected before any recovery side effect",function()
     local corruptions={
         function(s)s.ops[1].package="network"end,

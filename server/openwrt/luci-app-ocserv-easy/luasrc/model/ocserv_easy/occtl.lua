@@ -10,7 +10,7 @@ local function query(arguments, timeout)
     for _, argument in ipairs(arguments) do command[#command + 1] = argument end
     local code, output = run(command, timeout)
     -- jsonc maps both [] and {} to empty Lua tables. Check the wire shape too.
-    if code ~= 0 or not output:match("^%s*%[") then return nil end
+    if code ~= 0 or not output:match("^%s*%[") or logic.json_has_null(output) then return nil end
     local rows = json.parse(output)
     return logic.array(rows) and rows or nil
 end

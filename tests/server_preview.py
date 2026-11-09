@@ -8,7 +8,9 @@ from urllib.parse import parse_qs, urlsplit
 
 ROOT=Path(__file__).resolve().parents[1]
 from lupa.lua51 import LuaRuntime, lua_type
+from lua_json import install
 lua=LuaRuntime(unpack_returned_tuples=True)
+install(lua)
 source=ROOT/'server/openwrt/luci-app-ocserv-easy/luasrc/model/ocserv_easy'
 for path in source.glob('*.lua'):
     lua.execute('package.preload[...] = assert(loadstring(select(2,...)))','luci.model.ocserv_easy.'+path.stem,path.read_text(encoding='utf-8'))
@@ -21,6 +23,7 @@ fixture.reset()
 backend=fixture.backend
 safe_call=lua.eval('function(fn,...) local ok,result=pcall(fn,...);return ok,result end')
 guard_lua=LuaRuntime(unpack_returned_tuples=True)
+install(guard_lua)
 for path in source.glob('*.lua'):
     guard_lua.execute('package.preload[...] = assert(loadstring(select(2,...)))','luci.model.ocserv_easy.'+path.stem,path.read_text(encoding='utf-8'))
 guard_lua.globals().TEST_TEMPLATE=lua.globals().TEST_TEMPLATE

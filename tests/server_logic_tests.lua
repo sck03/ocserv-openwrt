@@ -33,6 +33,16 @@ test("JSON null filtering preserves quoted text and escaped string boundaries",f
     end
     check(logic.json_has_null([[{"password":"backslash\\","dns":[null]}]]))
 end)
+test("JSON null scanning handles large snapshots and every escaped quote boundary",function()
+    for count=0,32 do
+        local prefix='{"snapshot":"'..string.rep('\\',count)
+        local raw=prefix..'"null"}'
+        check(logic.json_has_null(raw)==(count%2==0))
+    end
+    local snapshot='{"snapshot":"'..string.rep('annulled \\" null ',10000)..'"'
+    check(not logic.json_has_null(snapshot..'}'))
+    check(logic.json_has_null(snapshot..',"files":[null]}'))
+end)
 test("1.6 minimum and future versions",function()
     for _,v in ipairs({"1.6.0","1.6.0-r1","1.7.0","2.0.0"}) do check(logic.supported_version(v)) end
     for _,v in ipairs({"1.5.0","1.5.9","unknown","1.6","invalid"}) do check(not logic.supported_version(v)) end
@@ -703,6 +713,29 @@ test("IPv6-only online sessions display their assigned VPN address",function()
     reset();S.online={{ID=1,Username="ipv6-user",IPv6="fd77::2",["Last connected at"]="now"}}
     check(backend.status().online[1].vpn_ip=="fd77::2")
 end)
+test("wire null entries cannot hide online or cached sessions",function()
+    local json=require "luci.jsonc";local parse=json.parse
+    for _,raw in ipairs({'[null]','[{"ID":1,"Username":"other"},null]',
+        '[null,{"ID":1,"Username":"other"}]','[{"ID":1,"Username":null}]'}) do
+        reset();S.online_output=raw;S.sessions_output=raw;S.fail_terminate=true
+        json.parse=function(value)if value==raw then return TEST_JSON_DECODE(value)end return parse(value)end
+        check(backend.status().online_error,"null online entry was lost: "..raw)
+        local config,passwd=S.files["/etc/config/ocserv"],S.files["/var/etc/ocpasswd"]
+        expect("terminate_failed",function()request(edit("FixturePassword"))end)
+        check(S.files["/etc/config/ocserv"]==config and S.files["/var/etc/ocpasswd"]==passwd)
+    end
+    json.parse=parse
+end)
+test("quoted null and empty session arrays remain valid wire replies",function()
+    reset();local json=require "luci.jsonc";local parse=json.parse
+    local raw='[{"ID":1,"Username":"null","Groupname":"escaped\\\"null\\\\"}]'
+    json.parse=function(value)if value==raw or value=="[]" then return TEST_JSON_DECODE(value)end return parse(value)end
+    S.online_output=raw;check(backend.status(true).online[1].name=="null")
+    S.online_output="[]";check(not backend.status(true).online_error)
+    S.sessions_output="[]";S.fail_terminate=true
+    check(request(edit("FixturePassword")).effect=="terminated")
+    json.parse=parse
+end)
 test("failed online command cannot publish partial output as success",function()
     reset();S.online_code=124;S.online={{ID=1,Username="partial"}}
     check(backend.status().online_error)
@@ -1132,6 +1165,24 @@ test("repeated restoration skips unchanged files and retains the journal for run
     check(S.files["/etc/config/ocserv"]==before and S.files["/etc/nikki/ucode/hijack.ut"]==nil)
     tx.restore();check(#S.disk_events==writes and tx.pending())
     tx.finish();check(not tx.pending())
+end)
+test("wire null recovery entries retain every file and the durable journal",function()
+    local tx=require "luci.model.ocserv_easy.configuration"
+    local json=require "luci.jsonc";local parse=json.parse
+    local marker="/etc/ocserv/easy-transaction/state.json"
+    for _,field in ipairs({"files","proxy"}) do
+        reset();local before=S.files["/etc/config/ocserv"];local state=tx.begin(true)
+        tx.replace(state,"ocserv",before,before.."\ninterrupted")
+        if field=="files" then state.files[#state.files+1]="NULL_FIXTURE" else state.proxy="NULL_FIXTURE" end
+        local raw=TEST_JSON_ENCODE(state):gsub('"NULL_FIXTURE"','null')
+        S.files[marker]=raw
+        json.parse=function(value)if value==raw then return TEST_JSON_DECODE(value)end return parse(value)end
+        local lease=require "luci.model.ocserv_easy.lease";lease.release(assert(lease.acquire()))
+        local files=clone(S.files);local writes=#S.disk_events;local commands=#S.commands
+        expect("rollback_failed",function()backend.recover(false)end)
+        check(logic.equal(files,S.files) and #S.disk_events==writes and #S.commands==commands,field)
+    end
+    json.parse=parse
 end)
 test("boot recovery restores configuration without starting runtime services",function()
     reset();local tx=require "luci.model.ocserv_easy.configuration"

@@ -5,21 +5,19 @@ local M = {}
 function M.fail(code) error({ code = code }, 0) end
 function M.require(ok, code) if not ok then M.fail(code) end return ok end
 -- jsonc converts JSON null to nil, losing array tails and explicit fields.
--- Actions have no nullable fields. Inspect tokens before decoding, while
--- leaving quoted text (including escaped quotes/backslashes) untouched.
+-- Actions, recovery journals and occtl replies have no nullable fields.
+-- Skip string spans in C instead of visiting every snapshot byte in Lua.
 function M.json_has_null(value)
     if not value:find("null",1,true) then return false end
-    local quoted,escaped=false,false
-    for i=1,#value do
+    local quoted,offset=false,1
+    while true do
+        local i=value:find(quoted and '[\\"]' or '[n"]',offset)
+        if not i then return false end
         local byte=value:byte(i)
-        if quoted then
-            if escaped then escaped=false
-            elseif byte==92 then escaped=true
-            elseif byte==34 then quoted=false end
-        elseif byte==34 then quoted=true
-        elseif byte==110 and value:sub(i,i+3)=="null" then return true end
+        if byte==34 then quoted=not quoted
+        elseif not quoted and value:sub(i,i+3)=="null" then return true end
+        offset=i+(quoted and byte==92 and 2 or 1)
     end
-    return false
 end
 -- JSON objects and sparse tables must not silently lose entries in ipairs().
 function M.array(value, limit)

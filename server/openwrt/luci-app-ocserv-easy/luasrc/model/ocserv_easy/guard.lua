@@ -41,6 +41,7 @@ local function atomic(path,value)
 end
 local function saved()
     local raw=read(statefile); if not raw then return nil end
+    logic.require(not logic.json_has_null(raw),"guard_state_invalid")
     local state=json.parse(raw)
     state_schema.validate(state)
     return state

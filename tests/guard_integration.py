@@ -4,8 +4,10 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 from lupa.lua51 import LuaRuntime
+from lua_json import install
 
 lua = LuaRuntime(unpack_returned_tuples=True)
+install(lua)
 model = ROOT / 'server/openwrt/luci-app-ocserv-easy/luasrc/model/ocserv_easy'
 for path in model.glob('*.lua'):
     lua.execute('package.preload[...] = assert(loadstring(select(2,...)))',

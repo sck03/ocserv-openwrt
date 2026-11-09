@@ -93,6 +93,7 @@ end
 function M.restore()
     local raw = storage.read(statefile)
     if not raw then return nil end
+    logic.require(not logic.json_has_null(raw), "rollback_failed")
     local state = json.parse(raw)
     logic.require(type(state) == "table" and state.version == 1 and logic.array(state.files, 7) and
         type(state.was_running) == "boolean" and
