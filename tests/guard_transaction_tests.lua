@@ -114,9 +114,11 @@ function fs.readlink(path) if S.running and path=="/proc/101/exe" then return "/
 io.open=function(path)
     if S.fail_open==path then return nil,"Permission denied",13 end
     if S.files[path]==nil then return nil,"No such file",2 end
+    local position=1
     return {read=function(_,n)
         if S.fail_read==path then return nil,"Input/output error",5 end
-        local data=S.files[path]:sub(1,n);return #data>0 and data or nil
+        local data=S.files[path]:sub(position,position+n-1);position=position+#data
+        return #data>0 and data or nil
     end,close=function()end}
 end
 os.time=function() return S.now end

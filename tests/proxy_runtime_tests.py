@@ -23,6 +23,10 @@ class ProxyRuntimeTests(unittest.TestCase):
         self.responses = {}
         self.commands = []
         self.files = {"/proc/net/" + p: "header\n" for p in ("tcp", "tcp6", "udp", "udp6")}
+        self.opened, self.closed, self.read_sizes = [], [], []
+        self.read_failures = set()
+        self.bytes_read = 0
+        self.read_chunk = None
         self.settings = {("proxy", "tcp_mode"): "redirect", ("proxy", "udp_mode"): "tun",
                          ("routing", "tun_route_table"): "181"}
 
@@ -34,6 +38,26 @@ class ProxyRuntimeTests(unittest.TestCase):
             return value
 
         self.convert = convert
+
+        def open_file(path, _mode):
+            if path not in self.files:
+                return None, "No such file", 2
+            self.opened.append(path)
+            position = 0
+
+            def read(_file, count):
+                nonlocal position
+                self.read_sizes.append(count)
+                if path in self.read_failures:
+                    return None, "Input/output error", 5
+                if self.read_chunk:
+                    count = min(count, self.read_chunk)
+                chunk = self.files[path][position:position + count]
+                position += len(chunk)
+                self.bytes_read += len(chunk)
+                return chunk or None
+
+            return self.lua.table_from({"read": read, "close": lambda _file: self.closed.append(path)})
 
         def run(argv, _timeout):
             args = tuple(argv.values())
@@ -48,17 +72,20 @@ class ProxyRuntimeTests(unittest.TestCase):
         globals_ = self.lua.globals()
         globals_.run_fixture = run
         globals_.parse_fixture = lambda raw: convert(json.loads(raw))
-        globals_.read_fixture = lambda path: self.files.get(path)
+        globals_.open_fixture = open_file
         globals_.get_fixture = lambda _cursor, _name, section, key: self.settings.get((section, key))
         self.lua.execute('''
             package.loaded["nixio.fs"]={}
+            package.loaded["nixio"]={}
             package.loaded["luci.jsonc"]={parse=parse_fixture,stringify=function(x)return '{"name":"'..x.name..'"}' end}
             package.loaded["luci.model.ocserv_easy.process"]={run=run_fixture}
-            package.loaded["luci.model.ocserv_easy.storage"]={read=read_fixture}
+            io.open=open_fixture
             cursor={get=get_fixture}
         ''')
         self.lua.execute('package.loaded["luci.model.ocserv_easy.logic"]=assert(loadstring(...))()',
                          (MODEL / "logic.lua").read_text(encoding="utf-8"))
+        self.storage = self.lua.execute('local m=assert(loadstring(...))(); package.loaded["luci.model.ocserv_easy.storage"]=m; return m',
+                                        (MODEL / "storage.lua").read_text(encoding="utf-8"))
         self.lua.execute('package.loaded["luci.model.ocserv_easy.proxy_registry"]=assert(loadstring(...))()',
                          (MODEL / "proxy_registry.lua").read_text(encoding="utf-8"))
         self.proxy = self.lua.execute((MODEL / "proxy.lua").read_text(encoding="utf-8"))
@@ -104,6 +131,7 @@ class ProxyRuntimeTests(unittest.TestCase):
         state = self.proxy.diagnostics(self.lua.globals().cursor, "momo")
         self.assertFalse(state.targets.lan_redirect.available)
         self.assertEqual(len(state.targets.lan_redirect.ports), 0)
+        self.assertEqual(self.opened, [])
 
     def test_duplicate_and_nonliteral_targets_do_not_expose_rule_data(self):
         data = chain(28091)
@@ -164,6 +192,95 @@ class ProxyRuntimeTests(unittest.TestCase):
                 self.assertFalse(self.proxy.ready(name, True))
                 self.files["/proc/net/tcp"] = "header\n"
                 self.files["/proc/net/udp"] = "header\n"
+
+    def test_large_connection_tables_do_not_hide_dns_listeners(self):
+        for name in ("openclash", "nikki", "momo"):
+            with self.subTest(provider=name):
+                table = "fw4" if name == "openclash" else name
+                chain_name = "openclash_dns_redirect" if name == "openclash" else "lan_dns_hijack"
+                self.target(table, chain_name, 15053)
+                self.files["/proc/net/tcp"] = socket_row(443, "01") * 5000 + socket_row(15053)
+                self.files["/proc/net/udp"] = socket_row(15053, "07")
+                self.assertGreater(len(self.files["/proc/net/tcp"]), 262144)
+                self.assertTrue(self.proxy.ready(name, True))
+                self.assertEqual(self.opened, self.closed)
+
+    def test_known_targets_stop_scanning_before_unrelated_connections(self):
+        self.target("nikki", "lan_dns_hijack", 15053)
+        self.files["/proc/net/tcp"] = socket_row(15053) + socket_row(443, "01") * 5000
+        self.files["/proc/net/udp"] = socket_row(15053, "07") + socket_row(5353, "07") * 5000
+        for _ in range(100):
+            self.assertTrue(self.proxy.ready("nikki", True))
+        self.assertEqual(self.opened, self.closed)
+        self.assertEqual(len(self.opened), 200)
+        self.assertLessEqual(self.bytes_read, 100 * 8192)
+        self.assertLessEqual(max(self.read_sizes), 4096)
+        self.assertFalse(any(path.endswith("6") for path in self.opened))
+
+    def test_large_ipv6_tables_and_split_lines_preserve_listener_detection(self):
+        self.target("momo", "lan_redirect", 28091)
+        self.files["/proc/net/tcp6"] = socket_row(443, "01", True) * 3000 + socket_row(28091, ipv6=True).rstrip("\n")
+        self.read_chunk = 37
+        state = self.proxy.diagnostics(self.lua.globals().cursor, "momo")
+        self.assertTrue(state.targets.lan_redirect.ports[1].tcp)
+        self.assertEqual(self.opened, self.closed)
+
+    def test_socket_read_errors_and_scan_budgets_report_unknown(self):
+        self.target("nikki", "lan_redirect", 28091)
+        for failure in ("read", "bytes", "line"):
+            with self.subTest(failure=failure):
+                self.read_failures.clear()
+                self.files["/proc/net/tcp"] = "header\n"
+                if failure == "read":
+                    self.read_failures.add("/proc/net/tcp")
+                elif failure == "bytes":
+                    self.files["/proc/net/tcp"] = socket_row(443, "01") * 60000
+                    self.assertGreater(len(self.files["/proc/net/tcp"]), 4194304)
+                else:
+                    self.files["/proc/net/tcp"] = "x" * 4097 + "\n"
+                state = self.proxy.diagnostics(self.lua.globals().cursor, "nikki")
+                self.assertIsNone(state.targets.lan_redirect.ports[1].tcp)
+                self.assertEqual(self.opened, self.closed)
+        self.assertLessEqual(max(self.read_sizes), 4096)
+
+    def test_partial_observations_do_not_turn_unseen_targets_into_absent(self):
+        self.target("nikki", "lan_dns_hijack", 15053)
+        self.target("nikki", "lan_redirect", 28091)
+        self.files["/proc/net/tcp"] = socket_row(15053)
+        self.read_failures.add("/proc/net/tcp6")
+        state = self.proxy.diagnostics(self.lua.globals().cursor, "nikki")
+        self.assertTrue(state.targets.lan_dns_hijack.ports[1].tcp)
+        self.assertIsNone(state.targets.lan_redirect.ports[1].tcp)
+        self.assertEqual(self.opened, self.closed)
+
+    def test_line_scanner_preserves_boundaries_empty_lines_and_final_tail(self):
+        data = "a" * 4096 + "\n\ntail"
+        self.files["/scan"] = data
+        for count in (None, 1, 37, 4096):
+            self.read_chunk = count
+            lines = []
+            self.assertTrue(self.storage.scan_lines("/scan", lines.append, len(data)))
+            self.assertEqual(lines, ["a" * 4096, "", "tail"])
+        self.files["/scan"] = ""
+        self.assertTrue(self.storage.scan_lines("/scan", lambda line: self.fail(line), 0))
+        self.assertIsNone(self.storage.scan_lines("/missing", lambda line: self.fail(line)))
+        self.assertEqual(self.opened, self.closed)
+
+    def test_line_scanner_closes_on_limits_callback_failure_and_early_stop(self):
+        checked_scan = self.lua.eval('''function(path, visit, limit)
+            local ok, err=pcall(require("luci.model.ocserv_easy.storage").scan_lines,path,visit,limit)
+            return ok, type(err)=="table" and err.code or err
+        end''')
+        for data, limit in (("abcd", 3), ("a" * 4097, 8192), ("a" * 4097 + "\n", 8192)):
+            self.files["/scan"] = data
+            self.assertEqual(checked_scan("/scan", lambda line: None, limit), (False, "file_too_large"))
+        self.files["/scan"] = "first\nsecond\n"
+        fail = self.lua.eval('function() error({code="visitor_failed"},0) end')
+        self.assertEqual(checked_scan("/scan", fail, 4096), (False, "visitor_failed"))
+        lines = []
+        self.assertTrue(self.storage.scan_lines("/scan", lambda line: (lines.append(line), False)[1]))
+        self.assertEqual(lines, ["first"])
+        self.assertEqual(self.opened, self.closed)
 
     def test_stopped_momo_does_not_report_nikkis_shared_tun(self):
         self.lua.globals().run_fixture = lambda argv, timeout: (0, json.dumps({

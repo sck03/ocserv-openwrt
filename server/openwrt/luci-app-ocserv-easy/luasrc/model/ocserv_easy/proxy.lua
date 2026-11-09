@@ -5,6 +5,7 @@ local json=require "luci.jsonc"
 local logic=require "luci.model.ocserv_easy.logic"
 local run=require("luci.model.ocserv_easy.process").run
 local registry=require "luci.model.ocserv_easy.proxy_registry"
+local storage=require "luci.model.ocserv_easy.storage"
 local M={}
 M.names=registry.names
 function M.supports(name) local entry=registry.get(name); return entry and entry.adapter~=nil or false end
@@ -67,22 +68,27 @@ local function target_ports(data,kind)
     table.sort(ports)
     return ports
 end
-local function listeners()
-    local read=require("luci.model.ocserv_easy.storage").read
+local function listeners(wanted)
     local sockets={}
     for _,protocol in ipairs({"tcp","udp"}) do
-        local known=true
-        sockets[protocol]={}
+        local found,remaining,known={},0,true
+        for _ in pairs(wanted) do remaining=remaining+1 end
+        sockets[protocol]=found
         for _,suffix in ipairs({"","6"}) do
-            local ok,raw=pcall(read,"/proc/net/"..protocol..suffix)
-            if ok and raw then
-                for line in raw:gmatch("[^\n]+") do
-                    local port,state=line:match("^%s*%d+:%s+%x+:(%x+)%s+%x+:%x+%s+(%x+)")
-                    if port and state==(protocol=="tcp" and "0A" or "07") then sockets[protocol][tonumber(port,16)]=true end
+            if remaining==0 then break end
+            -- Busy routers can have socket tables larger than the configuration
+            -- file budget. Stream at most 4 MiB per table and retain only targets.
+            local ok,complete=pcall(storage.scan_lines,"/proc/net/"..protocol..suffix,function(line)
+                local port,state=line:match("^%s*%d+:%s+%x+:(%x+)%s+%x+:%x+%s+(%x+)")
+                port=port and tonumber(port,16)
+                if wanted[port] and not found[port] and state==(protocol=="tcp" and "0A" or "07") then
+                    found[port]=true; remaining=remaining-1
                 end
-            else known=false end
+                return remaining>0
+            end,4194304)
+            if not ok or not complete then known=false end
         end
-        sockets[protocol].known=known
+        found.known=known
     end
     return sockets
 end
@@ -98,7 +104,9 @@ function M.ready(name,managed)
     local data=code==0 and json.parse(out)
     local ports=target_ports(data,"redirect")
     if #ports==0 then return false end
-    local sockets=listeners()
+    local wanted={}
+    for _,port in ipairs(ports) do wanted[port]=true end
+    local sockets=listeners(wanted)
     for _,port in ipairs(ports) do
         if not sockets.tcp[port] or not sockets.udp[port] then return false end
     end
@@ -117,24 +125,29 @@ function M.diagnostics(c,name)
     result.udp_mode=c:get(name,"proxy","udp_mode")
     -- A stopped service cannot own the other provider's TUN in a shared table.
     if not running then return result end
-    local sockets=listeners()
+    local wanted={}
     local function targets(chain,kind)
         local code,out=run({"/usr/sbin/nft","-j","list","chain","inet",name,chain},3)
         local data=code==0 and json.parse(out)
         local target={available=type(data)=="table" and type(data.nftables)=="table",ports={}}
         for _,port in ipairs(target_ports(data,kind)) do
-            local entry={port=port}
-            for _,protocol in ipairs({"tcp","udp"}) do
-                if sockets[protocol][port] then entry[protocol]=true
-                elseif sockets[protocol].known then entry[protocol]=false end
-            end
-            target.ports[#target.ports+1]=entry
+            wanted[port]=true
+            target.ports[#target.ports+1]={port=port}
         end
         result.targets[chain]=target
     end
     targets("lan_dns_hijack","redirect")
     if result.tcp_mode=="redirect" then targets("lan_redirect","redirect") end
     if result.tcp_mode=="tproxy" or result.udp_mode=="tproxy" then targets("lan_tproxy","tproxy") end
+    local sockets=listeners(wanted)
+    for _,target in pairs(result.targets) do
+        for _,port in ipairs(target.ports) do
+            for _,protocol in ipairs({"tcp","udp"}) do
+                if sockets[protocol][port.port] then port[protocol]=true
+                elseif sockets[protocol].known then port[protocol]=false end
+            end
+        end
+    end
     if result.tcp_mode=="tun" or result.udp_mode=="tun" then
         -- Both upstream init scripts use table 81 when the option is absent.
         local routing_table=tonumber(c:get(name,"routing","tun_route_table") or "81")
