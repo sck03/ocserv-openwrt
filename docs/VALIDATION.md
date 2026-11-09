@@ -12,6 +12,10 @@
 
 精简证据位于 `artifacts/verification/2026-11-09-socket-scanning/`。本轮未连接真实 N1、未重新构建客户端，源码推送不更新设备或已有安装包。
 
+应用提交 [`9ff206d`](https://github.com/sck03/ocserv-openwrt/commit/9ff206d) 的 [GitHub 验证 42611248838](https://github.com/sck03/ocserv-openwrt/actions/runs/42611248838) 全部通过，额外确认 Linux 安装恢复与锁竞争 50、证书 14、密码文件 9、真实 nftables 报文 22 项。OpenClash、Nikki、Momo 各通过 19 项页面流程，31 项请求生命周期检查通过。附件通过 GitHub SHA-256 与 ZIP CRC 校验，保留 14 份精简 JSON/日志。本次使用 `validate_only=true`、`publish_release=false`，未构建六架构 APK 或发布 Release。
+
+清理 50 个测试输出、Python 缓存及临时验证脚本，共 575,667 字节；保留精简验证证据。核对的发行包和私有配置共 83 个文件清理前后 SHA-256 一致，备份与许可证保留。
+
 ## 2026-11-09 JSON 恢复与会话边界、扫描性能
 
 管理页更新为 0.6.16-r1。修改前回归复现 `[null]` 被误判为空会话列表、普通恢复清单尾部 `null` 被丢弃后继续恢复，以及隔离恢复操作尾部被丢弃后仍显示有效的问题。请求入口、普通/隔离恢复记录和会话响应现在复用解码前扫描；损坏恢复记录在写入和服务操作前失败并保留现场，无法核实账号撤销时回滚配置及密码文件。当前格式不接受 nullable 字段，原值不存在仍用 `false` 表达，没有新增旧格式兼容路径。
