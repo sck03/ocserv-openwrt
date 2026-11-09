@@ -12,6 +12,10 @@
 
 精简证据位于 `artifacts/verification/2026-11-09-json-boundaries/`。本轮未连接真实 N1、未重新构建客户端，源码推送不更新设备或已有安装包。
 
+应用提交 [`d583c25`](https://github.com/sck03/ocserv-openwrt/commit/d583c25) 的 [GitHub 验证 42539159466](https://github.com/sck03/ocserv-openwrt/actions/runs/42539159466) 全部通过，额外确认 Linux 安装恢复与锁竞争 50、证书 14、密码文件 9、真实 nftables 报文 22 项。OpenClash、Nikki、Momo 各通过 19 项页面流程，31 项请求生命周期检查通过。附件通过 GitHub SHA-256 与 ZIP CRC 校验，保留 14 份精简 JSON/日志。本次使用 `validate_only=true`、`publish_release=false`，未构建六架构 APK 或发布 Release。
+
+清理 53 个临时检查工具、上游检查副本、测试输出和 Python 缓存文件，共 617,133 字节；保留精简验证证据。发行包、私有配置及备份共 85 个文件清理前后 SHA-256 一致。
+
 ## 2026-11-09 配置快照一致性与修订计算内存优化
 
 管理页更新为 0.6.15-r1。修改前回归复现 UCI 已加载旧字段、文件随后被其他提交更新时，页面仍返回旧字段与新修订号的问题；后续保存可能因此漏掉冲突。现在读取 UCI 前后按完整内容核对 ocserv 与防火墙文件，包含最后一次字段读取；有变化返回 `stale_revision`，核验读取失败保留 `read_failed`。失败发生在后续查询、写入或服务操作之前，不新增自动重试、锁或临时文件。刷新可获得最新配置。
