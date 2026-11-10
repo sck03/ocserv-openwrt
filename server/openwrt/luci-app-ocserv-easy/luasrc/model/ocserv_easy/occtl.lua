@@ -13,7 +13,17 @@ local function query(arguments, timeout, max_rows, visit)
 end
 
 local function text(value, limit)
-    return type(value) == "string" and value:sub(1, limit or 128) or ""
+    if type(value) ~= "string" then return "" end
+    limit = limit or 128
+    if #value <= limit then return value end
+    -- Keep the byte budget without splitting a UTF-8 code point. Only inspect
+    -- the cut boundary; do not decode/copy an entire potentially large field.
+    while limit > 0 do
+        local byte = value:byte(limit + 1)
+        if byte < 128 or byte >= 192 then break end
+        limit = limit - 1
+    end
+    return value:sub(1, limit)
 end
 
 function M.online()
@@ -22,8 +32,9 @@ function M.online()
         if type(row.Username) ~= "string" then return false end
         local id = tonumber(row.ID)
         if not id or id % 1 ~= 0 or id < 1 or id > 2147483647 then return false end
+        local ipv4 = text(row.IPv4)
         rows[#rows + 1] = {id = tostring(id), name = text(row.Username, 64), group = text(row.Groupname),
-            ip = text(row["Remote IP"]), vpn_ip = text(row.IPv4 or row.IPv6),
+            ip = text(row["Remote IP"]), vpn_ip = ipv4 ~= "" and ipv4 or text(row.IPv6),
             since = text(row["Last connected at"]), state = text(row.State)}
     end)
     return ok and {online = rows} or {online = {}, online_error = true}

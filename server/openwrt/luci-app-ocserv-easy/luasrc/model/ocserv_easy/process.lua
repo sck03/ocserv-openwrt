@@ -58,16 +58,20 @@ function M.run(argv,timeout,consume,limit)
     while true do
         local drained=drain()
         if drained~=true then code=drained; break end
-        local child,state,status=nixio.waitpid(pid,"nohang")
-        if child==nil then code=125; reaped=state==10; break end -- ECHILD: no longer owned.
-        if child then
-            reaped=true
-            code=state=="exited" and status or 128
-            drained=drain()
-            if drained==true then input:close(); return code,table.concat(chunks) end
-            code=drained
-            break
+        if not reaped then
+            local child,state,status=nixio.waitpid(pid,"nohang")
+            if child==nil then code=125; reaped=state==10; break end -- ECHILD: no longer owned.
+            if child then
+                reaped=true
+                code=state=="exited" and status or 128
+                drained=drain()
+                if drained~=true then code=drained; break end
+            end
         end
+        -- Child exit and pipe EOF are separate events: descendants may still
+        -- hold stdout. EAGAIN is not completion, and their output must retain
+        -- the same deadline/budget without waiting on an already reaped PID.
+        if reaped and eof then input:close(); return code,table.concat(chunks) end
         -- A pipe at EOF is always readable/HUP. Waiting on it would spin at
         -- full CPU if a service closed stdout but had not exited yet.
         local ready,err=nixio.poll(eof and idle or watch,100)

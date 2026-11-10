@@ -11,13 +11,14 @@ MODULES = ROOT / "server/openwrt/luci-app-ocserv-easy/luasrc/model/ocserv_easy"
 
 
 class OcctlRuntimeTests(unittest.TestCase):
-    def runtime(self, output, chunk=4096, exit_code=0, delay=0):
+    def runtime(self, output, chunk=4096, exit_code=0, delay=0, pause_read=0):
         lua = LuaRuntime(unpack_returned_tuples=True)
         install(lua)
         lua.globals().output = output
         lua.globals().chunk_size = chunk
         lua.globals().exit_code = exit_code
         lua.globals().read_delay = delay
+        lua.globals().pause_read = pause_read
         lua.execute('''
             reads, closed, reaped, kills, now = 0, 0, false, 0, 0
             decoded_rows, max_decode_bytes = 0, 0
@@ -32,6 +33,9 @@ class OcctlRuntimeTests(unittest.TestCase):
                     read = function(_, count)
                         reads = reads + 1
                         now = now + read_delay
+                        if reads == pause_read or reads == pause_read + 1 and pause_read > 0 then
+                            return false, 11, "Try again"
+                        end
                         local data = output:sub(offset, offset + math.min(count, chunk_size) - 1)
                         offset = offset + #data
                         return data
@@ -39,7 +43,10 @@ class OcctlRuntimeTests(unittest.TestCase):
                 }, {close = function() closed = closed + 1 end} end,
                 fork = function() return 42 end,
                 sysinfo = function() return {uptime = now} end,
-                waitpid = function() reaped = true; return 42, "exited", exit_code end,
+                waitpid = function()
+                    assert(not reaped, "child already reaped")
+                    reaped = true; return 42, "exited", exit_code
+                end,
                 kill = function() kills = kills + 1 end,
                 poll_flags = function() return 1 end,
                 poll = function() now = now + 1; return 0 end
@@ -80,6 +87,16 @@ class OcctlRuntimeTests(unittest.TestCase):
         _, occtl = self.runtime(raw)
         self.assertTrue(occtl.absent("revoked"))
 
+    def test_streaming_waits_for_delayed_tail_after_parent_exit(self):
+        raw = json.dumps([{"ID": 1, "Username": "user"}, {"ID": 2, "Username": "other"}])
+        lua, occtl = self.runtime(raw, chunk=7, pause_read=3)
+        result = occtl.online()
+        self.assertFalse(result.online_error)
+        self.assertEqual(len(result.online), 2)
+        self.assertEqual(lua.globals().closed, 2)
+        self.assertTrue(lua.globals().reaped)
+        self.assertEqual(lua.globals().kills, 0)
+
     def test_chunk_boundaries_preserve_nested_escaped_and_unicode_fields(self):
         row = {"ID": 7, "Username": 'escape"\\null用户', "Groupname": "staff",
                "Routes": ["10.0.0.0/8", {"nested": [True, False, '}{[]\\"']}],
@@ -108,6 +125,39 @@ class OcctlRuntimeTests(unittest.TestCase):
                 self.assertEqual(len(result.online), 0)
                 self.assertFalse(occtl.absent("absent"))
                 self.assertEqual(lua.globals().closed, 4)
+
+    def test_display_fields_truncate_only_at_utf8_boundaries(self):
+        fields = {"Username": ("name", 64), "Groupname": ("group", 128),
+                  "Remote IP": ("ip", 128), "IPv4": ("vpn_ip", 128),
+                  "Last connected at": ("since", 128), "State": ("state", 128)}
+        for character in ("é", "中", "😀"):
+            width = len(character.encode("utf-8"))
+            for remaining in range(width + 1):
+                with self.subTest(character=character, remaining=remaining):
+                    row = {"ID": 1}
+                    expected = {}
+                    for source, (target, limit) in fields.items():
+                        value = "a" * (limit - remaining) + character + "tail"
+                        row[source] = value
+                        expected[target] = value.encode("utf-8")[:limit].decode("utf-8", errors="ignore")
+                    lua, occtl = self.runtime(json.dumps([row], ensure_ascii=False), chunk=7)
+                    result = occtl.online()
+                    self.assertFalse(result.online_error)
+                    # The same JSON bridge used by cache/publication must accept
+                    # the projected row, not merely the original command text.
+                    encoded = lua.globals().TEST_JSON_ENCODE(result.online[1])
+                    displayed = json.loads(encoded)
+                    for field, value in expected.items():
+                        self.assertEqual(displayed[field], value)
+
+    def test_empty_ipv4_uses_available_ipv6(self):
+        for ipv4 in (None, "", False, 0):
+            with self.subTest(ipv4=ipv4):
+                row = {"ID": 1, "Username": "user", "IPv6": "fd77::2"}
+                if ipv4 is not None:
+                    row["IPv4"] = ipv4
+                _, occtl = self.runtime(json.dumps([row]))
+                self.assertEqual(occtl.online().online[1].vpn_ip, "fd77::2")
 
     def test_empty_array_and_json_whitespace_are_valid(self):
         _, occtl = self.runtime(" \t[\r\n] \n", 1)

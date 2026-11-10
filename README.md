@@ -1,6 +1,6 @@
 # 岚序（Lansyra）
 
-岚序（Lansyra）提供 Windows 10/11 原生客户端 0.7.5、macOS 13+ Universal 客户端 0.1.5 和 Linux amd64/arm64 桌面客户端 0.1.5，以及 Android 0.2.5 / iOS 0.2.5 移动客户端。配套 ocserv 1.6.0-r1 服务端和中文管理页 0.6.18-r1。Windows 提供 x86/x64 便携包；Linux 支持 Debian 13 / Ubuntu 26.04，macOS 实际连接需要有效的 Apple 系统扩展签名。桌面安装方式见[桌面客户端说明](docs/DESKTOP.md)。服务端支持 **OpenWrt 25.12 / APK** 的六个目标，具体架构见 [OpenWrt 多架构说明](docs/OPENWRT.md)。
+岚序（Lansyra）提供 Windows 10/11 原生客户端 0.7.5、macOS 13+ Universal 客户端 0.1.5 和 Linux amd64/arm64 桌面客户端 0.1.5，以及 Android 0.2.5 / iOS 0.2.5 移动客户端。配套 ocserv 1.6.0-r1 服务端和中文管理页 0.6.19-r1。Windows 提供 x86/x64 便携包；Linux 支持 Debian 13 / Ubuntu 26.04，macOS 实际连接需要有效的 Apple 系统扩展签名。桌面安装方式见[桌面客户端说明](docs/DESKTOP.md)。服务端支持 **OpenWrt 25.12 / APK** 的六个目标，具体架构见 [OpenWrt 多架构说明](docs/OPENWRT.md)。
 
 客户端界面名称统一为 **岚序 Lansyra**，Windows 程序为 `Lansyra.exe`，Linux 包和命令为 `lansyra`，Android / iOS 默认安装 ID 为 `io.github.sck03.lansyra`，macOS 为 `io.github.sck03.lansyra.macos`。首次安装需填写服务器、账号、证书指纹并设置启动项；Apple 签名描述文件须匹配应用标识。本次维护沿用同名 Lansyra 的数据格式：升级前退出客户端并备份配置，同一用户、相同安装标识和签名下可保留现有配置。其他旧产品的数据、加密凭据和系统连接不自动迁移。
 
@@ -48,7 +48,7 @@ sh install.sh
 
 管理页按 procd 服务归属识别代理，等待 DNS 规则和实际监听就绪。代理能力由统一登记表维护；PassWall、PassWall 2、HomeProxy、SSR Plus+ 目前仅提供检测与未适配提示。0.6.13 完整校验 DNS 与分流路由列表，合并等价路由，避免异常输入被截断接收及重复路由引起无效写入和重启。只读查询统一去重与取消，未保存表单保留原修订号；异常会话列表明确报错，无法确认账号撤销时回滚配置。恢复事务完整校验并保留异常现场。具体行为见[管理页说明](docs/SERVER-UI.md)，模块职责见[架构说明](docs/ARCHITECTURE.md)。
 
-管理页 0.6.18 修复会话详情超过 128 KiB 时在线查询失败、无法核实账号撤销的问题。会话响应改为逐条解析，只保留页面需要的字段；异常或不完整结果仍拒绝。代理监听检测继续分块扫描内核连接表，只记录实际目标端口，找到后提前结束。验证与资源测量边界见[验证记录](docs/VALIDATION.md)。
+管理页 0.6.19 修复命令主进程退出后遗漏子进程输出、未继续约束管道等待的问题，同时修正在线字段截断破坏中文等 UTF-8 文本、空 IPv4 遮住 IPv6 地址的情况。会话响应逐条解析，代理监听按块扫描，只保留必要结果。验证与资源测量边界见[验证记录](docs/VALIDATION.md)。
 
 ## 构建与发行
 

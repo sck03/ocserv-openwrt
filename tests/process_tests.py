@@ -7,12 +7,13 @@ from lupa.lua51 import LuaRuntime
 
 
 class ProcessTests(unittest.TestCase):
-    def run_case(self, mode):
+    def run_case(self, mode, exit_code=0):
         lua = LuaRuntime(unpack_returned_tuples=True)
         lua.globals().mode = mode
+        lua.globals().exit_code = exit_code
         lua.execute('''
-            reads, polls, reaped, closed, killed, now = 0, 0, false, false, {}, 0
-            forked, output_closed = false, false
+            reads, polls, waits, reaped, closed, killed, now = 0, 0, 0, false, false, {}, 0
+            forked, output_closed, tail_sent = false, false, false
             local input = {
                 close=function() closed=true end,
                 setblocking=function() return mode~="blocking_failure" end,
@@ -27,6 +28,16 @@ class ProcessTests(unittest.TestCase):
                     if mode=="normal" and reads==1 then return "hello" end
                     if mode=="normal" and reaped and reads==3 then return " tail" end
                     if mode=="read_failure" or (mode=="tail_failure" and reaped) then return nil,5,"I/O error" end
+                    if mode=="delayed_tail" then
+                        if polls==0 then return false,11,"Try again" end
+                        if not tail_sent then tail_sent=true; return "late output" end
+                    end
+                    if mode=="inherited_idle" then return false,11,"Try again" end
+                    if mode=="delayed_flood" then
+                        if polls==0 then return false,11,"Try again" end
+                        return string.rep("x",4096)
+                    end
+                    if reaped then return "" end
                     return false,11,"Try again"
                 end
             }
@@ -36,10 +47,12 @@ class ProcessTests(unittest.TestCase):
                 gettimeofday=function() error("wall clock must not control deadlines") end,
                 sysinfo=function() return {uptime=now} end,
                 waitpid=function(pid,flag)
+                    waits=waits+1
+                    assert(not reaped,"child was waited on after being reaped")
                     if flag and mode=="wait_failure" then return nil,10,"No child processes" end
                     if flag and (mode=="idle" or mode=="flood" or mode=="slow" or mode=="eof" or mode=="poll_failure" or (mode=="interrupted" and polls==0)) then return false end
                     reaped=true
-                    return pid,mode=="signal" and "signaled" or "exited",mode=="failure" and 7 or 0
+                    return pid,mode=="signal" and "signaled" or "exited",mode=="failure" and 7 or exit_code
                 end,
                 kill=function(pid) killed[#killed+1]=pid end,
                 poll=function(fds)
@@ -100,6 +113,32 @@ class ProcessTests(unittest.TestCase):
     def test_descendant_output_after_parent_exit_is_bounded(self):
         code, output, state = self.run_case("tail_flood")
         self.assertEqual((code, len(output)), (124, 131072))
+        self.assertEqual(list(state.killed.values()), [-42])
+
+    def test_delayed_descendant_output_is_not_lost_after_parent_exit(self):
+        code, output, state = self.run_case("delayed_tail")
+        self.assertEqual((code, output), (0, "late output"))
+        self.assertEqual(state.waits, 1)
+        self.assertEqual(state.polls, 1)
+        self.assertEqual(len(state.killed), 0)
+
+    def test_inherited_pipe_without_output_obeys_deadline(self):
+        code, output, state = self.run_case("inherited_idle")
+        self.assertEqual((code, output), (124, ""))
+        self.assertEqual(state.waits, 1)
+        self.assertEqual(state.polls, 5)
+        self.assertEqual(list(state.killed.values()), [-42])
+
+    def test_delayed_output_preserves_parent_failure_status(self):
+        code, output, state = self.run_case("delayed_tail", exit_code=7)
+        self.assertEqual((code, output), (7, "late output"))
+        self.assertEqual(state.waits, 1)
+        self.assertEqual(len(state.killed), 0)
+
+    def test_delayed_descendant_flood_still_obeys_output_budget(self):
+        code, output, state = self.run_case("delayed_flood")
+        self.assertEqual((code, len(output)), (124, 131072))
+        self.assertEqual(state.waits, 1)
         self.assertEqual(list(state.killed.values()), [-42])
 
     def test_nonblocking_failure_closes_pipe_without_starting_child(self):
