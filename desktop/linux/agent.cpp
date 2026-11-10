@@ -1,4 +1,5 @@
 #include "agent.h"
+#include "helper_process.h"
 #include "protocol.h"
 #include <gio/gio.h>
 #include <libsecret/secret.h>
@@ -38,6 +39,7 @@ struct Request {
     GSubprocess *process = nullptr;
     GCancellable *cancel = g_cancellable_new();
     AuthReply reply;
+    bool success = false;
     std::string path, input;
     Request(LansyraAgent *owner, NMConnection *profile, NMSecretAgentOldGetSecretsFunc done, gpointer context)
         : agent(reinterpret_cast<LansyraAgent *>(g_object_ref(owner))),
@@ -63,22 +65,26 @@ void complete(Request *request, bool success) {
         nm_connection_add_setting(connection, NM_SETTING(setting));
         result = nm_connection_to_dbus(connection, NM_CONNECTION_SERIALIZE_ONLY_SECRETS);
         g_object_unref(connection);
-        if (request->process) {
-            auto *input = g_subprocess_get_stdin_pipe(request->process);
-            g_output_stream_write_all(input, "QUIT\n", 5, nullptr, nullptr, nullptr);
-            g_output_stream_close(input, nullptr, nullptr);
-        }
     } else {
         error = g_error_new_literal(NM_SECRET_AGENT_ERROR, NM_SECRET_AGENT_ERROR_USER_CANCELED,
                                     "Authentication canceled or unavailable");
-        if (request->process)
-            g_subprocess_force_exit(request->process);
     }
     request->callback(NM_SECRET_AGENT_OLD(agent), request->connection, result, error, request->data);
     if (result)
         g_variant_unref(result);
     g_clear_error(&error);
     delete request;
+}
+void finish(Request *request, bool success) {
+    if (!request->process) {
+        complete(request, false);
+        return;
+    }
+    request->success = success && request->reply.valid() && !g_cancellable_is_cancelled(request->cancel);
+    lansyra_stop_helper(request->process, request->success, [](gpointer data) {
+        auto *request = static_cast<Request *>(data);
+        complete(request, request->success);
+    }, request);
 }
 void read_reply(Request *request);
 void read_ready(GObject *stream, GAsyncResult *result, gpointer data) {
@@ -87,7 +93,7 @@ void read_ready(GObject *stream, GAsyncResult *result, gpointer data) {
     GBytes *bytes = g_input_stream_read_bytes_finish(G_INPUT_STREAM(stream), result, &error);
     if (!bytes) {
         g_clear_error(&error);
-        complete(request, false);
+        finish(request, false);
         return;
     }
     gsize size = 0;
@@ -95,7 +101,7 @@ void read_ready(GObject *stream, GAsyncResult *result, gpointer data) {
     bool valid = size && request->reply.append(block, size);
     g_bytes_unref(bytes);
     if (!valid || request->reply.complete)
-        complete(request, valid);
+        finish(request, valid);
     else
         read_reply(request);
 }
@@ -110,7 +116,7 @@ void write_ready(GObject *stream, GAsyncResult *result, gpointer data) {
     g_clear_error(&error);
     request->input.clear();
     if (!written || g_cancellable_is_cancelled(request->cancel))
-        complete(request, false);
+        finish(request, false);
     else
         read_reply(request);
 }

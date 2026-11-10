@@ -2,6 +2,8 @@
 #include "protocol.h"
 #include <iostream>
 #include <stdexcept>
+#include <cerrno>
+#include <csignal>
 
 namespace {
 void check(bool condition, const char *message) {
@@ -37,6 +39,16 @@ void request(NMSecretAgentOld *agent, NMConnection *connection, Result &result) 
                                                       NM_SECRET_AGENT_GET_SECRETS_FLAG_ALLOW_INTERACTION,
                                                       returned, &result);
 }
+void reaped(const Result &result) {
+    check(!result.failed && result.secrets, "helper shutdown lost completed authentication");
+    auto *group = g_variant_lookup_value(result.secrets, "vpn", G_VARIANT_TYPE_VARDICT);
+    auto *secrets = group ? g_variant_lookup_value(group, "secrets", G_VARIANT_TYPE("a{ss}")) : nullptr;
+    const char *pid = nullptr;
+    check(secrets && g_variant_lookup(secrets, "resolve", "&s", &pid), "fixture PID was lost");
+    check(kill(std::stoi(pid), 0) == -1 && errno == ESRCH, "completed helper process was not reaped");
+    g_variant_unref(secrets);
+    g_variant_unref(group);
+}
 } // namespace
 int main() {
     try {
@@ -70,7 +82,7 @@ int main() {
         g_object_set(vpn, NM_SETTING_VPN_SERVICE_TYPE, lansyra::Service, nullptr);
         nm_setting_vpn_add_data_item(vpn, "gateway", "fixture");
         nm_connection_add_setting(profile, NM_SETTING(vpn));
-        for (int cycle = 0; cycle < 3; ++cycle) {
+        for (int cycle = 0; cycle < 25; ++cycle) {
             lansyra_agent_select(agent, uuid);
             Result result;
             request(agent, profile, result);
@@ -118,6 +130,46 @@ int main() {
         nm_setting_vpn_remove_data_item(vpn, "padding");
         g_object_set(vpn, NM_SETTING_VPN_USER_NAME, nullptr, nullptr);
         g_object_set(setting, NM_SETTING_CONNECTION_UUID, uuid, nullptr);
+        for (const char *mode : {"linger", "early-exit"}) {
+            nm_setting_vpn_add_data_item(vpn, "gateway", mode);
+            lansyra_agent_select(agent, uuid);
+            Result finished;
+            request(agent, profile, finished);
+            wait(finished);
+            reaped(finished);
+        }
+        constexpr char full_uuid[] = "00000000-0000-4000-8000-000000000002";
+        g_object_set(setting, NM_SETTING_CONNECTION_UUID, full_uuid, nullptr);
+        nm_setting_vpn_add_data_item(vpn, "gateway", "fixture");
+        const std::string framing = "DATA_KEY=gateway\nDATA_VAL=fixture\nDATA_KEY=padding\nDATA_VAL=\nDONE\n";
+        nm_setting_vpn_add_data_item(vpn, "padding", std::string(4096 - framing.size(), 'x').c_str());
+        lansyra_agent_select(agent, full_uuid);
+        Result full;
+        unsigned ticks = 0;
+        guint heartbeat = g_timeout_add(10, [](gpointer data) -> gboolean {
+            ++*static_cast<unsigned *>(data);
+            return G_SOURCE_CONTINUE;
+        }, &ticks);
+        started = g_get_monotonic_time();
+        request(agent, profile, full);
+        wait(full);
+        g_source_remove(heartbeat);
+        check(g_get_monotonic_time() - started < 2 * G_USEC_PER_SEC && ticks >= 10,
+              "helper shutdown blocked the main loop or missed its deadline");
+        reaped(full);
+        nm_setting_vpn_remove_data_item(vpn, "padding");
+        g_object_set(setting, NM_SETTING_CONNECTION_UUID, uuid, nullptr);
+        nm_setting_vpn_add_data_item(vpn, "gateway", "linger");
+        lansyra_agent_select(agent, uuid);
+        Result shutdownCanceled;
+        request(agent, profile, shutdownCanceled);
+        g_timeout_add(100, [](gpointer data) -> gboolean {
+            lansyra_agent_cancel(NM_SECRET_AGENT_OLD(data));
+            return G_SOURCE_REMOVE;
+        }, agent);
+        wait(shutdownCanceled);
+        check(shutdownCanceled.failed && !shutdownCanceled.secrets,
+              "canceling during helper shutdown returned credentials");
         nm_setting_vpn_add_data_item(vpn, "gateway", "oversized");
         lansyra_agent_select(agent, uuid);
         Result oversized;
@@ -142,7 +194,7 @@ int main() {
         g_object_unref(agent);
         g_object_unref(bus);
         g_clear_error(&error);
-        std::cout << "Authentication helper IPC, redaction, cancellation, reuse and input limits passed\n";
+        std::cout << "Authentication helper IPC, redaction, cancellation, reuse, input limits and bounded async shutdown passed\n";
         return 0;
     } catch (const std::exception &error) {
         std::cerr << error.what() << '\n';

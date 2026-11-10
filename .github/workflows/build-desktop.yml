@@ -1,6 +1,12 @@
 name: 手动构建 macOS 和 Linux 桌面客户端
 on:
   workflow_dispatch:
+    inputs:
+      platform:
+        description: Desktop platform to validate and package
+        type: choice
+        options: [all, linux, macos]
+        default: all
 permissions:
   contents: read
 concurrency:
@@ -8,6 +14,7 @@ concurrency:
   cancel-in-progress: true
 jobs:
   linux:
+    if: inputs.platform != 'macos'
     name: Linux ${{ matrix.arch }} (Debian 13 / Ubuntu 26.04)
     strategy:
       fail-fast: false
@@ -113,6 +120,7 @@ jobs:
           if-no-files-found: ignore
           retention-days: 7
   macos:
+    if: inputs.platform != 'linux'
     name: macOS 13+ Universal (unsigned)
     runs-on: macos-15
     timeout-minutes: 90

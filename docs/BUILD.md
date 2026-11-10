@@ -15,6 +15,8 @@
 
 Actions 使用官方 checkout、cache、setup-node、setup-python、upload-artifact 和 download-artifact。JavaScript 检查用 Node.js 26，Windows 测试用 Python 3.14；用户运行客户端无需这些工具。
 
+macOS / Linux 桌面工作流的 `platform` 可选 `all`（默认）、`linux` 或 `macos`。Linux 修改可只执行双架构编译、认证 IPC 回归与四组安装启动验证，减少无关平台的构建资源消耗。
+
 服务端同样提供 `release_version` 和 `publish_release`，关闭后只生成构建附件；发布仅在 main 上执行。`build_jobs=auto` 通过 nproc 使用可用 CPU，GNU Make 和 SDK 的 Ninja 共用额度。`sdk_version` 默认 `auto`，在参数检查阶段解析为 25.12 系列最新稳定补丁版，后续全部架构使用同一版本。SDK 放在 Git 仓库之外，仅构建 ocserv 和独立中文管理页两个 APK。详见 [上游更新](UPSTREAM-UPDATES.md)。
 
 服务端的 `ocserv_version` 默认 `1.6.0`，只需填写正式版本号，脚本自动读取官网对应归档的 SHA-256。Windows 客户端也只需填写 `openconnect_version`；其他版本先通过固定官方签名密钥验证，再计算 SHA-256。默认版本复用仓库锁定值。验证任务解析一次校验值，编译和对应源码任务使用同一结果；下载归档时仍验证摘要，无需手填校验值。
