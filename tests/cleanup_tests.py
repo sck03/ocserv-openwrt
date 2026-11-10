@@ -130,7 +130,10 @@ class CleanupTests(unittest.TestCase):
         with self.hold_directory(reference):
             result = self.clean('-DeepClean', '-Apply')
             self.assertEqual(result.returncode, 0, result.stderr)
-            self.assertIn('Windows directory deletion pending: .reference', result.stdout)
+            # Some Windows/filesystem combinations unlink the name immediately
+            # despite the shared handle. Only a still-visible name needs deferral.
+            if reference.exists():
+                self.assertIn('Windows directory deletion pending: .reference', result.stdout)
             self.assertFalse((self.root / '.venv').exists())
             self.assertFalse((self.root / 'artifacts/validation').exists())
             self.assertTrue((self.root / 'private-configs/momo/config.json').is_file())
@@ -149,7 +152,8 @@ class CleanupTests(unittest.TestCase):
             shutil.rmtree(reference)
             result = self.clean('-DeepClean', '-Apply')
             self.assertEqual(result.returncode, 0, result.stderr)
-            self.assertIn('Windows directory deletion pending: .reference', result.stdout)
+            if reference.exists():
+                self.assertIn('Windows directory deletion pending: .reference', result.stdout)
             self.assertFalse((self.root / 'build').exists())
             self.assertFalse((self.root / '.venv').exists())
         self.assertFalse(reference.exists())
