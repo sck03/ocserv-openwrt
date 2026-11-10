@@ -12,16 +12,16 @@
     "sha256": "5b32369467db6e5f317aa1ed12cfcbb81ed00bdbc765450b6bfcbdc300944a58"
   },
   "openssl": {
-    "url": "https://github.com/openssl/openssl/releases/download/openssl-3.5.8/openssl-3.5.8.tar.gz",
-    "filename": "openssl-3.5.8.tar.gz",
-    "directory": "openssl-3.5.8",
-    "sha256": "a8f84a39918ec6415ce765d9b429d313ba97b8143169c172e734b9514464f5b2"
+    "url": "https://github.com/openssl/openssl/releases/download/openssl-3.5.9/openssl-3.5.9.tar.gz",
+    "filename": "openssl-3.5.9.tar.gz",
+    "directory": "openssl-3.5.9",
+    "sha256": "603f5602e2eef00d77fbd429d34dcd5822bb301757a1bc9cdb24c670f1eb859a"
   },
   "libxml2": {
-    "url": "https://distfiles.macports.org/libxml2/libxml2-2.15.3.tar.xz",
-    "filename": "libxml2-2.15.3.tar.xz",
-    "directory": "libxml2-2.15.3",
-    "sha256": "78262a6e7ac170d6528ebfe2efccdf220191a5af6a6cd61ea4a9a9a5042c7a07"
+    "url": "https://distfiles.macports.org/libxml2/libxml2-2.15.4.tar.xz",
+    "filename": "libxml2-2.15.4.tar.xz",
+    "directory": "libxml2-2.15.4",
+    "sha256": "98087fd181d9070724f3fbc65c7377db03038eb92bd882374daff44940138821"
   },
   "lz4": {
     "url": "https://github.com/lz4/lz4/releases/download/v1.10.0/lz4-1.10.0.tar.gz",

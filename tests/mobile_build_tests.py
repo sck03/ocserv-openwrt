@@ -7,6 +7,7 @@ import importlib.util
 import io
 import json
 from pathlib import Path
+import shutil
 import tarfile
 import tempfile
 import struct
@@ -77,6 +78,46 @@ class AndroidTests(unittest.TestCase):
 
 
 class SourceTests(unittest.TestCase):
+    @unittest.skipUnless((ROOT / "scripts/sources.json").is_file(), "Windows manifest is outside the mobile source bundle")
+    def test_shared_native_archives_have_the_same_checksum(self):
+        mobile = json.loads((ROOT / "mobile/sources.json").read_text())
+        windows = json.loads((ROOT / "scripts/sources.json").read_text())
+        for component in ("openconnect", "libxml2"):
+            entry = mobile[component]
+            self.assertEqual(entry["sha256"], windows[entry["filename"]]["sha256"])
+
+    def test_source_cli_follows_manifest_updates(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "scripts").mkdir()
+            (root / "mobile").mkdir()
+            for name in ("build_common.py", "source-directory.py"):
+                shutil.copyfile(ROOT / "scripts" / name, root / "scripts" / name)
+            for version in ("3.5.9", "4.1.0"):
+                pinned = "openssl-" + version
+                (root / "mobile/sources.json").write_text(json.dumps({
+                    "openssl": {"directory": pinned, "filename": pinned + ".tar.gz"}
+                }))
+                for args, expected in (([], pinned), (["--version"], version)):
+                    output = subprocess.check_output([
+                        sys.executable, root / "scripts/source-directory.py", "openssl", "--mobile", *args
+                    ], text=True)
+                    self.assertEqual(output.strip(), expected)
+
+    def test_mobile_build_rejects_unverified_or_escaping_source_selection(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "mobile").mkdir()
+            for selected, archive in (("openssl-3.5.9", "openssl-3.5.8.tar.gz"),
+                                      ("../openssl-3.5.9", "../openssl-3.5.9.tar.gz"),
+                                      ("openssl-3.5.9;id", "openssl-3.5.9;id.tar.gz")):
+                (root / "mobile/sources.json").write_text(json.dumps({
+                    "openssl": {"directory": selected, "filename": archive}
+                }))
+                with self.subTest(selected=selected), patch.object(build_common, "ROOT", root), \
+                        self.assertRaises(ValueError):
+                    build_common.source_directory("openssl", mobile=True)
+
     def test_manifest_has_fixed_https_sources(self):
         manifest = json.loads((ROOT / "mobile/sources.json").read_text())
         for entry in manifest.values():
@@ -240,7 +281,7 @@ class PackagingTests(unittest.TestCase):
 
     def test_source_keeps_mobile_build_inputs_without_unrelated_scripts(self):
         retained = ("scripts/build-ios.sh", "scripts/build-apple-core.sh", "scripts/mobile-sources.py",
-                    "scripts/build_common.py", "scripts/ios-signing.py", "scripts/package-mobile.py",
+                    "scripts/build_common.py", "scripts/source-directory.py", "scripts/ios-signing.py", "scripts/package-mobile.py",
                     "scripts/prepare-mobile-android.py", "scripts/audit-android.py")
         unrelated = ("scripts/build.ps1", "scripts/package-server.py", "scripts/build-linux.sh",
                      ".github/workflows/build-client.yml", ".github/workflows/build-server.yml")

@@ -11,6 +11,9 @@ esac
 python3 scripts/mobile-sources.py "$platform"
 root="$PWD"
 work="$root/build/$folder/$platform"
+openssl_source="$work/$(python3 scripts/source-directory.py openssl --mobile)"
+xml_source="$work/$(python3 scripts/source-directory.py libxml2 --mobile)"
+oc_source="$work/$(python3 scripts/source-directory.py openconnect --mobile)"
 sdk="$(xcrun --sdk "$sdk_name" --show-sdk-path)"
 jobs="$(sysctl -n hw.ncpu)"
 export CC="$(xcrun --sdk "$sdk_name" --find clang)"
@@ -32,11 +35,11 @@ export LDFLAGS="$CFLAGS"
 export CPP="$CC -E $CFLAGS"
 mkdir -p "$build/openssl-build"
 cd "$build/openssl-build"
-"$work/openssl-3.5.8/Configure" "$target" no-shared no-tests no-apps no-module no-async \
+"$openssl_source/Configure" "$target" no-shared no-tests no-apps no-module no-async \
   --prefix="$prefix" --libdir=lib
 make -j"$jobs" build_libs
 make install_dev
-cmake -S "$work/libxml2-2.15.3" -B "$build/xml-build" \
+cmake -S "$xml_source" -B "$build/xml-build" \
   -DCMAKE_SYSTEM_NAME="$system" -DCMAKE_OSX_SYSROOT="$sdk" -DCMAKE_OSX_ARCHITECTURES="$arch" \
   -DCMAKE_OSX_DEPLOYMENT_TARGET="$minimum" -DCMAKE_INSTALL_PREFIX="$prefix" \
   -DCMAKE_INSTALL_LIBDIR=lib -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=OFF \
@@ -48,7 +51,7 @@ export PKG_CONFIG_PATH="$PKG_CONFIG_LIBDIR"
 export CPPFLAGS="-I$prefix/include -include $root/client/apple/extension-sandbox.h"
 mkdir -p "$build/oc-build"
 cd "$build/oc-build"
-"$work/openconnect-9.21/configure" --host="$host" --prefix="$prefix" \
+"$oc_source/configure" --host="$host" --prefix="$prefix" \
   --with-openssl --without-gnutls --disable-shared --enable-static --disable-nls \
   --without-stoken --without-libpcsclite --without-gssapi --without-libproxy \
   --without-libpskc --without-lz4 --without-java --with-vpnc-script=/disabled \
@@ -57,7 +60,7 @@ cd "$build/oc-build"
   ac_cv_func_strchrnul=no CFLAGS="$CFLAGS -Werror=unguarded-availability"
 make -j"$jobs" libopenconnect.la
 cp .libs/libopenconnect.a "$prefix/lib/"
-cp "$work/openconnect-9.21/openconnect.h" "$prefix/include/"
+cp "$oc_source/openconnect.h" "$prefix/include/"
 for library in openconnect ssl crypto xml2; do
   xcrun lipo "$prefix/lib/lib$library.a" -verify_arch "$arch"
   if xcrun ar -t "$prefix/lib/lib$library.a" | grep '\.a$'; then

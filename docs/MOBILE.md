@@ -1,6 +1,6 @@
 # Lansyra Android / iOS 客户端
 
-Lansyra 移动端当前版本为 **Android 0.2.4 / iOS 0.2.4**，使用 **OpenConnect / Cisco AnyConnect 协议**连接本项目的 ocserv。Android / iOS 默认安装标识为 `io.github.sck03.lansyra`。首次安装需填写服务器、账号和指纹；同一 Lansyra 安装标识和签名下可保留现有配置，升级前应备份。iOS 与 macOS 共用 `client/apple` 中的地址、数据包与会话代码；桌面使用方法见[桌面说明](DESKTOP.md)。
+Lansyra 移动端当前版本为 **Android 0.2.5 / iOS 0.2.5**，使用 **OpenConnect / Cisco AnyConnect 协议**连接本项目的 ocserv。Android / iOS 默认安装标识为 `io.github.sck03.lansyra`。首次安装需填写服务器、账号和指纹；同一 Lansyra 安装标识和签名下可保留现有配置，升级前应备份。iOS 与 macOS 共用 `client/apple` 中的地址、数据包与会话代码；桌面使用方法见[桌面说明](DESKTOP.md)。
 
 ## GitHub Actions 构建
 
@@ -80,7 +80,7 @@ iOS 0.2.3 在 iOS 16 及后续系统读取扩展返回的最后断开原因，�
 
 ## 源码与本地复现
 
-`mobile/sources.json` 固定上游源码 URL、版本及 SHA-256；下载与缓存均校验，解包拒绝越界路径。Android 上游源码和 OpenConnect 9.21 / OpenSSL 3.5.8 / libxml2 2.15.3 / LZ4 1.10.0 的实际归档随产物提供；iOS 不使用 LZ4。Java/Maven 依赖由固定的上游 Gradle 版本目录解析。构建不是位级可复现承诺，Xcode、SDK 和包管理器的辅助工具版本仍受运行器环境影响。
+`mobile/sources.json` 固定上游源码 URL、版本及 SHA-256；下载与缓存均校验，解包拒绝越界路径。Android 编译版本和 Apple 源码目录通过 `scripts/source-directory.py --mobile` 从同一清单解析，升级依赖不再需要手动修改 shell 脚本；归档名与目录不一致时停止构建。Android 上游源码和 OpenConnect 9.21 / OpenSSL 3.5.9 / libxml2 2.15.4 / LZ4 1.10.0 的实际归档随产物提供；iOS 不使用 LZ4。Java/Maven 依赖由固定的上游 Gradle 版本目录解析。构建不是位级可复现承诺，Xcode、SDK 和包管理器的辅助工具版本仍受运行器环境影响。
 
 Android 使用 Linux、JDK 17、Android SDK 35、NDK `27.2.12479018`、CMake 和 autotools：
 

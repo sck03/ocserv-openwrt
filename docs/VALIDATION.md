@@ -2,6 +2,14 @@
 
 本页记录岚序（Lansyra）全新安装版本的验证证据与实机边界。以前的打包和系统升级记录见[历史版本](https://github.com/sck03/ocserv-openwrt/blob/ba903fe/docs/VALIDATION.md)。
 
+## 2026-11-10 原生依赖修复与统一构建来源
+
+Windows 更新为 0.7.5，macOS 0.1.5，Android / iOS 0.2.5；Linux 0.1.4、管理页 0.6.17-r1 和 ocserv 1.6.0-r1 保持原版本。本轮纳入 libxml2 2.15.4、Windows zlib 1.4、移动/Apple OpenSSL 3.5.9 LTS。实际下载的三份归档均与官方发布摘要匹配，版本选择、修复范围和 OpenSSL 4.1.0 的评估见[上游更新](UPSTREAM-UPDATES.md)。
+
+Android 与 Apple 的编译参数原来独立写死版本，可能与已校验下载清单脱节；现在共用 `source-directory.py` 从清单解析版本、目录并核对归档名，对应源码包同步包含解析入口。新增回归检查清单更新后的实际 CLI 输出、拒绝不一致/越界来源，以及 Windows 与移动端共享归档的 SHA-256 一致性；打包回归核对解析工具随源码分发。
+
+本地移动构建/打包 22、Windows 构建/打包 13、构建参数 13、发行元数据 6、发布脚本 13、Windows 网络脚本 25 项通过，共 92 项。发布脚本使用 MSYS2 Bash，没有跳过。Python 编译、shell 语法及 Git 差异检查通过；实际运行 Android 源码准备和适配成功。精简证据位于 `artifacts/verification/2026-11-10-dependencies/`。尚未在真实设备测量内存、吞吐、电量或长期重连，本轮不将上游修复数量当作性能收益。
+
 ## 2026-11-09 大连接表检测与代理扫描资源优化
 
 管理页更新为 0.6.17-r1。修改前使用实际 `storage.read` 与 Lua 5.1 复现：内核连接表超过 256 KiB 时，OpenClash、Nikki、Momo 均把已监听的 DNS 端口判为未就绪。原实现整份读取连接表，错误地套用了配置文件大小上限。现在由共享的 `storage.scan_lines` 管理分块读取与句柄关闭，代理模块只负责目标端口及协议判断。每块及每行最多 4 KiB，每张表最多扫描 4 MiB；先收集规则目标，找到全部目标后提前结束，没有目标不读连接表。读取失败或预算耗尽时，已观测端口保留为真，未确认端口保持未知。

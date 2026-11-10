@@ -43,7 +43,7 @@ Linux Release 在工具链支持时启用链接时优化；Windows 保留 `-Os` 
 
 跨平台的模块职责、数据上限、上游适配和生命周期约束见[模块边界与维护约定](ARCHITECTURE.md)。Android 的纯策略和配置编解码通过 JUnit 验证，精确源适配与存储运行层分开维护。
 
-版本和 SHA-256 集中在 scripts/sources.json。静态组件：OpenConnect 9.21、GnuTLS 3.8.13、GMP 6.3.0、Nettle 3.10.2、stoken 0.92、libxml2 2.15.3、zlib 1.3.2。驱动为未修改的官方 Wintun 0.14.1。支持软件令牌、Windows 系统证书；PKCS#11、TPM、浏览器 SSO 未启用。
+版本和 SHA-256 集中在 scripts/sources.json。静态组件：OpenConnect 9.21、GnuTLS 3.8.13、GMP 6.3.0、Nettle 3.10.2、stoken 0.92、libxml2 2.15.4、zlib 1.4。驱动为未修改的官方 Wintun 0.14.1。支持软件令牌、Windows 系统证书；PKCS#11、TPM、浏览器 SSO 未启用。
 
 上游及补丁说明见 [client/UPSTREAM.md](../client/UPSTREAM.md)。
 

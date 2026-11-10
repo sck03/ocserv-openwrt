@@ -12,9 +12,15 @@ fi
 test ! -e dist/android || { echo 'Move dist/android before rebuilding'; exit 2; }
 python3 scripts/mobile-sources.py android
 root="$PWD"
+native_args=(--abis arm64-v8a,armeabi-v7a,x86_64 --api 26)
+for component in openconnect openssl libxml2 lz4; do
+  version=$(python3 scripts/source-directory.py "$component" --mobile --version)
+  option="$component"
+  if [[ "$component" == openconnect ]]; then option=version; fi
+  native_args+=("--$option" "$version")
+done
 cd build/mobile/android/app
-bash native/build-openconnect.sh --abis arm64-v8a,armeabi-v7a,x86_64 \
-  --version 9.21 --openssl 3.5.8 --libxml2 2.15.3 --lz4 1.10.0 --api 26
+bash native/build-openconnect.sh "${native_args[@]}"
 for abi in arm64-v8a armeabi-v7a x86_64; do
   test -s "app/src/main/jniLibs/$abi/libopenconnect.so"
 done

@@ -41,7 +41,16 @@ def version():
     return match.group(1)
 
 
-def source_directory(component):
+def source_directory(component, *, mobile=False):
+    if mobile:
+        manifest = json.loads((ROOT / "mobile/sources.json").read_text(encoding="utf-8"))
+        entry = manifest[component]
+        directory = entry["directory"]
+        if not re.fullmatch(re.escape(component) + r"-[0-9]+(?:\.[0-9]+)+", directory) or entry["filename"] not in (
+            directory + ".tar.gz", directory + ".tar.xz"
+        ):
+            raise ValueError(f"Inconsistent pinned source for {component}")
+        return directory
     manifest = json.loads((ROOT / "scripts/sources.json").read_text(encoding="utf-8"))
     matches = [name for name in manifest if re.fullmatch(re.escape(component) + r"-[0-9][A-Za-z0-9.+-]*\.tar\.(gz|xz)", name)]
     if len(matches) != 1:

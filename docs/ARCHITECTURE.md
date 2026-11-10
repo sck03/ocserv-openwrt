@@ -31,6 +31,8 @@
 
 ## 生成代码与上游更新
 
+原生依赖的下载校验与编译选择共用锁定清单：Windows 使用 `scripts/sources.json`，Android / Apple 使用 `mobile/sources.json`。`build_common.source_directory` 与 `source-directory.py` 统一解析目录及版本，移动端同时核对归档名与目录名；Android 参数、Apple 配置及头文件复制不再维护独立的版本常量。解析工具随对应源码包提供。共享的 OpenConnect、libxml2 归档由回归检查跨平台 SHA-256 一致性。
+
 Android 上游保持 `mobile/sources.json` 中的固定提交和 SHA-256，不直接修改下载缓存。`prepare-mobile-android.py` 处理构建、标识和网络适配，`android_maintenance.py` 处理生命周期、存储和诊断；两者通过 `source_edits.py` 对固定源进行精确编辑。每个匹配必须唯一，输入发生变化即停止构建。纯策略源码和对应 JUnit 位于 `mobile/android/`，随适配复制到生成工程。
 
 Windows 协议修改保持为独立 OpenConnect 补丁。下载源码不变，补丁只作用于构建目录，零模糊应用。新增脚本取消补丁仍允许断开清理脚本执行，不能为了响应取消而跳过路由回收。

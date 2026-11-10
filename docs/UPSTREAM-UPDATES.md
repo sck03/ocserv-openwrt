@@ -44,4 +44,18 @@ python3 scripts/package-server.py /tmp/sdk-25.12
 
 显式配置的 Python 使用 3.14，JavaScript 检查使用 Node.js 26；`check-latest` 获取该系列最新补丁。管理页浏览器回归使用 Playwright 1.63.0，Lua 回归使用 lupa 2.8。Android JDK 17、NDK 和系统运行器保持现有构建兼容要求。
 
-2026-10-28 核对的官方核心为 [OpenConnect 9.21](https://www.infradead.org/openconnect/download/) 和 [ocserv 1.6.0](https://www.infradead.org/ocserv/download/)。[OpenWrt SDK](https://downloads.openwrt.org/releases/) 继续在每次运行时解析 25.12 系列最新稳定版。填写未来版本只负责可靠地选取官方源码，仍须通过项目的编译、测试和实际设备验收。
+## 原生依赖复核（2026-11-10）
+
+[OpenConnect 9.21](https://www.infradead.org/openconnect/download/) 和 [ocserv 1.6.0](https://www.infradead.org/ocserv/download/) 仍为官方最新正式版。OpenTunnel 最新提交仍为清单锁定的 `0535533`。[OpenWrt SDK](https://downloads.openwrt.org/releases/) 的 25.12 系列最新稳定版为 25.12.6，工作流继续在每次运行时解析该系列。GnuTLS 正式标签仍为 3.8.13；开发分支已移除内置 libtasn1 等构建选项，不能直接将未发布分支代入现有配方。
+
+| 组件 | 本轮调整 | 相关修复与适用范围 |
+|---|---|---|
+| libxml2 | 2.15.3 → 2.15.4 | [官方 NEWS](https://github.com/GNOME/libxml2/blob/v2.15.4/NEWS) 包含 Windows 静态库内存泄漏、重复释放、整数溢出与解析边界修复；更新 Windows、Android、iOS、macOS 静态核心 |
+| zlib | 1.3.2 → 1.4 | [正式发布说明](https://github.com/madler/zlib/releases/tag/v1.4) 包含解压字典/窗口越界、异常路径和 CMake 修复；更新 Windows 静态核心。上游调整了部分类型及返回值语义，需要完整重编译 |
+| OpenSSL | 3.5.8 → 3.5.9 LTS | [正式发布说明](https://github.com/openssl/openssl/releases/tag/openssl-3.5.9) 包含 DTLS 1.2 AEAD 异常报文、证书和其他边界修复；更新 Android / Apple 静态核心 |
+
+三个新归档均实际下载并校验 SHA-256。libxml2 的摘要与 GNOME 官方 `.sha256sum` 一致，清单统一使用同内容的 MacPorts HTTPS 镜像；OpenSSL、zlib 的摘要与官方 GitHub Release 资产摘要一致。系统 OpenWrt / Linux 依赖由各自软件源维护，本仓库的静态依赖更新不会替换路由器或 Linux 系统库。
+
+[OpenSSL 4.1.0](https://github.com/openssl/openssl/releases/tag/openssl-4.1.0) 已发布，新增 DTLS 1.3 和部分平台密码算法优化，但发布说明仍列出 KeyUpdate、监听错误及握手重传相关已知问题。当前 AnyConnect 协议适配也不会因替换 TLS 库自动使用 DTLS 1.3。本轮优先采用 3.5 LTS 的最新安全修复；后续切换新主版本应单独验证协议、签名、断线恢复和功耗，不为旧产品增加兼容层，也不把新库的算法优化直接写成 VPN 吞吐收益。
+
+Android、Apple 的源码路径与版本参数现从清单统一解析，避免下载新版本后编译脚本仍选择旧版本。填写未来版本只负责选取源码，仍须通过项目编译、测试和实际设备验收。

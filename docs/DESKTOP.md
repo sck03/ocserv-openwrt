@@ -1,6 +1,6 @@
 # macOS 与 Linux 桌面客户端
 
-macOS 0.1.4 支持 macOS 13+，同一应用包含 Apple Silicon 和 Intel；Linux 0.1.4 支持 Debian 13 / Ubuntu 26.04 的 amd64、arm64。Windows 0.7.4 支持 Windows 10/11，见[Windows 使用说明](CLIENT.md)。
+macOS 0.1.5 支持 macOS 13+，同一应用包含 Apple Silicon 和 Intel；Linux 0.1.4 支持 Debian 13 / Ubuntu 26.04 的 amd64、arm64。Windows 0.7.5 支持 Windows 10/11，见[Windows 使用说明](CLIENT.md)。
 
 | 平台 | 界面与隧道 | 认证与密码 | 安装包 |
 |---|---|---|---|

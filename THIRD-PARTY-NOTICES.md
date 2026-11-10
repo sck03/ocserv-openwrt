@@ -9,8 +9,8 @@ The application is GPL-3.0-or-later. Static linking does not remove third-party 
 | GMP | 6.3.0 | LGPL-3.0-or-later / GPL-2.0-or-later | Static arithmetic |
 | Nettle / Hogweed | 3.10.2 | LGPL-3.0-or-later / GPL-2.0-or-later | Static cryptography |
 | stoken | 0.92 | LGPL-2.1-or-later | Static RSA software-token support |
-| libxml2 | 2.15.3 | MIT and notices in Copyright | Static XML parser |
-| zlib | 1.3.2 | zlib license | Static compression |
+| libxml2 | 2.15.4 | MIT and notices in Copyright | Static XML parser |
+| zlib | 1.4 | zlib license | Static compression |
 | nlohmann/json | 3.12.0 | MIT | Vendored single-header JSON parser |
 | OpenConnect GUI | v1.6.2, c89e5dc00a2b24e5b1c84855b91bcdda3aee4d86 | GPL-2.0-or-later | Profile, dialog and connection lifecycle adaptations |
 | vpnc-scripts | ce9e961bd0f6b867e1c7c35f78f6fb973f6ff101 | GPL-2.0; see upstream COPYING and notices | Windows routing script with logging and error-handling changes |
@@ -21,7 +21,7 @@ The application is GPL-3.0-or-later. Static linking does not remove third-party 
 | ocserv | 1.6.0 | GPL-2.0-or-later | Server; source included in server artifacts |
 | LuCI reference source | SDK-selected feed revision in BUILDINFO.json | Upstream LuCI notices | Feed source bundled; the shipped page is luci-app-ocserv-easy |
 | OpenTunnel | 0535533dfb7d3a656bfdb880d51f731c109135c1 | LGPL-2.1; upstream LICENSE and individual notices | Android app and native build recipe; separate application ID and Chinese launcher name |
-| OpenSSL (Android / Apple) | 3.5.8 | Apache-2.0 | Static mobile and macOS TLS library |
+| OpenSSL (Android / Apple) | 3.5.9 | Apache-2.0 | Static mobile and macOS TLS library |
 | GTK 3 / GLib | Debian 13 / Ubuntu 26.04 system packages | LGPL-2.1-or-later and individual notices | Linux desktop system libraries; not bundled |
 | libnm / NetworkManager OpenConnect | Debian 13 / Ubuntu 26.04 system packages | LGPL-2.1-or-later / GPL-2.0-or-later and individual notices | Linux system VPN and authentication integration; not bundled |
 | libsecret | System package | LGPL-2.1-or-later | Linux keyring cleanup; not bundled |
