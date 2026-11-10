@@ -8,7 +8,15 @@ Windows 更新为 0.7.5，macOS 0.1.5，Android / iOS 0.2.5；Linux 0.1.4、管�
 
 Android 与 Apple 的编译参数原来独立写死版本，可能与已校验下载清单脱节；现在共用 `source-directory.py` 从清单解析版本、目录并核对归档名，对应源码包同步包含解析入口。新增回归检查清单更新后的实际 CLI 输出、拒绝不一致/越界来源，以及 Windows 与移动端共享归档的 SHA-256 一致性；打包回归核对解析工具随源码分发。
 
-本地移动构建/打包 22、Windows 构建/打包 13、构建参数 13、发行元数据 6、发布脚本 13、Windows 网络脚本 25 项通过，共 92 项。发布脚本使用 MSYS2 Bash，没有跳过。Python 编译、shell 语法及 Git 差异检查通过；实际运行 Android 源码准备和适配成功。精简证据位于 `artifacts/verification/2026-11-10-dependencies/`。尚未在真实设备测量内存、吞吐、电量或长期重连，本轮不将上游修复数量当作性能收益。
+本地移动构建/打包 22、Windows 构建/打包 13、构建参数 13、发行元数据 6、发布脚本 13、Windows 网络脚本 25、服务端打包 10、清理脚本 10 项通过，共 112 项。发布脚本使用 MSYS2 Bash，没有跳过。Python 编译、shell 语法及 Git 差异检查通过；实际运行 Android 源码准备和适配成功。精简证据位于 `artifacts/verification/2026-11-10-dependencies/`。尚未在真实设备测量内存、吞吐、电量或长期重连，本轮不将上游修复数量当作性能收益。
+
+首次 Windows CI 编译及 x86 原生回归成功，x64 在清理测试中因两项环境假设失败，未执行后续应用测试。部分 Windows/文件系统允许持有共享删除句柄时立即移除目录名，测试现仅在路径仍可见时要求等待删除提示；仍检查其他目标继续清理、句柄释放后目录消失及私有文件保护。修正后本地 10 项完整回归通过；首次本地运行另有一项 30 秒超时，单独重跑及修正后的完整运行均通过。
+
+提交 [`e01121f`](https://github.com/sck03/ocserv-openwrt/commit/e01121f) 的 [Android 三架构构建](https://github.com/sck03/ocserv-openwrt/actions/runs/42727961872)、[iOS 未签名构建](https://github.com/sck03/ocserv-openwrt/actions/runs/42727967426)、[macOS Universal 与 Linux 双架构构建](https://github.com/sck03/ocserv-openwrt/actions/runs/42727971872) 均成功，包含 Android 单元测试/16 KiB ELF 对齐与签名检查、Apple 地址/网络设置/数据包检查、Linux 认证与桌面回归及 Debian 13 / Ubuntu 26.04 四组安装启动检查。Android 对应源码包、iOS/macOS 构建附件通过 GitHub SHA-256 与 ZIP CRC 校验；源码包中的解析工具、构建脚本及清单与本地源码一致（换行归一化后），Apple BUILDINFO 确认新依赖版本。Apple 产物未签名，不代表真机系统扩展已授权。
+
+清理测试修正提交 [`424d9b7`](https://github.com/sck03/ocserv-openwrt/commit/424d9b7) 的 [Windows 双架构构建与原生回归](https://github.com/sck03/ocserv-openwrt/actions/runs/42730186000) 全部通过，包括清理边界、UI、配置、资源和回环认证检查。Windows 使用 `publish_release=false`，本轮仅推送源码并生成 Actions 验证产物，没有发布 Release 或修改真实设备。
+
+清理脚本移除 181 个本地生成文件及 Python 缓存，共 61,595,128 字节（约 58.7 MiB），随后移除本轮一次性 CI 工具与其字节码缓存；85 个既有发行包、私有配置及备份文件清理前后 SHA-256 一致。保留锁定源码归档、许可证和精简验证证据。
 
 ## 2026-11-09 大连接表检测与代理扫描资源优化
 
