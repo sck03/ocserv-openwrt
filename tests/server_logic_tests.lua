@@ -360,7 +360,7 @@ local function cursor(directory,savedir)
         end
     }
 end
-local function run(argv)
+local function run(argv,timeout,consume)
     local command=table.concat(argv," ");S.commands[#S.commands+1]=command
     if command==S.fail_command then S.fail_command=nil;return 1,"fixture failure" end
     if argv[1]=="/usr/bin/certtool" then
@@ -375,8 +375,15 @@ local function run(argv)
         if S.capabilities_timeout then return 124,"" end
         return 0,"terminate user\nshow sessions all"
     end
-    if command:find("occtl -j show users",1,true)then return S.online_code or 0,S.online_output or "[ONLINE]"end
-    if command:find("occtl -j show sessions all",1,true)then return S.bad_sessions and 1 or 0,S.sessions_output or "[SESSIONS]"end
+    if command:find("occtl -j show",1,true) then
+        local online=argv[4]=="users"
+        local rows=online and S.online or S.sessions
+        local raw=(online and S.online_output or S.sessions_output) or (next(rows) and TEST_JSON_ENCODE(rows) or "[]")
+        local code=online and (S.online_code or 0) or (S.bad_sessions and 1 or 0)
+        if not consume then return code,raw end
+        for at=1,#raw,4096 do if consume(raw:sub(at,at+4095))==false then return 125,"" end end
+        return code,""
+    end
     if command:find("occtl terminate user",1,true)then return S.fail_terminate and 1 or 0,""end
     if command:find("occtl disconnect id",1,true)then return 0,"disconnected"end
     if command=="/etc/init.d/ocserv enabled"then return 0,""end
@@ -398,10 +405,10 @@ package.loaded["luci.model.ocserv_easy.process"]={run=run}
 package.loaded["luci.jsonc"]={
     stringify=function(value) S.json=S.json or {};local key="JSON"..tostring(#S.json+1);S.json[#S.json+1]=clone(value);return key end,
     parse=function(value)
-        if value=="[ONLINE]"then return clone(S.online)elseif value=="[SESSIONS]"then return clone(S.sessions)end
-        if value=="{}"then return {} end
         local index=type(value)=="string" and tonumber(value:match("^JSON(%d+)$"))
-        return index and S.json and clone(S.json[index]) or nil
+        if index then return S.json and clone(S.json[index]) end
+        local ok,decoded=pcall(TEST_JSON_DECODE,value)
+        return ok and decoded or nil
     end
 }
 local backend=require "luci.model.ocserv_easy.backend"

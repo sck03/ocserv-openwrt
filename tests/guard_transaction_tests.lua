@@ -142,12 +142,15 @@ function nixio.poll(_,ms)
         guard.begin("confirm",admin,state.token)
     end
 end
-local function run(args)
+local function run(args,timeout,consume)
     local command=table.concat(args," "); S.commands[#S.commands+1]=command
     if command==S.fail_command then S.fail_command=nil; return 1,"failure" end
     if command=="/usr/sbin/ocserv --version" then return 0,"OpenConnect VPN Server 1.6.0\n" end
     if command=="/usr/bin/occtl --help" then return 0,"terminate user" end
-    if command=="/usr/bin/occtl -j show users" then return 0,encode({}) end
+    if command=="/usr/bin/occtl -j show users" then
+        if consume then consume("[]"); return 0,"" end
+        return 0,"[]"
+    end
     if command=="/etc/init.d/ocserv restart" then
         S.running=false; S.files["/var/run/ocserv.pid"]=nil; S.ocserv_ready_at=nil
         if not S.ocserv_never_ready then

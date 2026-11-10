@@ -111,6 +111,7 @@ python tests/client_build_tests.py
 python tests/mobile_build_tests.py
 python tests/server_package_tests.py
 python tests/process_tests.py
+python tests/occtl_runtime_tests.py
 python tests/server_controller_tests.py
 node client/tests/script_tests.js
 ~~~

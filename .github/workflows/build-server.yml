@@ -91,6 +91,7 @@ jobs:
           python tests/proxy_lifecycle_tests.py
           python tests/proxy_runtime_tests.py 2>&1 | tee test-results/proxy-runtime-tests.log
           python tests/process_tests.py
+          python tests/occtl_runtime_tests.py 2>&1 | tee test-results/occtl-runtime-tests.log
           python tests/server_install_tests.py
           python tests/server_userfile_tests.py
           node --check server/openwrt/luci-app-ocserv-easy/htdocs/luci-static/resources/ocserv-easy/app.js
@@ -143,6 +144,7 @@ jobs:
             test-results/server-regressions.json
             test-results/guard-transactions.json
             test-results/proxy-runtime-tests.log
+            test-results/occtl-runtime-tests.log
             test-results/server-certificates.json
             test-results/server-install.json
             test-results/server-userfile.json

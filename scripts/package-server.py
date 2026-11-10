@@ -76,10 +76,13 @@ def main():
         for relative in ("etc/init.d/ocserv-easy-guard", "usr/libexec/ocserv-easy-guard"):
             if not (ui_roots[0] / relative).stat().st_mode & 0o111:
                 raise RuntimeError("Guard runtime is not executable: " + relative)
-        for module in ("guard.lua", "guard_state.lua", "proxy.lua", "proxy_registry.lua", "guard_log.lua", "process.lua", "backend.lua", "occtl.lua", "logic.lua", "firewall.lua", "storage.lua", "configuration.lua", "query_cache.lua", "lease.lua"):
-            relative = "usr/lib/lua/luci/model/ocserv_easy/" + module
-            if sha256(ui_roots[0] / relative) != sha256(ROOT / "server/openwrt/luci-app-ocserv-easy/luasrc/model/ocserv_easy" / module):
-                raise RuntimeError("Stale management module: " + module)
+        module_root = Path("server/openwrt/luci-app-ocserv-easy/luasrc/model/ocserv_easy")
+        for source_file in source_files(ROOT, (module_root.as_posix(),), ()):
+            if source_file.suffix != ".lua":
+                continue
+            module = source_file.relative_to(ROOT / module_root)
+            if sha256(ui_roots[0] / "usr/lib/lua/luci/model/ocserv_easy" / module) != sha256(source_file):
+                raise RuntimeError("Stale management module: " + module.as_posix())
         for relative in ("controller/ocserv_easy.lua", "view/ocserv_easy/index.htm"):
             if sha256(ui_roots[0] / "usr/lib/lua/luci" / relative) != sha256(ROOT / "server/openwrt/luci-app-ocserv-easy/luasrc" / relative):
                 raise RuntimeError("Stale management entry point: " + relative)

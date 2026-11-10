@@ -2,8 +2,12 @@
 local nixio=require "nixio"
 local M={}
 -- No shell, bounded output and execution. Secret input is never accepted here.
--- 124: deadline/output limit; 125: runner I/O failure; 127: spawn/exec failure.
-function M.run(argv,timeout)
+-- 124: deadline/output limit; 125: I/O/consumer failure; 127: spawn/exec failure.
+function M.run(argv,timeout,consume,limit)
+    -- Larger output is allowed only for streaming consumers. Ordinary callers
+    -- retain the shared 128 KiB capture budget and the same return contract.
+    limit=consume and limit or 131072
+    assert(type(limit)=="number" and limit>=1 and limit%1==0)
     local input,output=nixio.pipe()
     if not input then return 127,"" end
     -- Configure before fork: a failed fcntl must never leave a blocking read
@@ -41,10 +45,14 @@ function M.run(argv,timeout)
             -- nixio returns false for EAGAIN/EWOULDBLOCK, nil for I/O errors.
             if chunk==false then return true end
             if chunk==nil then return 125 end
-            local remaining=131072-size
-            chunks[#chunks+1]=chunk:sub(1,remaining)
+            local remaining=limit-size
+            if not consume then chunks[#chunks+1]=chunk:sub(1,remaining) end
             size=size+#chunk
-            if size>131072 then return 124 end
+            if size>limit then return 124 end
+            if consume then
+                local ok,accepted=pcall(consume,chunk)
+                if not ok or accepted==false then return 125 end
+            end
         end
     end
     while true do

@@ -132,7 +132,7 @@ class ServerPackageTests(unittest.TestCase):
         with zipfile.ZipFile(archive) as contents:
             with tarfile.open(fileobj=io.BytesIO(contents.read(archive.stem + "/source/openwrt-recipes.tar.gz"))) as recipes:
                 self.assertIn("openwrt/ocserv/Makefile", recipes.getnames())
-                for module in ("storage.lua", "configuration.lua", "query_cache.lua", "lease.lua", "proxy.lua", "proxy_registry.lua", "guard_state.lua", "occtl.lua"):
+                for module in ("storage.lua", "configuration.lua", "query_cache.lua", "lease.lua", "proxy.lua", "proxy_registry.lua", "guard_state.lua", "occtl.lua", "json_array.lua"):
                     self.assertIn("openwrt/luci-app-ocserv-easy/luasrc/model/ocserv_easy/" + module, recipes.getnames())
                 self.assertNotIn("openwrt/ocserv/private.key", recipes.getnames())
 
@@ -184,6 +184,14 @@ class ServerPackageTests(unittest.TestCase):
         checksum = package.sha256(archive)
         (self.ui_stage / "usr/lib/lua/luci/model/ocserv_easy/occtl.lua").write_text("return {}\n")
         with self.assertRaisesRegex(RuntimeError, "Stale management module: occtl.lua"):
+            self.bundle()
+        self.assertEqual(package.sha256(archive), checksum)
+
+    def test_stale_stream_framer_rejects_the_bundle(self):
+        archive = self.bundle()
+        checksum = package.sha256(archive)
+        (self.ui_stage / "usr/lib/lua/luci/model/ocserv_easy/json_array.lua").write_text("return {}\n")
+        with self.assertRaisesRegex(RuntimeError, "Stale management module: json_array.lua"):
             self.bundle()
         self.assertEqual(package.sha256(archive), checksum)
 
