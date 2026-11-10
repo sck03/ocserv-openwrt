@@ -12,6 +12,10 @@
 
 本地服务端逻辑 122、隔离事务 106、会话流式边界 14、命令执行 16、控制器 11、代理运行 20、代理生命周期 6、服务端打包 11、配置生成 4、构建参数 13、发行元数据 6、发布脚本 13、清理脚本 10 项通过，共 352 项。配置与发布检查使用 MSYS2 shell，没有跳过；49 份 Python 语法、管理页 JavaScript 语法与 Git 差异检查通过。打包按源码清单自动审计全部 Lua 模块，新分帧模块的源码包含与过期实包拒绝回归通过。精简证据位于 `artifacts/verification/2026-11-10-session-streaming/`。
 
+应用提交 [`4d36a80`](https://github.com/sck03/ocserv-openwrt/commit/4d36a80) 的 [GitHub 验证 42747537879](https://github.com/sck03/ocserv-openwrt/actions/runs/42747537879) 全部通过，额外确认 Linux 安装恢复与锁竞争 50、证书 14、密码文件 9、真实 nftables 报文 22 项。OpenClash、Nikki、Momo 各通过 19 项浏览器流程，31 项请求生命周期回归通过；新的 14 项会话流式边界也在 CI 通过。附件核对 GitHub SHA-256 与 ZIP CRC，仅保留 15 份 JSON/日志。本次使用 `validate_only=true`、`publish_release=false`，未编译六架构 APK 或发布 Release，未连接真实 N1、手机或修改客户端运行代码。
+
+清理 23 个测试输出、参考源码、Python 缓存和一次性 CI 工具，共 186,369 字节；保留精简验证证据。83 个既有发行包及私有配置文件清理前后 SHA-256 一致，源码、备份和许可证保留。
+
 ## 2026-11-10 原生依赖修复与统一构建来源
 
 Windows 更新为 0.7.5，macOS 0.1.5，Android / iOS 0.2.5；Linux 0.1.4、管理页 0.6.17-r1 和 ocserv 1.6.0-r1 保持原版本。本轮纳入 libxml2 2.15.4、Windows zlib 1.4、移动/Apple OpenSSL 3.5.9 LTS。实际下载的三份归档均与官方发布摘要匹配，版本选择、修复范围和 OpenSSL 4.1.0 的评估见[上游更新](UPSTREAM-UPDATES.md)。
