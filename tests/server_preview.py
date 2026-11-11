@@ -64,7 +64,7 @@ class Handler(BaseHTTPRequestHandler):
         self.send_response(status);self.send_header('Content-Type',mime);self.send_header('Content-Length',str(len(raw)));self.send_header('Cache-Control','no-store');self.end_headers();self.wfile.write(raw)
     def do_GET(self):
         parts=urlsplit(self.path)
-        if parts.path in ('/app.js','/style.css'):
+        if parts.path in ('/app.js','/table.js','/style.css'):
             self.send((resources/parts.path[1:]).read_bytes(),'text/javascript; charset=utf-8' if parts.path.endswith('.js') else 'text/css; charset=utf-8');return
         if parts.path in ('/easy/data','/easy/status'):
             self.send(json.dumps({'ok':True,'data':data(status=parts.path.endswith('/status'))}));return
@@ -80,7 +80,7 @@ class Handler(BaseHTTPRequestHandler):
         self.send('''<!doctype html><html lang="zh"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>岚序 Lansyra 管理页预览</title>
 <style>body{margin:0;background:#f5f7fa;font:15px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:#24354b}nav{background:#243850;color:white;padding:15px 32px}main{padding:22px 32px}button{padding:6px 13px;border:1px solid #c8d2df;background:#fff;color:#294666;font:inherit}input,select,textarea{border:1px solid #c8d2df;border-radius:5px;padding:7px 9px;background:#fff;color:#24354b;font:inherit}.cbi-button-apply,.cbi-button-add{background:#275eaa;color:white;border-color:#275eaa}.cbi-button-remove{color:#a13929}.demo{float:right;color:#d4e4fb;font-size:13px}summary{cursor:pointer;margin:24px 0 18px;font-weight:600}</style>
 <link rel="stylesheet" href="/style.css"><nav>OpenWrt · VPN / 岚序 Lansyra <span class="demo">界面预览 · 模拟数据 / Preview · Simulated data</span></nav><main><div id="ocserv-easy"></div></main>
-<script id="ocserv-easy-options" type="application/json">'''+opts+'''</script><script src="/app.js" defer></script></html>''','text/html; charset=utf-8')
+<script id="ocserv-easy-options" type="application/json">'''+opts+'''</script><script src="/table.js" defer></script><script src="/app.js" defer></script></html>''','text/html; charset=utf-8')
     def do_POST(self):
         global guard_revision,guard_worker
         size=int(self.headers.get('Content-Length','0'))

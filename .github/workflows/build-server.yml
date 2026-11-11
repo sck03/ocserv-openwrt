@@ -94,7 +94,7 @@ jobs:
           python tests/occtl_runtime_tests.py 2>&1 | tee test-results/occtl-runtime-tests.log
           python tests/server_install_tests.py
           python tests/server_userfile_tests.py
-          node --check server/openwrt/luci-app-ocserv-easy/htdocs/luci-static/resources/ocserv-easy/app.js
+          for script in server/openwrt/luci-app-ocserv-easy/htdocs/luci-static/resources/ocserv-easy/*.js; do node --check "$script"; done
           for script in server/tools/*.sh; do bash -n "$script"; done
           bash -n scripts/publish-release.sh
       - name: Resolve official ocserv source checksum
@@ -131,7 +131,10 @@ jobs:
             done
             curl -fsS http://127.0.0.1:22981/ >/dev/null || { cat "test-results/server-preview-$proxy.log"; exit 1; }
             python tests/server_ui_tests.py --browser-channel "$browser_channel" --proxy "$proxy" --output "test-results/server-ui/$proxy"
-            if [[ "$proxy" == OpenClash ]]; then python tests/server_polling_tests.py --browser-channel "$browser_channel"; fi
+            if [[ "$proxy" == OpenClash ]]; then
+              python tests/server_polling_tests.py --browser-channel "$browser_channel"
+              python tests/server_table_tests.py --browser-channel "$browser_channel"
+            fi
             kill "$preview_pid"
             wait "$preview_pid" || true
             trap - EXIT
@@ -151,6 +154,7 @@ jobs:
             test-results/vpn-guard-tests.log
             test-results/server-ui/
             test-results/server-polling.json
+            test-results/server-tables/
             test-results/server-preview-*.log
           if-no-files-found: error
           retention-days: 7

@@ -88,15 +88,14 @@ def main():
                 raise RuntimeError("Stale management entry point: " + relative)
         dynamic = subprocess.check_output(["readelf", "-d", str(executables[0])], text=True)
         ui_hashes = {}
-        for filename in ("app.js", "style.css"):
+        for filename in ("app.js", "table.js", "style.css"):
             assets = list((sdk / "build_dir").glob(
                 "target-*/luci-app-ocserv-easy/.pkgdir/luci-app-ocserv-easy/www/luci-static/resources/ocserv-easy/" + filename))
             if len(assets) != 1:
                 raise RuntimeError(f"Cannot locate the staged management page asset: {filename}")
-            if filename == "style.css":
-                original = ROOT / "server/openwrt/luci-app-ocserv-easy/htdocs/luci-static/resources/ocserv-easy/style.css"
-                if sha256(assets[0]) != sha256(original):
-                    raise RuntimeError("The SDK modified the management CSS; keep LUCI_MINIFY_CSS disabled")
+            original = ROOT / "server/openwrt/luci-app-ocserv-easy/htdocs/luci-static/resources/ocserv-easy" / filename
+            if sha256(assets[0]) != sha256(original):
+                raise RuntimeError("Stale or modified management asset: " + filename)
             ui_hashes[filename] = sha256(assets[0])
         revisions = {}
         for feed in ("packages", "luci"):

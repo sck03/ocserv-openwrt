@@ -9,8 +9,9 @@
         firewall_writable=firewall_writable
     }
 %>
-<link rel="stylesheet" href="<%=resource%>/ocserv-easy/style.css?v=0.6.17" />
-<div id="ocserv-easy" aria-live="polite"></div>
+<link rel="stylesheet" href="<%=resource%>/ocserv-easy/style.css?v=0.6.20" />
+<div id="ocserv-easy"></div>
 <script id="ocserv-easy-options" type="application/json"><%=require("luci.jsonc").stringify(options):gsub("<","\\u003c")%></script>
-<script src="<%=resource%>/ocserv-easy/app.js?v=0.6.17" defer></script>
+<script src="<%=resource%>/ocserv-easy/table.js?v=0.6.20" defer></script>
+<script src="<%=resource%>/ocserv-easy/app.js?v=0.6.20" defer></script>
 <%+footer%>

@@ -195,6 +195,18 @@ class ServerPackageTests(unittest.TestCase):
             self.bundle()
         self.assertEqual(package.sha256(archive), checksum)
 
+    def test_stale_or_missing_table_asset_rejects_the_bundle(self):
+        archive = self.bundle()
+        checksum = package.sha256(archive)
+        asset = self.ui_stage / "www/luci-static/resources/ocserv-easy/table.js"
+        asset.write_text("/* stale asset */\n")
+        with self.assertRaisesRegex(RuntimeError, "Stale or modified management asset: table.js"):
+            self.bundle()
+        asset.unlink()
+        with self.assertRaisesRegex(RuntimeError, "Cannot locate.*table.js"):
+            self.bundle()
+        self.assertEqual(package.sha256(archive), checksum)
+
     def test_all_targets_package_and_reject_wrong_elf(self):
         for target, config in TARGETS.items():
             with self.subTest(target=target):

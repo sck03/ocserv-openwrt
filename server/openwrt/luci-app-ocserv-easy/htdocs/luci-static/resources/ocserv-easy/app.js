@@ -5,7 +5,9 @@
     var root = document.getElementById('ocserv-easy');
     var chinese = /^zh/i.test(options.language || '');
     var state, activeTab = 'users', busy = false, modal = null, readerOpen = false, messageBox, content, statusBox, serviceButton;
-    var statusKey = null, onlineKey = null, modalCleanup = null;
+    var listViews = {users:{query:'',page:0}, online:{query:'',page:0}}, accountList = null, onlineList = null, onlineError = null;
+    var onlineCounts = Object.create(null);
+    var statusKey = null, modalCleanup = null, modalTrigger = null;
     function t(zh, en) { return chinese ? zh : en; }
     function array(value) { return Array.isArray(value) ? value : []; }
     function element(tag, attrs, children) {
@@ -181,10 +183,13 @@
     function removeModal() {
         if(modalCleanup)modalCleanup(); modalCleanup=null;
         if(modal)modal.remove(); modal=null; readerOpen=false;
+        if(modalTrigger && modalTrigger.isConnected)modalTrigger.focus();
+        modalTrigger=null;
     }
     function closeModal() { if (modal && !busy) { var refresh=readerOpen; removeModal(); if(refresh)renderTab(); } }
     function showModal(title, children, submit, label, cleanup) {
         closeModal();
+        modalTrigger=document.activeElement;
         modalCleanup=cleanup;
         loadRead.cancel(); statusRead.cancel();
         var errorBox=element('div',{className:'easy-notice error',hidden:true});
@@ -198,11 +203,12 @@
         });
         modal=element('div',{className:'easy-modal-backdrop'},[element('div',{className:'easy-modal',role:'dialog','aria-modal':'true','aria-labelledby':'easy-modal-title'},[form])]);
         modal.addEventListener('keydown',function(event){
-            if (event.key==='Escape') closeModal();
+            if (event.key==='Escape') {event.preventDefault();closeModal();}
             if (event.key==='Tab') {
-                var fields=Array.from(modal.querySelectorAll('input,button,select,textarea')).filter(function(n){return !n.disabled && !n.hidden;});
+                var fields=Array.from(modal.querySelectorAll('input,button,select,textarea,summary,[tabindex="0"]')).filter(function(n){return !n.disabled && n.getClientRects().length;});
                 var first=fields[0], last=fields[fields.length-1];
-                if (event.shiftKey && document.activeElement===first) {event.preventDefault();last.focus();}
+                if (!first)event.preventDefault();
+                else if (event.shiftKey && document.activeElement===first) {event.preventDefault();last.focus();}
                 else if (!event.shiftKey && document.activeElement===last) {event.preventDefault();first.focus();}
             }
         });
@@ -249,40 +255,61 @@
             password.value=repeat.value='';
         },t('保存并生效','Save and activate'));
     }
-    function table(headers,rows) {
-        return element('div',{className:'easy-scroll'},[element('table',{},[element('thead',{},[element('tr',{},headers.map(function(h){return element('th',{text:h});}))]),element('tbody',{},rows.length?rows:[element('tr',{},[element('td',{colspan:headers.length,className:'easy-muted',text:t('暂无记录','No records')})])])])]);
+    function createList(view,headers,searchLabel,searchText,renderRow) {
+        return window.LansyraTable({view:view,headers:headers,searchText:searchText,renderRow:renderRow,labels:{
+            search:searchLabel,previous:t('上一页','Previous'),next:t('下一页','Next'),
+            empty:t('暂无记录','No records'),noMatches:t('没有匹配的记录，请调整搜索条件。','No matching records. Try another search.'),
+            count:function(first,last,count,total){return t(first+'–'+last+' / '+count+' 条',first+'–'+last+' of '+count)+(count===total?'':t('（全部 '+total+' 条）',' ('+total+' total)'));},
+            page:function(page,total){return t('第 '+page+' / '+total+' 页','Page '+page+' of '+total);}
+        }});
+    }
+    function updateOnlinePresence() {
+        onlineCounts=Object.create(null);
+        if(!state.online_error)array(state.online).forEach(function(row){
+            if(typeof row.name!=='string' || !row.name)return;
+            onlineCounts[row.name]=(onlineCounts[row.name] || 0)+1;
+        });
+        // Update only visible badges; account actions keep their DOM and focus.
+        if(accountList)accountList.element.querySelectorAll('.easy-presence').forEach(renderPresence);
+    }
+    function renderPresence(badge) {
+        var count=onlineCounts[badge.dataset.account] || 0;
+        var text=state.online_error?t('未知','Unknown'):count?t('在线','Online')+(count>1?' ('+count+')':''):t('离线','Offline');
+        var className='easy-presence '+(!state.online_error && count?'easy-good':'easy-muted');
+        if(badge.textContent!==text)badge.textContent=text;
+        if(badge.className!==className)badge.className=className;
     }
     function renderUsers() {
-        var search=element('input',{type:'search',placeholder:t('搜索账号','Search accounts'),'aria-label':t('搜索账号','Search accounts')});
-        var list=element('div',{});
-        function rows() {
-            list.replaceChildren(table([t('登录账号','Username'),t('用户组','Group'),t('状态','Status'),t('操作','Actions')],array(state.users).filter(function(user){return user.name.toLowerCase().includes(search.value.toLowerCase());}).map(function(user){
+        accountList=createList(listViews.users,[t('登录账号','Username'),t('用户组','Group'),t('账号状态','Account status'),t('在线状态','Online'),t('操作','Actions')],
+            t('搜索账号','Search accounts'),function(user){return user.name;},function(user){
                 var toggle=mutationButton(user.enabled?t('停用','Disable'):t('恢复','Enable'),function(){
                     confirm(user.enabled?t('停用账号','Disable account'):t('恢复账号','Enable account'),user.name+' — '+(user.enabled?t('此账号将无法登录，现有登录也会失效。','This account will be blocked and existing sessions revoked.'):t('恢复后可使用原密码登录。','The existing password will work again.')),{action:'save_user',id:user.id,name:user.name,group:user.group,password:'',enabled:!user.enabled});
                 });
                 if(user.needs_password)toggle.disabled=true;
-                return element('tr',{},[element('td',{text:user.name}),element('td',{text:user.group}),element('td',{className:user.needs_password?'easy-bad':user.enabled?'easy-good':'easy-muted',text:user.needs_password?t('需重设密码','Reset password'):user.enabled?t('已启用','Enabled'):t('已停用','Disabled')}),element('td',{},[element('div',{className:'easy-buttons'},[
+                var presence=element('span',{'data-account':user.name});
+                renderPresence(presence);
+                return element('tr',{},[element('td',{text:user.name}),element('td',{text:user.group}),element('td',{className:user.needs_password?'easy-bad':user.enabled?'easy-good':'easy-muted',text:user.needs_password?t('需重设密码','Reset password'):user.enabled?t('已启用','Enabled'):t('已停用','Disabled')}),element('td',{},[presence]),element('td',{},[element('div',{className:'easy-buttons'},[
                     mutationButton(user.needs_password?t('重设密码','Reset password'):t('修改','Edit'),function(){editUser(user);}),toggle,
                     mutationButton(t('删除','Delete'),function(){confirm(t('删除账号','Delete account'),t('删除账号“','Delete account "')+user.name+t('”？该账号的旧登录将失效。','"? Previous sessions will be revoked.'),{action:'delete_user',id:user.id});},'cbi-button-remove')
                 ])])]);
-            })));
-        }
-        search.addEventListener('input',rows); rows();
+            });
+        accountList.update(array(state.users));
         if(array(state.users).some(function(user){return user.needs_password;}))content.appendChild(element('div',{className:'easy-notice error'},[
             element('p',{text:t('部分账号的密码记录无效，请点击“重设密码”后重新登录。','Some accounts have invalid password records. Reset their passwords before signing in.')}),
         ]));
-        content.appendChild(element('section',{className:'easy-card'},[element('div',{className:'easy-heading'},[element('h3',{text:t('登录账号','Accounts')}),mutationButton(t('＋ 添加账号','＋ Add account'),function(){editUser(null);},'cbi-button-add')]),search,list]));
-        var online=element('section',{className:'easy-card',id:'easy-online'}); content.appendChild(online); renderOnline();
+        content.appendChild(element('section',{className:'easy-card',id:'easy-accounts'},[element('div',{className:'easy-heading'},[element('h3',{text:t('登录账号','Accounts')}),mutationButton(t('＋ 添加账号','＋ Add account'),function(){editUser(null);},'cbi-button-add')]),accountList.element]));
+        onlineList=createList(listViews.online,[t('账号','Username'),t('来源 IP','Remote IP'),t('VPN IP','VPN IP'),t('连接时间','Connected'),t('操作','Actions')],
+            t('搜索在线账号或 IP','Search connections by account or IP'),function(row){return row.name+' '+row.ip+' '+row.vpn_ip;},function(row){
+            return element('tr',{},[element('td',{text:row.name}),element('td',{text:row.ip}),element('td',{text:row.vpn_ip}),element('td',{text:row.since || row.state}),element('td',{},[mutationButton(t('断开','Disconnect'),function(){confirm(t('断开连接','Disconnect'),row.name+' — '+t('仅断开此连接；如需禁止登录，请停用账号。','Disconnect this connection. Disable the account to prevent sign-in.'),{action:'disconnect',id:row.id});})])]);
+        });
+        onlineError=element('p',{className:'easy-online-error easy-bad',role:'status',hidden:true,text:t('在线状态暂不可用，账号显示为“未知”。请检查网络连接或 occtl，页面会自动重试。','Online status is unavailable; accounts show Unknown. Check the connection or occtl. The page will retry automatically.')});
+        content.appendChild(element('section',{className:'easy-card',id:'easy-online'},[element('h3',{text:t('在线连接','Online connections')}),onlineError,onlineList.element]));
+        renderOnline();
     }
     function renderOnline() {
-        var online=document.getElementById('easy-online'); if(!online)return;
-        var key=JSON.stringify([state.online,state.online_error]);
-        if(key===onlineKey)return;
-        onlineKey=key;
-        online.replaceChildren(element('h3',{text:t('在线连接','Online connections')}),table([t('账号','Username'),t('来源 IP','Remote IP'),t('VPN IP','VPN IP'),t('连接时间','Connected'),t('操作','Actions')],array(state.online).map(function(row){
-            return element('tr',{},[element('td',{text:row.name}),element('td',{text:row.ip}),element('td',{text:row.vpn_ip}),element('td',{text:row.since || row.state}),element('td',{},[mutationButton(t('断开','Disconnect'),function(){confirm(t('断开连接','Disconnect'),row.name+' — '+t('仅断开此连接；如需禁止登录，请停用账号。','Disconnect this connection. Disable the account to prevent sign-in.'),{action:'disconnect',id:row.id});})])]);
-        })));
-        if(state.online_error)online.appendChild(element('p',{className:'easy-bad',text:t('无法读取在线列表，请检查 occtl。','Cannot read the online list. Check occtl.')}));
+        if(!onlineList)return;
+        onlineList.update(state.online_error?[]:array(state.online));
+        onlineError.hidden=!state.online_error;
     }
     function renderSettings() {
         var s=state.settings, inputs={};
@@ -433,6 +460,7 @@
     function renderStatus() {
         var label=state.running?t('停止服务','Stop service'):t('启动服务','Start service');
         if(serviceButton.textContent!==label)serviceButton.textContent=label;
+        updateOnlinePresence();
         renderOnline();
         var key=JSON.stringify([state.running,array(state.online).length,state.online_error,array(state.users).length]);
         if(key===statusKey)return;
@@ -442,13 +470,14 @@
     }
     function renderTab() {
         formEdited=false;
-        onlineKey=null;
+        accountList=null; onlineList=null; onlineError=null;
         content.replaceChildren();
         if(activeTab==='users')renderUsers(); else if(activeTab==='settings')renderSettings(); else if(activeTab==='guard')renderGuard(); else renderExport();
         root.querySelectorAll('[role="tab"]').forEach(function(b){b.setAttribute('aria-selected',String(b.dataset.tab===activeTab));});
     }
     function render() {
         removeModal(); root.replaceChildren();
+        accountList=null; onlineList=null; onlineError=null;
         serviceButton=mutationButton('',function(){
             confirm(state.running?t('停止 VPN','Stop VPN'):t('启动 VPN','Start VPN'),state.running?t('所有 VPN 连接将断开。','All VPN connections will close.'):t('使用已保存的配置启动服务。','Start the service with saved settings.'),{action:'service',command:state.running?'stop':'start',allow_restart:true});
         });
@@ -458,7 +487,7 @@
             mutationButton(state.autostart?t('关闭开机启动','Disable autostart'):t('开机自动启动','Enable autostart'),function(){complete({action:'service',command:state.autostart?'disable':'enable'}).catch(function(e){notice(errorText(e),true);});})
         ]);
         root.appendChild(element('div',{className:'easy-heading'},[element('div',{},[element('h2',{text:'岚序 Lansyra'}),element('span',{className:'easy-muted',text:t('管理页 ','UI ')+state.ui_version+' · ocserv '+state.version})]),actions]));
-        messageBox=element('div',{className:'easy-notice',hidden:true});root.appendChild(messageBox);
+        messageBox=element('div',{className:'easy-notice',role:'status',hidden:true});root.appendChild(messageBox);
         statusBox=element('div',{className:'easy-summary'});statusKey=null;root.appendChild(statusBox);renderStatus();
         if(state.installation_pending)root.appendChild(element('p',{className:'easy-notice error',text:t('安装尚未完成。请在完整服务端套装目录重新运行 sh install.sh，完成证书和 VPN 网络初始化。','Installation is incomplete. Run sh install.sh again from the complete server bundle to finish certificate and VPN network initialization.')}));
         if(state.recovery_pending)notice(errors.recovery_pending,true);
@@ -490,9 +519,11 @@
         if(!state || busy || loadRead.pending || (modal && !readerOpen) || document.hidden || statusPending)return;
         statusPending=true;
         try {
-            var snapshot=state, generation=loadGeneration;
-            var current=await statusRead.run();
-            if(!current || busy || loadRead.pending || state!==snapshot || generation!==loadGeneration || document.hidden || (modal && !readerOpen))return;
+            var snapshot=state, generation=loadGeneration, statusFailed=false;
+            var current=await statusRead.run().catch(function(){statusFailed=true;});
+            if(busy || loadRead.pending || state!==snapshot || generation!==loadGeneration || document.hidden || (modal && !readerOpen))return;
+            if(statusFailed){state.online_error=true;renderStatus();return;}
+            if(!current)return;
             state.running=current.running;state.online=current.online;state.online_error=current.online_error;
             var previous=state.guard && state.guard.phase;
             // Lightweight disabled status omits topology. Retain the last full
