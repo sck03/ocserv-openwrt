@@ -187,7 +187,7 @@ package.loaded["nixio.fs"]=fs
 package.loaded["luci.model.uci"]={cursor=function()return cursor()end}
 package.loaded["uci"]={cursor=cursor}
 package.loaded["luci.jsonc"]={parse=decode,stringify=encode}
-package.loaded["luci.model.ocserv_easy.process"]={run=run}
+package.loaded["ocserv.process"]={run=run}
 guard=require "luci.model.ocserv_easy.guard"
 local function enable() guard.begin("enable",admin); guard.work(false); check(guard.status(admin).phase=="enabled",decode(S.files[root.."result.json"]) and decode(S.files[root.."result.json"]).failure) end
 local function disable() guard.begin("disable",admin); guard.work(false); check(guard.status(admin).phase=="disabled") end
@@ -793,6 +793,13 @@ end
 test("automatic proxy integration waits on the shared lease without touching UCI",function()
     normal_proxy("nikki");S.locked=true;local before=clone(S.cfg)
     check(connect()==false and equal(before,S.cfg))
+end)
+test("preflight write failures clean password and configuration candidates",function()
+    for _,path in ipairs({"/var/run/ocserv-easy/guard-check.passwd","/var/run/ocserv-easy/guard-check.conf"}) do
+        reset();guard.begin("enable",admin);S.fail_write=path;guard.work(false)
+        check(guard.status(admin).phase=="disabled")
+        check(not S.files["/var/run/ocserv-easy/guard-check.passwd"] and not S.files["/var/run/ocserv-easy/guard-check.conf"])
+    end
 end)
 TEST_GUARD_PREVIEW={reset=reset,guard=guard,use_proxy=use_proxy,state=function()return S end}
 return results

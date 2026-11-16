@@ -5,7 +5,7 @@ assert(fs.access("/tmp/ocserv-easy-test-root"),"Disposable OpenWrt fixture marke
 local nixio=require "nixio"
 local uci=require "luci.model.uci"
 local json=require "luci.jsonc"
-local logic=require "luci.model.ocserv_easy.logic"
+local logic=require "ocserv.logic"
 local backend=require "luci.model.ocserv_easy.backend"
 local results={}
 local function check(value,label) assert(value,label);results[#results+1]=label end

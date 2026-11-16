@@ -227,52 +227,6 @@ def maintain(app, root):
 
     edit("service/OpenTunnelVpnService.kt", service)
 
-    def bus(value):
-        value = once(value, '    private const val MAX_LOG_LINES = 800', '''    private const val MAX_LOG_LINES = 800
-    private const val MAX_LOG_CHARACTERS = 256 * 1024
-    private var logCharacters = 0
-    private var lastLogPublish = 0L
-    private var publishPending = false
-    private val publisher by lazy { android.os.Handler(android.os.Looper.getMainLooper()) }
-    private val diagnostic = DiagnosticLog()
-    fun remember(value: String?) = diagnostic.remember(value)''')
-        value = once(value, '    fun reset() {', '    fun reset() {\n        diagnostic.clear()')
-        value = once(value, '    fun setError(message: String) {', '    fun setError(message: String) {\n        val safeMessage = diagnostic.clean(message)')
-        value = once(value, '                error = message,', '                error = safeMessage,')
-        value = section(value, '    fun log(level: LogLevel, message: String) {', '    fun info(message: String)', '''    fun log(level: LogLevel, message: String) {
-        if (message.isBlank()) return
-        val safe = diagnostic.clean(message).trimEnd()
-        val line = LogLine(System.currentTimeMillis(), level, safe)
-        synchronized(logDeque) {
-            while (logDeque.isNotEmpty() && (logDeque.size >= MAX_LOG_LINES || logCharacters + safe.length > MAX_LOG_CHARACTERS))
-                logCharacters -= logDeque.removeFirst().text.length
-            logDeque.addLast(line)
-            logCharacters += safe.length
-            val now = android.os.SystemClock.elapsedRealtime()
-            if (now - lastLogPublish >= 250L) {
-                _logs.value = logDeque.toList()
-                lastLogPublish = now
-            } else if (!publishPending) {
-                publishPending = true
-                publisher.postDelayed({
-                    synchronized(logDeque) {
-                        _logs.value = logDeque.toList()
-                        lastLogPublish = android.os.SystemClock.elapsedRealtime()
-                        publishPending = false
-                    }
-                }, 250L)
-            }
-        }
-        // Core and authentication content is sanitized before either destination.
-        if (level == LogLevel.ERROR) Log.e(TAG, safe) else Log.d(TAG, safe)
-    }
-
-''')
-        value = once(value, '            logDeque.clear()', '            logDeque.clear()\n            logCharacters = 0\n            publisher.removeCallbacksAndMessages(null)\n            publishPending = false')
-        return value
-
-    edit("core/VpnBus.kt", bus)
-
     def repository(value):
         value = section(value, '    /** Back-compat alias used by older callers', '    suspend fun currentProfile()', '')
         value = section(value, '        // Legacy single-profile keys', '        val themeMode', '')
@@ -288,42 +242,6 @@ def maintain(app, root):
         return value
 
     edit("data/Repository.kt", repository)
-
-    def store(value):
-        value = once(value, '    private val json = Json', '''    private val _storageError = kotlinx.coroutines.flow.MutableStateFlow<String?>(null)
-    val storageError: kotlinx.coroutines.flow.StateFlow<String?> = _storageError
-    private val json = Json''')
-        value = once(value, '.map { prefs -> decode(prefs[Keys.profilesJson].orEmpty()) }', '''.map { prefs ->
-            try { decode(prefs[Keys.profilesJson].orEmpty()).also { _storageError.value = null } }
-            catch (error: Exception) { _storageError.value = "Profiles could not be read; the original data was preserved."; emptyList() }
-        }''')
-        value = once(value, 'suspend fun allProfiles(): List<VpnProfile> = profiles.first()',
-                     'suspend fun allProfiles(): List<VpnProfile> = decode(store.data.first()[Keys.profilesJson].orEmpty())')
-        value = once(value, 'it.copy(password = "")', 'it.copy(password = "", tokenString = "")')
-        value = once(value, '            if (idx >= 0) current[idx] = toSave else current.add(toSave)',
-                     '            if (idx >= 0) current[idx] = ProfilePolicy.updated(current[idx], toSave) else current.add(toSave)')
-        value = once(value, '    suspend fun importJson(jsonStr: String): Int {\n        return runCatching {', '''    suspend fun pinCertificate(id: String, server: String, fingerprint: String) {
-        store.edit { prefs ->
-            val current = decode(prefs[Keys.profilesJson].orEmpty())
-            val updated = ProfilePolicy.pin(current, id, server, fingerprint)
-            if (updated != current) prefs[Keys.profilesJson] = encode(updated)
-        }
-    }
-
-    suspend fun importJson(jsonStr: String): Int {
-        require(jsonStr.toByteArray(Charsets.UTF_8).size <= ProfilePolicy.MAX_BYTES) { "Profile import is too large" }
-        return run {''')
-        value = once(value, '                    if (idx >= 0) current[idx] = p else current.add(p)',
-                     '                    if (idx >= 0) current[idx] = ProfilePolicy.updated(current[idx], p) else current.add(p)')
-        value = once(value, '        }.getOrDefault(0)', '        }')
-        value = section(value, '    private fun encode(profiles:', '    companion object {', '''    private val codec = ProfileCodec(SecretBox::encrypt, SecretBox::decrypt)
-    private fun encode(profiles: List<VpnProfile>) = codec.encode(profiles)
-    private fun decode(raw: String) = codec.decode(raw)
-
-''')
-        return value
-
-    edit("data/ProfileStore.kt", store)
 
     def view_model(value):
         value = once(value, '        // One-time migration of legacy single-profile data.\n        viewModelScope.launch { repository.migrateLegacyProfileIfNeeded() }', '''        viewModelScope.launch {
@@ -392,3 +310,7 @@ def maintain(app, root):
             target = app / f"app/src/{directory}/java/dev/opentunnel/vpn/{package}/{name}{suffix}.kt"
             target.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(root / "mobile/android" / f"{name}{suffix}.kt", target)
+
+    # These modules are maintained as Kotlin sources, not replacement strings.
+    for relative in ("core/VpnBus.kt", "data/ProfileStore.kt"):
+        shutil.copy2(root / "mobile/android/owned" / relative, source / relative)

@@ -71,6 +71,7 @@ private:
     bool active_minimize_ = false;
     bool closing_ = false, tray_added_ = false;
     bool draining_ = false, system_suspended_ = false;
+    bool reload_pending_ = false;
     unsigned timer_tick_ = 0;
     uint64_t network_change_at_ = 0;
     HANDLE network_notifications_[3]{};

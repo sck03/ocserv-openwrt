@@ -53,6 +53,9 @@ class ServerPackageTests(unittest.TestCase):
         startup = server_root / "etc/init.d/ocserv"
         startup.parent.mkdir(parents=True)
         shutil.copyfile(self.root / "server/openwrt/ocserv/files/ocserv.init", startup)
+        (server_root / "usr/libexec").mkdir(parents=True)
+        shutil.copyfile(self.root / "server/openwrt/ocserv/files/ocserv-render", server_root / "usr/libexec/ocserv-render")
+        shutil.copytree(self.root / "server/openwrt/ocserv/files/lua", server_root / "usr/lib/lua/ocserv")
         ui = self.root / "server/openwrt/luci-app-ocserv-easy"
         self.ui_stage = self.sdk / "build_dir/target-fixture/luci-app-ocserv-easy/.pkgdir/luci-app-ocserv-easy"
         shutil.copytree(ui / "root", self.ui_stage)
@@ -135,8 +138,10 @@ class ServerPackageTests(unittest.TestCase):
         with zipfile.ZipFile(archive) as contents:
             with tarfile.open(fileobj=io.BytesIO(contents.read(archive.stem + "/source/openwrt-recipes.tar.gz"))) as recipes:
                 self.assertIn("openwrt/ocserv/Makefile", recipes.getnames())
-                for module in ("storage.lua", "configuration.lua", "query_cache.lua", "lease.lua", "proxy.lua", "proxy_registry.lua", "guard_state.lua", "occtl.lua", "json_array.lua"):
+                for module in ("configuration.lua", "query_cache.lua", "lease.lua", "proxy.lua", "proxy_registry.lua", "guard_state.lua", "occtl.lua", "json_array.lua"):
                     self.assertIn("openwrt/luci-app-ocserv-easy/luasrc/model/ocserv_easy/" + module, recipes.getnames())
+                for module in ("logic.lua", "storage.lua", "process.lua", "runtime.lua"):
+                    self.assertIn("openwrt/ocserv/files/lua/" + module, recipes.getnames())
                 self.assertNotIn("openwrt/ocserv/private.key", recipes.getnames())
 
     def test_existing_unpacked_output_cannot_contaminate_next_bundle(self):

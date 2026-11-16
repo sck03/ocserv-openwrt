@@ -66,7 +66,7 @@ class ProcessTests(unittest.TestCase):
                 poll_flags=function() return 1 end
             } end
         ''')
-        runner = lua.execute((ROOT / "server/openwrt/luci-app-ocserv-easy/luasrc/model/ocserv_easy/process.lua").read_text(encoding="utf-8"))
+        runner = lua.execute((ROOT / "server/openwrt/ocserv/files/lua/process.lua").read_text(encoding="utf-8"))
         code, output = runner.run(lua.table_from(["fixture"]), 5)
         self.assertTrue(lua.globals().closed)
         self.assertTrue(lua.globals().output_closed)
@@ -195,7 +195,7 @@ class ProcessTests(unittest.TestCase):
                         exec=function() executed=true end
                     } end
                 ''')
-                runner = lua.execute((ROOT / "server/openwrt/luci-app-ocserv-easy/luasrc/model/ocserv_easy/process.lua").read_text(encoding="utf-8"))
+                runner = lua.execute((ROOT / "server/openwrt/ocserv/files/lua/process.lua").read_text(encoding="utf-8"))
                 with self.assertRaisesRegex(Exception, "child exit 127"):
                     runner.run(lua.table_from(["fixture"]), 5)
                 self.assertFalse(lua.globals().executed)

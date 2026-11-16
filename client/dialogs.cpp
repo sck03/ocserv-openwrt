@@ -289,7 +289,9 @@ private:
                 if (!read_fields(true))
                     return 0;
                 std::wstring reason;
-                if (!store_.save(result, reason)) {
+                if (!run_storage(window_, language_, [this](std::wstring &error) {
+                        return store_.save(result, error);
+                    }, reason)) {
                     error(window_, reason);
                     return 0;
                 }

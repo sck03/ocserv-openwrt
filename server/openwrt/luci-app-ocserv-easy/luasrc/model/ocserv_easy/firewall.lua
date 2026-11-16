@@ -2,7 +2,7 @@
 -- Managed baseline firewall sections shared by installation and LuCI updates.
 -- Keep this module free of UCI side effects so it can be tested with Lua 5.1.
 local M = {}
-local logic = require "luci.model.ocserv_easy.logic"
+local logic = require "ocserv.logic"
 
 M.names = {
     zone = "ocserv_vpn",

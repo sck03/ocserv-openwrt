@@ -5,6 +5,7 @@ import unittest
 
 from lupa.lua51 import LuaRuntime
 from lua_json import install
+from lua_modules import install_modules
 
 ROOT = Path(__file__).resolve().parents[1]
 MODULES = ROOT / "server/openwrt/luci-app-ocserv-easy/luasrc/model/ocserv_easy"
@@ -60,9 +61,7 @@ class OcctlRuntimeTests(unittest.TestCase):
                 end
             } end
         ''')
-        for path in MODULES.glob("*.lua"):
-            lua.execute('package.preload[...] = assert(loadstring(select(2, ...)))',
-                        "luci.model.ocserv_easy." + path.stem, path.read_text(encoding="utf-8"))
+        install_modules(lua)
         return lua, lua.eval('require("luci.model.ocserv_easy.occtl")')
 
     def test_online_list_larger_than_generic_command_budget(self):
@@ -127,9 +126,9 @@ class OcctlRuntimeTests(unittest.TestCase):
                 self.assertEqual(lua.globals().closed, 4)
 
     def test_display_fields_truncate_only_at_utf8_boundaries(self):
-        fields = {"Username": ("name", 64), "Groupname": ("group", 128),
-                  "Remote IP": ("ip", 128), "IPv4": ("vpn_ip", 128),
-                  "Last connected at": ("since", 128), "State": ("state", 128)}
+        fields = {"Username": ("name", 64), "Groupname": ("group", 64),
+                  "Remote IP": ("ip", 64), "IPv4": ("vpn_ip", 64),
+                  "Last connected at": ("since", 64), "State": ("state", 32)}
         for character in ("é", "中", "😀"):
             width = len(character.encode("utf-8"))
             for remaining in range(width + 1):
@@ -236,7 +235,7 @@ class OcctlRuntimeTests(unittest.TestCase):
                 lua.globals().mode = mode
                 code, captured = lua.execute('''
                     consumed = 0
-                    return require("luci.model.ocserv_easy.process").run({"fixture"}, 5, function(chunk)
+                    return require("ocserv.process").run({"fixture"}, 5, function(chunk)
                         consumed = consumed + #chunk
                         if mode == "reject" then return false end
                         if mode == "throw" then error("consumer failure") end

@@ -4,13 +4,13 @@ local nixio=require "nixio"
 local fs=require "nixio.fs"
 local uci=require "luci.model.uci"
 local json=require "luci.jsonc"
-local logic=require "luci.model.ocserv_easy.logic"
-local storage=require "luci.model.ocserv_easy.storage"
+local logic=require "ocserv.logic"
+local storage=require "ocserv.storage"
 local lease=require "luci.model.ocserv_easy.lease"
 local proxy=require "luci.model.ocserv_easy.proxy"
 local state_schema=require "luci.model.ocserv_easy.guard_state"
 local equal=logic.equal
-local run=require("luci.model.ocserv_easy.process").run
+local run=require("ocserv.process").run
 local log=require "luci.model.ocserv_easy.guard_log"
 local function command(step,args,timeout)
     log.add(step,"start")
@@ -338,13 +338,10 @@ local function apply(state)
     c:foreach("ocserv","ocservusers",function(s) users[#users+1]={name=s.name,password=s.password,group=s.group} end)
     c:foreach("ocserv","dns",function(s) dns[#dns+1]={ip=s.ip} end)
     c:foreach("ocserv","routes",function(s) routes[#routes+1]={ip=s.ip,netmask=s.netmask} end)
-    local passwd,config=work.."/guard-check.passwd",work.."/guard-check.conf"
-    atomic(passwd,logic.passwd(users))
     local rendered=logic.render(read("/etc/ocserv/ocserv.conf.template") or "",read("/etc/ocserv/ocserv.conf.local") or "",c:get_all("ocserv","config"),dns,routes,{domain=c:get_first("dhcp","dnsmasq","domain","")})
-    atomic(config,(rendered:gsub("/var/etc/ocpasswd",passwd)))
-    local valid=command("ocserv_config_check",{"/usr/sbin/ocserv","--test-config","--config",config},10)==0
-    fs.remove(passwd); fs.remove(config)
-    logic.require(valid,"config_check_failed")
+    require("ocserv.runtime").check(rendered,logic.passwd(users),work.."/guard-check",function(argv,timeout)
+        return command("ocserv_config_check",argv,timeout)
+    end)
     logic.require(command("nft_check",{"/usr/sbin/nft","-c","-f",rulefile},10)==0,"guard_firewall_failed")
     commit(c,state)
     logic.require(command("firewall_check",{"/sbin/fw4","check"},10)==0,"guard_firewall_failed")

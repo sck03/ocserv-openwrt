@@ -40,6 +40,6 @@ service_triggers() {
 
 boot() {
     # A pending transaction is restored before fw4 starts after a power failure.
-    /usr/bin/lua /usr/libexec/ocserv-easy-guard boot
+    /usr/bin/lua /usr/libexec/ocserv-easy-guard boot || return 1
     start
 }

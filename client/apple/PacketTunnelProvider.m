@@ -72,62 +72,66 @@ static NSError *VPNError(NSInteger category, NSString *message) {
 }
 
 static int ValidateCertificate(void *data, const char *reason) {
-    NSUInteger generation = 0;
-    PacketTunnelProvider *provider = ProviderForContext(data, &generation);
-    if (!ContextIsCurrent(provider, generation))
-        return -1;
-    unsigned char *der = NULL;
-    int length = openconnect_get_peer_cert_DER(provider.vpn, &der);
-    const unsigned char *cursor = der;
-    X509 *certificate = length > 0 ? d2i_X509(NULL, &cursor, length) : NULL;
-    BOOL valid = certificate && X509_cmp_current_time(X509_get0_notBefore(certificate)) < 0 &&
-                 X509_cmp_current_time(X509_get0_notAfter(certificate)) > 0;
-    X509_free(certificate);
-    if (der)
-        openconnect_free_cert_info(provider.vpn, der);
-    if (!ContextIsCurrent(provider, generation) || !valid ||
-        openconnect_check_peer_cert_hash(provider.vpn, provider.pin.UTF8String)) {
-        provider.connectionError = VPNError(5, @"证书指纹或有效期验证失败");
-        return -1;
+    @autoreleasepool {
+        NSUInteger generation = 0;
+        PacketTunnelProvider *provider = ProviderForContext(data, &generation);
+        if (!ContextIsCurrent(provider, generation))
+            return -1;
+        unsigned char *der = NULL;
+        int length = openconnect_get_peer_cert_DER(provider.vpn, &der);
+        const unsigned char *cursor = der;
+        X509 *certificate = length > 0 ? d2i_X509(NULL, &cursor, length) : NULL;
+        BOOL valid = certificate && X509_cmp_current_time(X509_get0_notBefore(certificate)) < 0 &&
+                     X509_cmp_current_time(X509_get0_notAfter(certificate)) > 0;
+        X509_free(certificate);
+        if (der)
+            openconnect_free_cert_info(provider.vpn, der);
+        if (!ContextIsCurrent(provider, generation) || !valid ||
+            openconnect_check_peer_cert_hash(provider.vpn, provider.pin.UTF8String)) {
+            provider.connectionError = VPNError(5, @"证书指纹或有效期验证失败");
+            return -1;
+        }
+        return 0;
     }
-    return 0;
 }
 
 static int Authenticate(void *data, struct oc_auth_form *form) {
-    NSUInteger generation = 0;
-    PacketTunnelProvider *provider = ProviderForContext(data, &generation);
-    if (!ContextIsCurrent(provider, generation))
-        return OC_FORM_RESULT_CANCELLED;
-    const char *host = openconnect_get_dnsname(provider.vpn);
-    NSString *expectedHost = [provider.server.host
-        stringByTrimmingCharactersInSet:[NSCharacterSet characterSetWithCharactersInString:@"[]"]];
-    if (!ContextIsCurrent(provider, generation) || !form || !host ||
-        [expectedHost caseInsensitiveCompare:@(host)] != NSOrderedSame ||
-        openconnect_get_port(provider.vpn) != (provider.server.port ? provider.server.port.intValue : 443) ||
-        (form->error && form->error[0]) || ++provider.authAttempts > 3 ||
-        openconnect_check_peer_cert_hash(provider.vpn, provider.pin.UTF8String)) {
-        provider.connectionError = VPNError(4, @"认证失败，请核对账号、密码和服务器");
-        return OC_FORM_RESULT_CANCELLED;
-    }
-    [provider recordState:@"authenticating"];
-    for (struct oc_form_opt *opt = form->opts; opt; opt = opt->next) {
-        if ((opt->flags & OC_FORM_OPT_IGNORE) || opt->type == OC_FORM_OPT_HIDDEN)
-            continue;
-        const char *value = NULL;
-        if (!opt->name)
+    @autoreleasepool {
+        NSUInteger generation = 0;
+        PacketTunnelProvider *provider = ProviderForContext(data, &generation);
+        if (!ContextIsCurrent(provider, generation))
             return OC_FORM_RESULT_CANCELLED;
-        if (opt->type == OC_FORM_OPT_TEXT && !strcmp(opt->name, "username"))
-            value = provider.username.UTF8String;
-        else if (opt->type == OC_FORM_OPT_PASSWORD && !strcmp(opt->name, "password"))
-            value = provider.password.UTF8String;
-        else {
-            provider.connectionError = VPNError(4, @"服务器要求此客户端未支持的交互认证");
-            return OC_FORM_RESULT_CANCELLED; // Never put a password into an unknown/MFA field.
+        const char *host = openconnect_get_dnsname(provider.vpn);
+        NSString *expectedHost = [provider.server.host
+            stringByTrimmingCharactersInSet:[NSCharacterSet characterSetWithCharactersInString:@"[]"]];
+        if (!ContextIsCurrent(provider, generation) || !form || !host ||
+            [expectedHost caseInsensitiveCompare:@(host)] != NSOrderedSame ||
+            openconnect_get_port(provider.vpn) != (provider.server.port ? provider.server.port.intValue : 443) ||
+            (form->error && form->error[0]) || ++provider.authAttempts > 3 ||
+            openconnect_check_peer_cert_hash(provider.vpn, provider.pin.UTF8String)) {
+            provider.connectionError = VPNError(4, @"认证失败，请核对账号、密码和服务器");
+            return OC_FORM_RESULT_CANCELLED;
         }
-        if (openconnect_set_option_value(opt, value))
-            return OC_FORM_RESULT_ERR;
+        [provider recordState:@"authenticating"];
+        for (struct oc_form_opt *opt = form->opts; opt; opt = opt->next) {
+            if ((opt->flags & OC_FORM_OPT_IGNORE) || opt->type == OC_FORM_OPT_HIDDEN)
+                continue;
+            const char *value = NULL;
+            if (!opt->name)
+                return OC_FORM_RESULT_CANCELLED;
+            if (opt->type == OC_FORM_OPT_TEXT && !strcmp(opt->name, "username"))
+                value = provider.username.UTF8String;
+            else if (opt->type == OC_FORM_OPT_PASSWORD && !strcmp(opt->name, "password"))
+                value = provider.password.UTF8String;
+            else {
+                provider.connectionError = VPNError(4, @"服务器要求此客户端未支持的交互认证");
+                return OC_FORM_RESULT_CANCELLED; // Never put a password into an unknown/MFA field.
+            }
+            if (openconnect_set_option_value(opt, value))
+                return OC_FORM_RESULT_ERR;
+        }
+        return OC_FORM_RESULT_OK;
     }
-    return OC_FORM_RESULT_OK;
 }
 
 static void Progress(void *data, int level, const char *format, ...) {
@@ -135,26 +139,28 @@ static void Progress(void *data, int level, const char *format, ...) {
 }
 
 static void Reconnected(void *data) {
-    NSUInteger generation = 0;
-    PacketTunnelProvider *provider = ProviderForContext(data, &generation);
-    if (!ContextIsCurrent(provider, generation))
-        return;
-    provider.reasserting = YES;
-    [provider recordState:@"reconnecting"];
-    NSError *error = [provider configureTunnelForGeneration:generation];
-    if (!ContextIsCurrent(provider, generation))
-        return;
-    if (error) {
-        provider.connectionError = error;
-        @synchronized(provider) {
-            if (provider.commandFD >= 0) {
-                char command = OC_CMD_CANCEL;
-                write(provider.commandFD, &command, 1);
+    @autoreleasepool {
+        NSUInteger generation = 0;
+        PacketTunnelProvider *provider = ProviderForContext(data, &generation);
+        if (!ContextIsCurrent(provider, generation))
+            return;
+        provider.reasserting = YES;
+        [provider recordState:@"reconnecting"];
+        NSError *error = [provider configureTunnelForGeneration:generation];
+        if (!ContextIsCurrent(provider, generation))
+            return;
+        if (error) {
+            provider.connectionError = error;
+            @synchronized(provider) {
+                if (provider.commandFD >= 0) {
+                    char command = OC_CMD_CANCEL;
+                    write(provider.commandFD, &command, 1);
+                }
             }
+        } else {
+            provider.reasserting = NO;
+            [provider recordState:@"connected"];
         }
-    } else {
-        provider.reasserting = NO;
-        [provider recordState:@"connected"];
     }
 }
 

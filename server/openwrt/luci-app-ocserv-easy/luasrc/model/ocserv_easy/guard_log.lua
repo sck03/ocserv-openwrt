@@ -3,7 +3,7 @@
 local nixio=require "nixio"
 local fs=require "nixio.fs"
 local json=require "luci.jsonc"
-local storage=require "luci.model.ocserv_easy.storage"
+local storage=require "ocserv.storage"
 local M={}
 local directory="/var/run/ocserv-easy"
 local path=directory.."/guard-log.json"

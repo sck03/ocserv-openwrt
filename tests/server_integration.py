@@ -7,15 +7,14 @@ import sys
 ROOT = Path(__file__).resolve().parents[1]
 from lupa.lua51 import LuaRuntime
 from lua_json import install
+from lua_modules import install_modules
 
 lua = LuaRuntime(unpack_returned_tuples=True)
 install(lua)
 source = ROOT / 'server/openwrt/luci-app-ocserv-easy/luasrc'
 for path in source.rglob('*.lua'):
     lua.execute('assert(loadstring(...))', path.read_text(encoding='utf-8'))
-for path in (source / 'model/ocserv_easy').glob('*.lua'):
-    module = 'luci.model.ocserv_easy.' + path.stem
-    lua.execute('package.preload[...] = assert(loadstring(select(2,...)))', module, path.read_text(encoding='utf-8'))
+install_modules(lua)
 lua.globals().TEST_TEMPLATE = (ROOT / 'server/openwrt/ocserv/files/ocserv.conf.template').read_text(encoding='utf-8')
 lua.globals().TEST_BASE64 = lambda value: base64.b64encode(value.encode()).decode()
 try:

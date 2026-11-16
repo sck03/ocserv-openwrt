@@ -14,6 +14,7 @@ final class DesktopVPN: NSObject, ObservableObject, OSSystemExtensionRequestDele
     @Published var status = "未连接"
     @Published var detail = ""
     @Published var busy = false
+    @Published var storageBusy = true
     @Published var connected = false
     @Published var loginEnabled = false
     @Published var retryFailed = UserDefaults.standard.bool(forKey: "retryFailed") {
@@ -42,21 +43,10 @@ final class DesktopVPN: NSObject, ObservableObject, OSSystemExtensionRequestDele
         FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("Lansyra", isDirectory: true)
     }
+    private lazy var repository = ProfileRepository(directory: directory)
 
     override init() {
         super.init()
-        do {
-            let url = directory.appendingPathComponent("profiles.json")
-            if FileManager.default.fileExists(atPath: url.path) {
-                let data = try ProfileFile.readData(url, limit: ProfileFile.maxBytes)
-                let file = try JSONDecoder().decode(ProfileFile.self, from: data)
-                guard file.schema == 1, file.profiles.count <= 128,
-                      Set(file.profiles.map(\.id)).count == file.profiles.count else { throw ClientError.invalidStore }
-                profiles = try file.profiles.map { try $0.validated() }
-            }
-            draft = profiles.first(where: { $0.id == UserDefaults.standard.string(forKey: "selected") }) ?? profiles.first ?? VPNProfile()
-            storageReady = true
-        } catch { detail = ClientError.invalidStore.localizedDescription }
         loginEnabled = UserDefaults.standard.bool(forKey: "autoConnect") && SMAppService.mainApp.status != .notRegistered
         observer = NotificationCenter.default.addObserver(forName: .NEVPNStatusDidChange, object: nil, queue: .main) {
             [weak self] notification in
@@ -66,7 +56,15 @@ final class DesktopVPN: NSObject, ObservableObject, OSSystemExtensionRequestDele
                 self.refresh()
             }
         }
-        Task { await restore() }
+        Task {
+            do {
+                profiles = try await repository.load()
+                draft = profiles.first(where: { $0.id == UserDefaults.standard.string(forKey: "selected") }) ?? profiles.first ?? VPNProfile()
+                storageReady = true
+            } catch { show(error) }
+            storageBusy = false
+            await restore()
+        }
     }
     deinit {
         retry?.cancel()
@@ -78,9 +76,11 @@ final class DesktopVPN: NSObject, ObservableObject, OSSystemExtensionRequestDele
         if events.count > 256 { events.removeFirst(events.count - 256) }
     }
     private func restore() async {
+        let request = epoch
         busy = true
         do {
             let managers = try await NETunnelProviderManager.loadAllFromPreferences()
+            guard request == epoch else { return }
             if let active = managers.first(where: {
                 ($0.protocolConfiguration as? NETunnelProviderProtocol)?.providerBundleIdentifier == tunnelID &&
                     ![.disconnected, .invalid].contains($0.connection.status)
@@ -102,32 +102,35 @@ final class DesktopVPN: NSObject, ObservableObject, OSSystemExtensionRequestDele
                     connect()
                 }
             }
-        } catch { busy = false; show(error) }
+        } catch { if request == epoch { busy = false; show(error) } }
     }
     func select(_ profile: VPNProfile) {
-        guard !busy else { return }
+        guard !busy, !storageBusy else { return }
         draft = profile
         password = ""
         UserDefaults.standard.set(profile.id, forKey: "selected")
     }
     func newProfile() {
-        guard !busy else { return }
+        guard !busy, !storageBusy else { return }
         draft = VPNProfile()
         password = ""
     }
-    private func write(_ values: [VPNProfile], credentialID: String, credential: String) throws {
+    private func write(_ values: [VPNProfile], credentialID: String, credential: String) async throws {
         guard storageReady else { throw ClientError.invalidStore }
-        // Validate the aggregate budget before changing either durable store.
-        let data = try ProfileFile.encoded(values)
-        let destination = directory.appendingPathComponent("profiles.json")
-        try CredentialTransaction.perform(password: credential, read: { try Credentials.read(credentialID) }, write: {
-            if $0.isEmpty { try Credentials.remove(credentialID) }
-            else { try Credentials.save($0, for: credentialID) }
-        }, commit: { try ProfileFile.replace(data, at: destination) })
+        try await repository.write(values, credentialID: credentialID, credential: credential)
         profiles = values
     }
-    @discardableResult func save() -> Bool {
+    func save() {
+        guard !busy, !storageBusy else { return }
+        storageBusy = true
+        Task {
+            defer { storageBusy = false }
+            _ = await saveDraft()
+        }
+    }
+    private func saveDraft() async -> Bool {
         do {
+            guard storageReady else { throw ClientError.invalidStore }
             let profile = try draft.validated()
             guard profiles.count < 128 || profiles.contains(where: { $0.id == profile.id }) else { throw ClientError.invalidStore }
             let previous = profiles.first(where: { $0.id == profile.id })
@@ -135,12 +138,12 @@ final class DesktopVPN: NSObject, ObservableObject, OSSystemExtensionRequestDele
             var credential = ""
             if profile.rememberPassword {
                 if !password.isEmpty { credential = password }
-                else if sameOrigin { credential = try Credentials.read(profile.id) }
+                else if sameOrigin { credential = try await repository.credential(profile.id) }
             }
             guard credential.isEmpty || VPNCredentialValid(credential) else { throw ClientError.missingPassword }
             var values = profiles.filter { $0.id != profile.id }
             values.append(profile)
-            try write(values, credentialID: profile.id, credential: credential)
+            try await write(values, credentialID: profile.id, credential: credential)
             draft = profile
             UserDefaults.standard.set(profile.id, forKey: "selected")
             detail = "配置已保存"
@@ -148,11 +151,11 @@ final class DesktopVPN: NSObject, ObservableObject, OSSystemExtensionRequestDele
         } catch { show(error); return false }
     }
     func remove() {
-        guard !busy else { return }
+        guard !busy, !storageBusy else { return }
         let id = draft.id
-        busy = true
+        storageBusy = true
         Task {
-            defer { busy = false }
+            defer { storageBusy = false }
             do {
                 let managers = try await NETunnelProviderManager.loadAllFromPreferences()
                 for item in managers where (item.protocolConfiguration as? NETunnelProviderProtocol)?.providerBundleIdentifier == tunnelID {
@@ -160,17 +163,26 @@ final class DesktopVPN: NSObject, ObservableObject, OSSystemExtensionRequestDele
                         try await item.removeFromPreferences()
                     }
                 }
-                try write(profiles.filter { $0.id != id }, credentialID: id, credential: "")
-                if UserDefaults.standard.string(forKey: "autoProfile") == id { setLogin(false) }
+                try await write(profiles.filter { $0.id != id }, credentialID: id, credential: "")
+                if UserDefaults.standard.string(forKey: "autoProfile") == id { await updateLogin(false) }
                 draft = profiles.first ?? VPNProfile()
                 password = ""
             } catch { show(error) }
         }
     }
     func setLogin(_ enabled: Bool) {
+        guard !busy, !storageBusy else { return }
+        storageBusy = true
+        Task {
+            defer { storageBusy = false }
+            await updateLogin(enabled)
+        }
+    }
+    private func updateLogin(_ enabled: Bool) async {
         do {
             if enabled {
-                guard save(), draft.rememberPassword, !(try Credentials.read(draft.id)).isEmpty else { throw ClientError.login }
+                guard await saveDraft(), draft.rememberPassword,
+                      !(try await repository.credential(draft.id)).isEmpty else { throw ClientError.login }
                 try SMAppService.mainApp.register()
             } else { try SMAppService.mainApp.unregister() }
             loginEnabled = enabled
@@ -182,18 +194,28 @@ final class DesktopVPN: NSObject, ObservableObject, OSSystemExtensionRequestDele
         } catch { show(error) }
     }
     func connect() {
-        guard !busy, storageReady, save() else { return }
-        do {
-            sessionPassword = password.isEmpty && draft.rememberPassword ? try Credentials.read(draft.id) : password
+        guard !busy, !storageBusy, storageReady else { return }
+        epoch &+= 1
+        let request = epoch
+        busy = true
+        storageBusy = true
+        Task {
+          defer { storageBusy = false }
+          guard await saveDraft() else { if request == epoch { busy = false }; return }
+          guard request == epoch else { return }
+          do {
+            let credential = password.isEmpty && draft.rememberPassword ? try await repository.credential(draft.id) : password
+            guard request == epoch else { return }
+            sessionPassword = credential
             guard VPNCredentialValid(sessionPassword) else { throw ClientError.missingPassword }
-            epoch &+= 1
             sessionID = UUID().uuidString
             wanted = true
             busy = true
             attempt = 1
             currentProfile = draft
             beginAttempt(epoch)
-        } catch { show(error) }
+          } catch { if request == epoch { busy = false; show(error) } }
+        }
     }
     func disconnect() {
         epoch &+= 1
@@ -352,26 +374,21 @@ final class DesktopVPN: NSObject, ObservableObject, OSSystemExtensionRequestDele
         if !wanted { refresh() }
     }
     func importProfile() {
+        guard !busy, !storageBusy else { return }
         let panel = NSOpenPanel()
         panel.allowedContentTypes = [UTType(filenameExtension: "vpn") ?? .plainText]
         guard panel.runModal() == .OK, let url = panel.url else { return }
-        do {
-            let data = try ProfileFile.readData(url, limit: 65536)
-            guard let text = String(data: data, encoding: .utf8) else { throw ClientError.invalidProfile }
-            var values: [String: String] = [:]
-            var section = false
-            for line in text.components(separatedBy: .newlines) {
-                if line.hasPrefix("[") { section = line == "[VPN]"; continue }
-                let pair = line.split(separator: "=", maxSplits: 1, omittingEmptySubsequences: false)
-                if section && pair.count == 2 { values[String(pair[0])] = String(pair[1]) }
-            }
-            guard values["Protocol", default: "anyconnect"] == "anyconnect" else { throw ClientError.invalidProfile }
-            draft = VPNProfile(name: values["Name"] ?? url.deletingPathExtension().lastPathComponent,
-                               server: values["Server"] ?? "", username: "", pin: values["ServerPin"] ?? "")
-            password = ""
-            detail = "已读取服务器配置；填写用户名和密码后保存。"
-        } catch { show(error) }
+        storageBusy = true
+        Task {
+            defer { storageBusy = false }
+            do {
+                draft = try await repository.importProfile(url)
+                password = ""
+                detail = "已读取服务器配置；填写用户名和密码后保存。"
+            } catch { show(error) }
+        }
     }
+
     func exportDiagnostics() {
         let panel = NSSavePanel()
         panel.allowedContentTypes = [.json]
@@ -415,13 +432,13 @@ struct ConnectionView: View {
         HStack(spacing: 0) {
             VStack {
                 List(vpn.profiles) { profile in
-                    Button(profile.name) { vpn.select(profile) }.buttonStyle(.plain).disabled(vpn.busy)
+                    Button(profile.name) { vpn.select(profile) }.buttonStyle(.plain).disabled(vpn.busy || vpn.storageBusy)
                 }
                 HStack {
                     Button("新建") { vpn.newProfile() }
                     Button("删除") { vpn.remove() }
-                }.disabled(vpn.busy)
-                Button("导入 .vpn 配置…") { vpn.importProfile() }.disabled(vpn.busy).padding(.bottom)
+                }.disabled(vpn.busy || vpn.storageBusy)
+                Button("导入 .vpn 配置…") { vpn.importProfile() }.disabled(vpn.busy || vpn.storageBusy).padding(.bottom)
             }.frame(width: 185)
             Divider()
             VStack(alignment: .leading, spacing: 16) {
@@ -433,11 +450,11 @@ struct ConnectionView: View {
                     SecureField("密码", text: $vpn.password)
                     TextField("pin-sha256 指纹", text: $vpn.draft.pin)
                     Toggle("在钥匙串中保存密码", isOn: $vpn.draft.rememberPassword)
-                }.disabled(vpn.busy)
+                }.disabled(vpn.busy || vpn.storageBusy)
                 Text("请使用管理员核实的服务器公钥指纹。支持 ocserv 用户名和密码认证。")
                     .font(.caption).foregroundStyle(.secondary)
-                Toggle("登录后自动启动并连接", isOn: Binding(get: { vpn.loginEnabled }, set: vpn.setLogin)).disabled(vpn.busy)
-                Toggle("网络失败后重试（最多 3 次）", isOn: $vpn.retryFailed).disabled(vpn.busy)
+                Toggle("登录后自动启动并连接", isOn: Binding(get: { vpn.loginEnabled }, set: vpn.setLogin)).disabled(vpn.busy || vpn.storageBusy)
+                Toggle("网络失败后重试（最多 3 次）", isOn: $vpn.retryFailed).disabled(vpn.busy || vpn.storageBusy)
                 HStack {
                     Circle().fill(vpn.connected ? Color.green : vpn.busy ? Color.blue : Color.secondary).frame(width: 8, height: 8)
                     Text(vpn.status).fontWeight(.medium)
@@ -445,9 +462,9 @@ struct ConnectionView: View {
                 Text(vpn.detail).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                 Spacer(minLength: 0)
                 HStack {
-                    Button("保存") { vpn.save() }.disabled(vpn.busy)
+                    Button("保存") { vpn.save() }.disabled(vpn.busy || vpn.storageBusy)
                     Button(vpn.busy ? "断开 / 取消" : "连接") { vpn.busy ? vpn.disconnect() : vpn.connect() }
-                        .keyboardShortcut(.defaultAction)
+                        .keyboardShortcut(.defaultAction).disabled(vpn.storageBusy)
                     Spacer()
                     Button("导出诊断…") { vpn.exportDiagnostics() }
                 }
@@ -466,7 +483,7 @@ struct LansyraApp: App {
                 NSApp.activate(ignoringOtherApps: true)
                 NSApp.windows.first?.makeKeyAndOrderFront(nil)
             }
-            Button(vpn.busy ? "断开连接" : "连接") { vpn.busy ? vpn.disconnect() : vpn.connect() }
+            Button(vpn.busy ? "断开连接" : "连接") { vpn.busy ? vpn.disconnect() : vpn.connect() }.disabled(vpn.storageBusy)
             Button("导出诊断…") { vpn.exportDiagnostics() }
         }
     }

@@ -2,7 +2,7 @@ import Foundation
 import Security
 import Darwin
 
-struct VPNProfile: Codable, Identifiable, Equatable {
+struct VPNProfile: Codable, Identifiable, Equatable, Sendable {
     var id = UUID().uuidString
     var name = "新服务器"
     var server = ""
@@ -23,6 +23,51 @@ struct VPNProfile: Codable, Identifiable, Equatable {
         result.server = url.absoluteString
         return result
     }
+}
+
+// All synchronous filesystem and Keychain work is serialized off MainActor.
+// The UI submits value snapshots; this actor never owns view or tunnel state.
+actor ProfileRepository {
+    private let directory: URL
+    init(directory: URL) { self.directory = directory }
+
+    func load() throws -> [VPNProfile] {
+        let url = directory.appendingPathComponent("profiles.json")
+        guard FileManager.default.fileExists(atPath: url.path) else { return [] }
+        let data = try ProfileFile.readData(url, limit: ProfileFile.maxBytes)
+        let file = try JSONDecoder().decode(ProfileFile.self, from: data)
+        guard file.schema == 1, file.profiles.count <= 128,
+              Set(file.profiles.map(\.id)).count == file.profiles.count else { throw ClientError.invalidStore }
+        return try file.profiles.map { try $0.validated() }
+    }
+
+    func credential(_ id: String) throws -> String { try Credentials.read(id) }
+
+    func write(_ values: [VPNProfile], credentialID: String, credential: String) throws {
+        let data = try ProfileFile.encoded(values)
+        let destination = directory.appendingPathComponent("profiles.json")
+        try CredentialTransaction.perform(password: credential, read: { try Credentials.read(credentialID) }, write: {
+            if $0.isEmpty { try Credentials.remove(credentialID) }
+            else { try Credentials.save($0, for: credentialID) }
+        }, commit: { try ProfileFile.replace(data, at: destination) })
+    }
+
+    func importProfile(_ url: URL) throws -> VPNProfile {
+        let data = try ProfileFile.readData(url, limit: 65536)
+        guard let text = String(data: data, encoding: .utf8) else { throw ClientError.invalidProfile }
+        var values: [String: String] = [:]
+        var section = false
+        for line in text.components(separatedBy: .newlines) {
+            if line.hasPrefix("[") { section = line == "[VPN]"; continue }
+            let pair = line.split(separator: "=", maxSplits: 1, omittingEmptySubsequences: false)
+            if section && pair.count == 2 { values[String(pair[0])] = String(pair[1]) }
+        }
+        guard values["Protocol", default: "anyconnect"] == "anyconnect" else { throw ClientError.invalidProfile }
+        return VPNProfile(name: values["Name"] ?? url.deletingPathExtension().lastPathComponent,
+                          server: values["Server"] ?? "", username: "", pin: values["ServerPin"] ?? "")
+    }
+
+    func export(_ data: Data, to url: URL) throws { try data.write(to: url, options: .atomic) }
 }
 enum ClientError: LocalizedError {
     case invalidProfile, missingPassword, invalidStore, keychain, keychainRecovery, login, extensionPending, extensionRestart

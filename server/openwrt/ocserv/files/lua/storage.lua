@@ -1,8 +1,8 @@
 -- SPDX-License-Identifier: GPL-3.0-or-later
--- Bounded file IO shared by transactions, recovery and runtime inspection.
+-- Bounded file IO shared by service startup, transactions and recovery.
 local nixio = require "nixio"
 local fs = require "nixio.fs"
-local logic = require "luci.model.ocserv_easy.logic"
+local logic = require "ocserv.logic"
 local M = { limit = 262144 }
 
 local function open_read(path)

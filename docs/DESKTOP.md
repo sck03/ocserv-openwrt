@@ -74,4 +74,6 @@ bash scripts/build-linux.sh
 
 [桌面工作流](https://github.com/sck03/ocserv-openwrt/actions/workflows/build-desktop.yml) 构建 Linux 两种架构及 macOS Universal 包，运行协议/取消/重试回归、Linux 图形启动检查、Apple 地址和数据包校验。Linux 还检查安装包实际文件、ELF 架构、符号裁剪和动态库加载，并在未预装开发库的 Debian 13 / Ubuntu 26.04 容器中用 APT 安装再启动。Linux、macOS 应用与 `linux-source`、`macos-source` 对应源码附件分开上传，本地源码输出为 `dist/linux-source/`、`dist/macos-source/`。源码和测试附件不属于客户端安装内容。产物保留 7 天；该工作流不发布 Release。
 
+Windows 配置保存、导入、导出、删除和退出刷新在后台执行，处理期间窗口继续响应绘制和会话事件；一次只允许一个配置操作。macOS 的配置文件和钥匙串访问由串行存储 actor 执行，读取或保存期间禁用冲突操作。Linux 无法写入偏好时明确提示，重试选项会回到原值。各平台均不隐式迁移其他产品或旧格式数据。
+
 自动构建、隔离窗口及协议测试不替代 macOS 签名扩展加载、真实 Linux VPN 转发和设备网络切换验收。实际运行证据以[验证记录](VALIDATION.md)注明的提交和平台为准。

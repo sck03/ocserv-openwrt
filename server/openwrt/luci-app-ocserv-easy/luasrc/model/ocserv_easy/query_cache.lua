@@ -4,7 +4,7 @@
 local nixio = require "nixio"
 local fs = require "nixio.fs"
 local json = require "luci.jsonc"
-local storage = require "luci.model.ocserv_easy.storage"
+local storage = require "ocserv.storage"
 local M = {}
 local root = "/var/run/ocserv-easy"
 
@@ -24,12 +24,12 @@ function M.identity(path)
     return path .. ":" .. tostring(info.ino) .. ":" .. tostring(info.mtime) .. ":" .. tostring(info.size)
 end
 
-function M.get(name, identity, seconds, query, fresh)
+function M.get(name, identity, seconds, query, fresh, limit)
     local path, marker = paths(name)
     local time = now()
     if not fresh then
         local ok, cached = pcall(function()
-            local raw = storage.read(path)
+            local raw = storage.read(path, limit)
             local value = raw and json.parse(raw)
             -- Read the marker after the snapshot: invalidation may have raced
             -- with either its publication or this read in another LuCI process.
@@ -49,7 +49,7 @@ function M.get(name, identity, seconds, query, fresh)
             -- generation, so invalidation between this check and rename is safe.
             if storage.read(marker, 32) ~= generation then return end
             storage.atomic(path, json.stringify({identity = identity, time = now(),
-                generation = generation, value = value}))
+                generation = generation, value = value}), limit)
         end)
     end
     return value

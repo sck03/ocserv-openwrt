@@ -53,7 +53,7 @@ function status() response(function()
 end) end
 function action()
     response(function()
-        local logic=require "luci.model.ocserv_easy.logic"
+        local logic=require "ocserv.logic"
         logic.require(can_write(),"forbidden")
         local raw=require("luci.http").formvalue("payload")
         logic.require(type(raw)=="string" and #raw<=65536,"bad_request")

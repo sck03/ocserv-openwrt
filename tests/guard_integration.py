@@ -5,13 +5,11 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 from lupa.lua51 import LuaRuntime
 from lua_json import install
+from lua_modules import install_modules
 
 lua = LuaRuntime(unpack_returned_tuples=True)
 install(lua)
-model = ROOT / 'server/openwrt/luci-app-ocserv-easy/luasrc/model/ocserv_easy'
-for path in model.glob('*.lua'):
-    lua.execute('package.preload[...] = assert(loadstring(select(2,...)))',
-                'luci.model.ocserv_easy.' + path.stem, path.read_text(encoding='utf-8'))
+install_modules(lua)
 lua.globals().TEST_TEMPLATE = (ROOT / 'server/openwrt/ocserv/files/ocserv.conf.template').read_text(encoding='utf-8')
 lua.globals().TEST_GUARD = (ROOT / 'server/openwrt/luci-app-ocserv-easy/root/usr/share/ocserv-easy/guard.nft.in').read_text(encoding='utf-8')
 cases = lua.execute((ROOT / 'tests/guard_transaction_tests.lua').read_text(encoding='utf-8'))

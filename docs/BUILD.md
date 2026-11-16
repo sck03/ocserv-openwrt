@@ -35,6 +35,7 @@ Linux Release 在工具链支持时启用链接时优化；Windows 保留 `-Os` 
 |---|---|
 | client/application.*、main.cpp | 主窗口、配置列表、菜单、托盘和生命周期 |
 | client/ui.*、dialogs.cpp | Win32 控件、配置/认证弹窗和日志 |
+| client/storage_operation.cpp | 配置操作的后台执行、消息循环和单次操作归属 |
 | client/profile.*、platform.* | 便携配置、DPAPI、地址与公共证书解析 |
 | client/preferences_writer.* | 偏好后台去抖、最新状态合并、退出刷新和有界结果回传 |
 | client/session.*、certificates.cpp | 官方核心回调、认证、Windows 证书链与系统证书 |
@@ -104,6 +105,8 @@ python -m pip install -r client/tests/requirements.txt
 脚本拒绝删除 Git 跟踪的源码、链接到其他目录的路径及运行中进程引用的文件。Windows 的编辑器目录监听可能在内容删除后保留一个空目录句柄；脚本仅在原生状态明确为 `STATUS_DELETE_PENDING` 时列出待删除目录并继续，其目录项会在监听句柄关闭后消失。普通权限或占用错误仍然报错。默认只显示清单，只有 `-Apply` 才执行删除。
 
 ## 验证
+
+服务包新增 `/usr/libexec/ocserv-render` 和 `/usr/lib/lua/ocserv/`，包审计逐个核对共享模块；管理页新增 api/messages/dom 资源。Windows 原生入口额外运行 `native_storage_tests`，验证慢存储期间消息循环继续运行、异常回传及操作收尾。服务端配置/账号测试改为共享渲染策略与真实启动函数的失败传播，不再测试已删除的 shell 渲染副本。
 
 ~~~sh
 python tests/build_config_tests.py

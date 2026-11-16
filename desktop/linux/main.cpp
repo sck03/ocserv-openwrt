@@ -146,18 +146,24 @@ public:
     }
     bool savePreferences() {
         std::string directory = std::string(g_get_user_config_dir()) + "/lansyra";
-        if (g_mkdir_with_parents(directory.c_str(), 0700))
+        if (g_mkdir_with_parents(directory.c_str(), 0700)) {
+            gtk_label_set_text(GTK_LABEL(detail), "无法保存偏好，请检查配置目录权限和剩余空间。");
             return false;
+        }
         GKeyFile *settings = g_key_file_new();
         g_key_file_set_string(settings, "client", "selected", selectedID.c_str());
         g_key_file_set_string(settings, "client", "auto_connect", autoID.c_str());
         g_key_file_set_boolean(settings, "client", "retry_failed", retryFailed);
         gsize size = 0;
         char *text = g_key_file_to_data(settings, &size, nullptr);
+        GError *failure = nullptr;
         bool ok = g_file_set_contents_full(settingsPath().c_str(), text, static_cast<gssize>(size),
-                                           G_FILE_SET_CONTENTS_CONSISTENT, 0600, nullptr);
+                                           G_FILE_SET_CONTENTS_CONSISTENT, 0600, &failure);
         g_free(text);
         g_key_file_unref(settings);
+        if (!ok)
+            gtk_label_set_text(GTK_LABEL(detail), "无法保存偏好，请检查配置目录权限和剩余空间。");
+        g_clear_error(&failure);
         return ok;
     }
     void setLogin() {
@@ -522,9 +528,10 @@ public:
         --pending;
         if (!closing) {
             reload();
-            if (ok)
-                savePreferences();
-            gtk_label_set_text(GTK_LABEL(detail), ok ? "配置已保存" : "无法保存配置，请检查系统授权。");
+            if (!ok)
+                gtk_label_set_text(GTK_LABEL(detail), "无法保存配置，请检查系统授权。");
+            else if (savePreferences())
+                gtk_label_set_text(GTK_LABEL(detail), "配置已保存");
         }
         maybeClose();
     }
@@ -651,8 +658,15 @@ public:
                          this);
         g_signal_connect(retryCheck, "toggled", G_CALLBACK((+[](GtkToggleButton *button, gpointer data) {
                              auto *self = static_cast<Application *>(data);
-                             self->retryFailed = gtk_toggle_button_get_active(button);
-                             self->savePreferences();
+                              if (self->refreshing) return;
+                              const bool previous = self->retryFailed;
+                              self->retryFailed = gtk_toggle_button_get_active(button);
+                              if (!self->savePreferences()) {
+                                  self->retryFailed = previous;
+                                  self->refreshing = true;
+                                  gtk_toggle_button_set_active(button, previous);
+                                  self->refreshing = false;
+                              }
                          })),
                          this);
         g_signal_connect(servers, "changed", G_CALLBACK((+[](GtkComboBox *box, gpointer data) {

@@ -2,15 +2,16 @@
 local nixio = require "nixio"
 local fs = require "nixio.fs"
 local uci = require "luci.model.uci"
-local logic = require "luci.model.ocserv_easy.logic"
+local logic = require "ocserv.logic"
 local guard = require "luci.model.ocserv_easy.guard"
 local firewall = require "luci.model.ocserv_easy.firewall"
-local run = require("luci.model.ocserv_easy.process").run
-local storage = require "luci.model.ocserv_easy.storage"
+local run = require("ocserv.process").run
+local storage = require "ocserv.storage"
 local configuration = require "luci.model.ocserv_easy.configuration"
 local query_cache = require "luci.model.ocserv_easy.query_cache"
 local proxy = require "luci.model.ocserv_easy.proxy"
 local sessions = require "luci.model.ocserv_easy.occtl"
+local runtime = require "ocserv.runtime"
 local read, atomic, directory, random_bytes = storage.read, storage.atomic, storage.directory, storage.random
 local M = {}
 local config_path="/etc/config/ocserv"
@@ -75,7 +76,7 @@ function M.status(fresh)
     local result={running=running(),online={},recovery_pending=configuration.pending()}
     if not result.running then return result end
     local identity=read("/var/run/ocserv.pid",64) or ""
-    local online=query_cache.get("online",identity,5,sessions.online,fresh)
+    local online=query_cache.get("online",identity,5,sessions.online,fresh,sessions.cache_limit)
     result.online=online.online
     result.online_error=online.online_error
     return result
@@ -83,7 +84,7 @@ end
 function M.data(admin)
     local s=snapshot(); local state=M.status(true)
     state.version=version()
-    state.ui_version="0.6.22"
+    state.ui_version="0.7.0"
     state.supported=logic.supported_version(state.version)
     state.capabilities=capabilities()
     state.revision=s.revision
@@ -158,7 +159,7 @@ local function wait_proxy(name,managed,code)
     logic.fail(code)
 end
 local function recover_locked(boot)
-    local state=configuration.restore()
+    local state=configuration.restore(boot)
     if not state then return end
     if not boot and state.firewall then
         logic.require(run({"/sbin/fw4","check"},10)==0,"rollback_failed")
@@ -274,16 +275,8 @@ local function apply_settings(s,request)
     logic.require(logic.standard_auth(candidate),"custom_auth_file")
     local was_running=running()
     if was_running then logic.require(request.allow_restart==true,"restart_confirmation_required") end
-    local test_config=work.."/check.conf"; local test_passwd=work.."/check.passwd"
     initcerts()
-    local ok,code=pcall(function()
-        atomic(test_passwd,logic.passwd(s.users))
-        atomic(test_config,(candidate:gsub("/var/etc/ocpasswd",test_passwd)))
-        return run({"/usr/sbin/ocserv","--test-config","--config",test_config},8)
-    end)
-    fs.remove(test_config); fs.remove(test_passwd)
-    if not ok then error(code,0) end
-    logic.require(code==0,"config_check_failed")
+    runtime.check(candidate,logic.passwd(s.users),work.."/check")
     logic.require(s.firewall_loaded and s.firewall_raw~=nil,"firewall_unavailable")
     return transaction(s,was_running,function(mark,mark_firewall)
         for key,value in pairs(values) do logic.require(s.cursor:set("ocserv","config",key,value),"write_failed") end

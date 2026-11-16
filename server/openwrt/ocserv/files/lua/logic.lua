@@ -1,5 +1,5 @@
 -- SPDX-License-Identifier: GPL-3.0-or-later
--- Pure validation and rendering; shared by LuCI and the Lua 5.1 regression tests.
+-- Pure policy and rendering shared by service startup and management.
 local M = {}
 
 function M.fail(code) error({ code = code }, 0) end

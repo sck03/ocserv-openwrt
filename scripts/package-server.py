@@ -67,6 +67,12 @@ def main():
         server_root = executables[0].parents[2]
         if sha256(server_root / "etc/init.d/ocserv") != sha256(ROOT / "server/openwrt/ocserv/files/ocserv.init"):
             raise RuntimeError("The staged ocserv startup/certificate script is stale")
+        service_source = ROOT / "server/openwrt/ocserv/files"
+        if sha256(server_root / "usr/libexec/ocserv-render") != sha256(service_source / "ocserv-render"):
+            raise RuntimeError("Stale runtime renderer")
+        for module in (service_source / "lua").glob("*.lua"):
+            if sha256(server_root / "usr/lib/lua/ocserv" / module.name) != sha256(module):
+                raise RuntimeError("Stale service module: " + module.name)
         ui_roots = list((sdk / "build_dir").glob("target-*/luci-app-ocserv-easy/.pkgdir/luci-app-ocserv-easy"))
         if len(ui_roots) != 1:
             raise RuntimeError("Cannot locate the staged management package")
@@ -89,7 +95,7 @@ def main():
                 raise RuntimeError("Stale management entry point: " + relative)
         dynamic = subprocess.check_output(["readelf", "-d", str(executables[0])], text=True)
         ui_hashes = {}
-        for filename in ("app.js", "table.js", "maintenance.js", "style.css"):
+        for filename in ("app.js", "table.js", "maintenance.js", "dom.js", "messages.js", "api.js", "style.css"):
             assets = list((sdk / "build_dir").glob(
                 "target-*/luci-app-ocserv-easy/.pkgdir/luci-app-ocserv-easy/www/luci-static/resources/ocserv-easy/" + filename))
             if len(assets) != 1:

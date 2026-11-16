@@ -2,7 +2,7 @@
 -- Incremental framing for a JSON array of objects; jsonc validates each object.
 -- Keep one bounded record, never the full command response or decoded array.
 local json = require "luci.jsonc"
-local logic = require "luci.model.ocserv_easy.logic"
+local logic = require "ocserv.logic"
 local M = {}
 
 function M.new(visit, max_rows)

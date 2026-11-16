@@ -9,7 +9,7 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=ocserv
 PKG_VERSION:=1.6.0
-PKG_RELEASE:=1
+PKG_RELEASE:=2
 PKG_BUILD_PARALLEL:=1
 PKG_BUILD_FLAGS:=no-mips16
 
@@ -44,6 +44,7 @@ define Package/ocserv
   MAINTAINER:=Nikos Mavrogiannopoulos <n.mavrogiannopoulos@gmail.com>
   # OPL/Flippy supplies TUN for its own kernel. Never pull an official SDK kmod.
   DEPENDS:= +USE_GLIBC:libcrypt-compat +OCSERV_RADIUS:libradcli +OCSERV_SECCOMP:libseccomp +libgnutls +certtool +libncurses +libreadline +OCSERV_PAM:libpam +OCSERV_PROTOBUF:libprotobuf-c +OCSERV_LIBOATH:liboath +libev
+  DEPENDS+= +lua +libuci-lua +luci-lib-nixio
   USERID:=ocserv=72:ocserv=72
 endef
 
@@ -89,6 +90,9 @@ define Package/ocserv/install
 
 	$(INSTALL_DIR) $(1)/usr/libexec
 	$(INSTALL_BIN) $(PKG_INSTALL_DIR)/usr/libexec/ocserv-fw $(1)/usr/libexec/
+	$(INSTALL_BIN) ./files/ocserv-render $(1)/usr/libexec/
+	$(INSTALL_DIR) $(1)/usr/lib/lua/ocserv
+	$(INSTALL_DATA) ./files/lua/*.lua $(1)/usr/lib/lua/ocserv/
 
 	$(INSTALL_DIR) $(1)/etc/init.d
 	$(INSTALL_BIN) ./files/ocserv.init $(1)/etc/init.d/ocserv

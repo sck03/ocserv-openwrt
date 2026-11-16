@@ -1,0 +1,8 @@
+#!/usr/bin/lua
+-- Never print rendered configuration, passwords or command output.
+local ok, failure = pcall(function() require("ocserv.runtime").start() end)
+if not ok then
+    io.stderr:write("ocserv runtime preparation failed: ",
+        type(failure) == "table" and failure.code or "internal_error", "\n")
+    os.exit(1)
+end

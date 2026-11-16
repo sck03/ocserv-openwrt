@@ -9,11 +9,10 @@ from urllib.parse import parse_qs, urlsplit
 ROOT=Path(__file__).resolve().parents[1]
 from lupa.lua51 import LuaRuntime, lua_type
 from lua_json import install
+from lua_modules import install_modules
 lua=LuaRuntime(unpack_returned_tuples=True)
 install(lua)
-source=ROOT/'server/openwrt/luci-app-ocserv-easy/luasrc/model/ocserv_easy'
-for path in source.glob('*.lua'):
-    lua.execute('package.preload[...] = assert(loadstring(select(2,...)))','luci.model.ocserv_easy.'+path.stem,path.read_text(encoding='utf-8'))
+install_modules(lua)
 lua.globals().TEST_TEMPLATE=(ROOT/'server/openwrt/ocserv/files/ocserv.conf.template').read_text(encoding='utf-8')
 lua.globals().TEST_BASE64=lambda value:base64.b64encode(value.encode()).decode()
 lua.globals().TEST_KEEP_SANDBOX=True
@@ -24,8 +23,7 @@ backend=fixture.backend
 safe_call=lua.eval('function(fn,...) local ok,result=pcall(fn,...);return ok,result end')
 guard_lua=LuaRuntime(unpack_returned_tuples=True)
 install(guard_lua)
-for path in source.glob('*.lua'):
-    guard_lua.execute('package.preload[...] = assert(loadstring(select(2,...)))','luci.model.ocserv_easy.'+path.stem,path.read_text(encoding='utf-8'))
+install_modules(guard_lua)
 guard_lua.globals().TEST_TEMPLATE=lua.globals().TEST_TEMPLATE
 guard_lua.globals().TEST_GUARD=(ROOT/'server/openwrt/luci-app-ocserv-easy/root/usr/share/ocserv-easy/guard.nft.in').read_text(encoding='utf-8')
 guard_lua.execute((ROOT/'tests/guard_transaction_tests.lua').read_text(encoding='utf-8'))
@@ -64,7 +62,7 @@ class Handler(BaseHTTPRequestHandler):
         self.send_response(status);self.send_header('Content-Type',mime);self.send_header('Content-Length',str(len(raw)));self.send_header('Cache-Control','no-store');self.end_headers();self.wfile.write(raw)
     def do_GET(self):
         parts=urlsplit(self.path)
-        if parts.path in ('/app.js','/table.js','/maintenance.js','/style.css'):
+        if parts.path in ('/app.js','/table.js','/maintenance.js','/dom.js','/messages.js','/api.js','/style.css'):
             self.send((resources/parts.path[1:]).read_bytes(),'text/javascript; charset=utf-8' if parts.path.endswith('.js') else 'text/css; charset=utf-8');return
         if parts.path in ('/easy/data','/easy/status'):
             self.send(json.dumps({'ok':True,'data':data(status=parts.path.endswith('/status'))}));return
@@ -80,7 +78,7 @@ class Handler(BaseHTTPRequestHandler):
         self.send('''<!doctype html><html lang="zh"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>岚序 Lansyra 管理页预览</title>
 <style>body{margin:0;background:#f5f7fa;font:15px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:#24354b}nav{background:#243850;color:white;padding:15px 32px}main{padding:22px 32px}button{padding:6px 13px;border:1px solid #c8d2df;background:#fff;color:#294666;font:inherit}input,select,textarea{border:1px solid #c8d2df;border-radius:5px;padding:7px 9px;background:#fff;color:#24354b;font:inherit}.cbi-button-apply,.cbi-button-add{background:#275eaa;color:white;border-color:#275eaa}.cbi-button-remove{color:#a13929}.demo{float:right;color:#d4e4fb;font-size:13px}summary{cursor:pointer;margin:24px 0 18px;font-weight:600}</style>
 <link rel="stylesheet" href="/style.css"><nav>OpenWrt · VPN / 岚序 Lansyra <span class="demo">界面预览 · 模拟数据 / Preview · Simulated data</span></nav><main><div id="ocserv-easy"></div></main>
-<script id="ocserv-easy-options" type="application/json">'''+opts+'''</script><script src="/table.js" defer></script><script src="/maintenance.js" defer></script><script src="/app.js" defer></script></html>''','text/html; charset=utf-8')
+<script id="ocserv-easy-options" type="application/json">'''+opts+'''</script><script src="/table.js" defer></script><script src="/maintenance.js" defer></script><script src="/dom.js" defer></script><script src="/messages.js" defer></script><script src="/api.js" defer></script><script src="/app.js" defer></script></html>''','text/html; charset=utf-8')
     def do_POST(self):
         global guard_revision,guard_worker
         size=int(self.headers.get('Content-Length','0'))

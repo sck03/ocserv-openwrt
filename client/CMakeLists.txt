@@ -24,7 +24,7 @@ target_link_libraries(client_session PUBLIC
     "${VPN_DEPS}/lib/libnettle.a"
     "${VPN_DEPS}/lib/libgmp.a"
     -Wl,--end-group ncrypt secur32 iphlpapi)
-add_library(client_ui STATIC application.cpp ui.cpp dialogs.cpp)
+add_library(client_ui STATIC application.cpp ui.cpp dialogs.cpp storage_operation.cpp)
 target_link_libraries(client_ui PUBLIC client_session)
 add_executable(Lansyra WIN32 main.cpp "${PROJECT_SOURCE_DIR}/resources/app.rc")
 set_source_files_properties("${PROJECT_SOURCE_DIR}/resources/app.rc" PROPERTIES
@@ -37,6 +37,10 @@ configure_file("${PROJECT_SOURCE_DIR}/.deps/sources/wintun/bin/${WINTUN_ARCH}/wi
                "${CMAKE_BINARY_DIR}/wintun.dll" COPYONLY)
 configure_file(vendor/vpnc-script-win.js "${CMAKE_BINARY_DIR}/vpnc-script-win.js" COPYONLY)
 if(BUILD_TESTING)
+    add_executable(native_storage_tests tests/storage_operation_tests.cpp)
+    target_link_libraries(native_storage_tests PRIVATE client_ui)
+    set_target_properties(native_storage_tests PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}")
+    add_test(NAME native_storage COMMAND native_storage_tests)
     add_executable(native_policy_tests tests/network_policy_tests.cpp)
     target_link_libraries(native_policy_tests PRIVATE client_model)
     set_target_properties(native_policy_tests PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}")

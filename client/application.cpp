@@ -107,7 +107,7 @@ int Application::run(int show, const std::string &connect_profile, bool startup)
     tray(true);
     if (preferences_.start_minimized && auto_connect_.empty())
         minimize();
-    SetTimer(window_, 1, 250, nullptr);
+    SetTimer(window_, 1, 1000, nullptr);
     if (!auto_connect_.empty())
         PostMessageW(window_, AutoConnectMessage, 0, 0);
     MSG message{};
@@ -236,11 +236,18 @@ const Profile *Application::selected() const {
     return nullptr;
 }
 bool Application::reload(const std::string &id) {
+    if (storage_pending()) {
+        reload_pending_ = true;
+        return false;
+    }
+    reload_pending_ = false;
     const bool pending_preferences = preferences_writer_.pending();
     std::wstring reason;
     Preferences current;
     std::vector<Profile> profiles;
-    if (!store_.load_metadata(profiles, current, reason)) {
+    if (!run_storage(window_, preferences_.language, [&](std::wstring &error) {
+            return store_.load_metadata(profiles, current, error);
+        }, reason)) {
         error(window_, reason);
         return false;
     }
@@ -335,7 +342,9 @@ bool Application::flush_preferences(std::wstring &reason) {
     // save failure. Ordinary background completion never retries on its own.
     if (preferences_writer_.ready() && !preferences_writer_.request(preferences_, reason))
         return false;
-    return preferences_writer_.flush(reason);
+    return run_storage(window_, preferences_.language, [this](std::wstring &error) {
+        return preferences_writer_.flush(error);
+    }, reason);
 }
 void Application::preferences_saved() {
     if (auto result = preferences_writer_.take_result(); result && !result->success)
@@ -357,7 +366,10 @@ void Application::toggle_auto_connect() {
     if (previous.empty() && !profile)
         return;
     preferences_.auto_connect = previous.empty() ? profile->id : "";
-    if (!store_.save_preferences(preferences_, reason)) {
+    const auto updated = preferences_;
+    if (!run_storage(window_, preferences_.language, [this, updated](std::wstring &error) {
+            return store_.save_preferences(updated, error);
+        }, reason)) {
         preferences_.auto_connect = previous;
         error(window_, reason);
         return;
@@ -365,7 +377,10 @@ void Application::toggle_auto_connect() {
     if (!set_login_startup(store_.directory(), !preferences_.auto_connect.empty(), reason)) {
         preferences_.auto_connect = previous;
         std::wstring rollback_error;
-        if (!store_.save_preferences(preferences_, rollback_error))
+        const auto restored = preferences_;
+        if (!run_storage(window_, preferences_.language, [this, restored](std::wstring &error) {
+                return store_.save_preferences(restored, error);
+            }, rollback_error))
             reason += L"\n" + rollback_error;
         error(window_, reason);
     }
@@ -380,8 +395,10 @@ void Application::export_diagnostics() {
     auto status = status_;
     status.state = state_;
     std::wstring reason;
-    if (!write_atomic(*path, diagnostic_report(status, statistics_, log_.content(), events_.dropped()),
-                      reason))
+    const auto report = diagnostic_report(status, statistics_, log_.content(), events_.dropped());
+    if (!run_storage(window_, preferences_.language, [path, report](std::wstring &error) {
+            return write_atomic(*path, report, error);
+        }, reason))
         error(window_, reason);
 }
 void Application::watch_network() {
@@ -413,6 +430,8 @@ void Application::drain_network_change() {
         network_change_at_ = GetTickCount64() + 1000;
 }
 void Application::command(int id) {
+    if (storage_pending())
+        return;
     if (id == Quit) {
         shutdown();
         return;
@@ -500,7 +519,10 @@ void Application::command(int id) {
             IDYES) {
             std::wstring reason;
             bool remove_startup = preferences_.auto_connect == profile->id;
-            if (!store_.remove(profile->id, reason))
+            const auto id = profile->id;
+            if (!run_storage(window_, preferences_.language, [this, id](std::wstring &error) {
+                    return store_.remove(id, error);
+                }, reason))
                 error(window_, reason);
             else {
                 reload();
@@ -514,7 +536,9 @@ void Application::command(int id) {
             return;
         Profile value;
         std::wstring reason;
-        if (!store_.import_connection(*path, value, reason))
+        if (!run_storage(window_, preferences_.language, [&](std::wstring &error) {
+                return store_.import_connection(*path, value, error);
+            }, reason))
             error(window_, reason);
         else
             reload(value.id);
@@ -523,12 +547,15 @@ void Application::command(int id) {
         if (!path)
             return;
         std::wstring reason;
-        if (!store_.export_connection(*path, *profile, reason))
+        const auto snapshot = *profile;
+        if (!run_storage(window_, preferences_.language, [this, path, snapshot](std::wstring &error) {
+                return store_.export_connection(*path, snapshot, error);
+            }, reason))
             error(window_, reason);
     }
 }
 void Application::connect() {
-    if (busy() || closing_)
+    if (busy() || closing_ || storage_pending())
         return;
     Profile profile;
     if (auto *existing = selected())
@@ -550,7 +577,9 @@ void Application::connect() {
         }))
             profile.name = base + L" (" + std::to_wstring(suffix++) + L")";
         std::wstring reason;
-        if (!store_.save(profile, reason)) {
+        if (!run_storage(window_, preferences_.language, [&](std::wstring &error) {
+                return store_.save(profile, error);
+            }, reason)) {
             error(window_, reason);
             return;
         }
@@ -592,6 +621,7 @@ void Application::connect() {
     status_.session_id = session_->id();
     session_->set_log_level(level);
     state_ = State::Connecting;
+    SetTimer(window_, 1, 250, nullptr);
     show_statistics({});
     log_.append(t(L"开始连接。", L"Starting connection."));
     if (!session_->start()) {
@@ -613,9 +643,12 @@ void Application::disconnect() {
     update_controls();
 }
 void Application::shutdown() {
-    if (closing_)
+    if (closing_ || storage_pending())
         return;
     closing_ = true;
+    std::wstring reason;
+    if (!flush_preferences(reason))
+        error(window_, reason);
     if (busy()) {
         disconnect();
         return;
@@ -812,8 +845,9 @@ LRESULT Application::message(UINT message, WPARAM wparam, LPARAM lparam) {
             // and finished(). Consume it before allowing a new session.
             drain_events();
             session_.reset();
+            SetTimer(window_, 1, 1000, nullptr);
             update_controls();
-            if (closing_) {
+            if (closing_ && !storage_pending()) {
                 DestroyWindow(window_);
                 return 0;
             }
@@ -823,7 +857,10 @@ LRESULT Application::message(UINT message, WPARAM wparam, LPARAM lparam) {
             if (session_ && !cursor_.canceled())
                 session_->network_changed();
         }
-        if (++timer_tick_ % 4 == 0 && session_ && state_ == State::Connected)
+        if (reload_pending_ && !storage_pending() && !closing_)
+            reload();
+        if (++timer_tick_ % 4 == 0 && session_ && state_ == State::Connected &&
+            IsWindowVisible(window_) && !IsIconic(window_))
             session_->request_statistics();
         return 0;
     }
@@ -880,6 +917,8 @@ LRESULT Application::message(UINT message, WPARAM wparam, LPARAM lparam) {
         return 0;
     }
     if (message == WM_QUERYENDSESSION) {
+        if (storage_pending())
+            return FALSE;
         if (session_)
             disconnect();
         return TRUE;
@@ -894,9 +933,8 @@ LRESULT Application::message(UINT message, WPARAM wparam, LPARAM lparam) {
         return 0;
     }
     if (message == WM_DESTROY) {
-        // Finish the latest queued update before callbacks can outlive HWND.
-        if (preferences_writer_.ready())
-            save_preferences();
+        // Normal close already flushed while pumping messages. Do not enqueue
+        // another disk write after the window stops accepting input.
         preferences_writer_.stop();
         preferences_saved();
         stop_network_watch();

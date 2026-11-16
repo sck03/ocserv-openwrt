@@ -7,7 +7,7 @@ ROOT = Path(__file__).resolve().parents[1]
 lua = LuaRuntime(unpack_returned_tuples=True)
 model = ROOT / "server/openwrt/luci-app-ocserv-easy/luasrc/model/ocserv_easy"
 lua.execute('package.preload[...] = assert(loadstring(select(2,...)))',
-            "luci.model.ocserv_easy.logic", (model / "logic.lua").read_text(encoding="utf-8"))
+            "ocserv.logic", (ROOT / "server/openwrt/ocserv/files/lua/logic.lua").read_text(encoding="utf-8"))
 lua.execute('package.preload[...] = assert(loadstring(select(2,...)))',
             "luci.model.ocserv_easy.proxy_registry", (model / "proxy_registry.lua").read_text(encoding="utf-8"))
 lua.execute('''

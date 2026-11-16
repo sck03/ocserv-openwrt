@@ -2,10 +2,10 @@
 -- Proxy-specific configuration; the guard owns persistence and rollback.
 local fs=require "nixio.fs"
 local json=require "luci.jsonc"
-local logic=require "luci.model.ocserv_easy.logic"
-local run=require("luci.model.ocserv_easy.process").run
+local logic=require "ocserv.logic"
+local run=require("ocserv.process").run
 local registry=require "luci.model.ocserv_easy.proxy_registry"
-local storage=require "luci.model.ocserv_easy.storage"
+local storage=require "ocserv.storage"
 local M={}
 M.names=registry.names
 function M.supports(name) local entry=registry.get(name); return entry and entry.adapter~=nil or false end

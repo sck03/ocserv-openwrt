@@ -147,6 +147,9 @@ std::optional<std::filesystem::path> choose_file(HWND owner, bool save, const wc
                                                  const wchar_t *extension = nullptr,
                                                  const std::wstring &initial = {});
 void error(HWND owner, const std::wstring &message);
+bool run_storage(HWND owner, Language language, std::function<bool(std::wstring &)> operation,
+                 std::wstring &error);
+bool storage_pending();
 void add_choice(HWND combo, const std::wstring &label, LPARAM value = 0);
 void select_choice(HWND combo, LPARAM value);
 LPARAM selected_choice(HWND combo, LPARAM fallback = 0);

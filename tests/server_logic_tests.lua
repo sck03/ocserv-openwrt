@@ -1,5 +1,5 @@
 -- Exercised with the actual Lua 5.1 runtime used by LuCI. No router is modified.
-local logic=require "luci.model.ocserv_easy.logic"
+local logic=require "ocserv.logic"
 local results={}
 local function check(value,message) assert(value,message or "check failed") end
 local function expect(code,fn)
@@ -401,7 +401,7 @@ package.loaded["nixio"]=nixio;package.loaded["nixio.fs"]=fs
 -- Match OpenWrt 25.12: LuCI's rpcd cursor ignores custom directories.
 package.loaded["luci.model.uci"]={cursor=function()return cursor()end}
 package.loaded["uci"]={cursor=cursor}
-package.loaded["luci.model.ocserv_easy.process"]={run=run}
+package.loaded["ocserv.process"]={run=run}
 package.loaded["luci.jsonc"]={
     stringify=function(value) S.json=S.json or {};local key="JSON"..tostring(#S.json+1);S.json[#S.json+1]=clone(value);return key end,
     parse=function(value)
@@ -490,14 +490,14 @@ test("the shared maintenance lease excludes actions and recovery",function()
     S.busy=false;check(backend.recover(false) and S.files["/etc/config/ocserv"]==before)
 end)
 test("atomic replacement syncs the file before rename and its directory afterward",function()
-    reset();local storage=require "luci.model.ocserv_easy.storage"
+    reset();local storage=require "ocserv.storage"
     storage.atomic("/etc/config/ocserv","durable candidate")
     local events=S.disk_events
     check(#events==3 and events[1]:match("^sync:/etc/config/ocserv%.easy%-") and
         events[2]=="rename:/etc/config/ocserv" and events[3]=="sync:/etc/config")
 end)
 test("bounded reads distinguish missing and empty files and accept the exact limit",function()
-    reset();local storage=require "luci.model.ocserv_easy.storage"
+    reset();local storage=require "ocserv.storage"
     check(storage.read("/missing")==nil)
     S.files["/empty"]="";check(storage.read("/empty")=="")
     S.files["/bounded"]="1234";check(storage.read("/bounded",4)=="1234")
@@ -537,14 +537,14 @@ test("unreadable recovery journals remain pending without touching live files",f
     end
 end)
 test("short writes reuse the original buffer and preserve all bytes",function()
-    reset();local storage=require "luci.model.ocserv_easy.storage"
+    reset();local storage=require "ocserv.storage"
     local data=string.rep("abcd",16384);S.write_chunk=997
     storage.atomic("/short",data)
     check(S.files["/short"]==data and #S.write_sizes>1)
     for _,size in ipairs(S.write_sizes) do check(size==#data,"short writes copied a suffix") end
 end)
 test("stalled writes remove their candidate and retain the original file",function()
-    reset();local storage=require "luci.model.ocserv_easy.storage"
+    reset();local storage=require "ocserv.storage"
     local before=clone(S.files);S.write_stalled=true
     expect("write_failed",function()storage.atomic("/etc/config/ocserv","replacement")end)
     check(logic.equal(S.files,before))
@@ -625,7 +625,7 @@ end)
 test("invalidation between snapshot and marker reads rejects the old value",function()
     reset();local cache=require "luci.model.ocserv_easy.query_cache"
     cache.get("test","one",300,function()return {value="old"}end)
-    local storage=require "luci.model.ocserv_easy.storage";local read=storage.read
+    local storage=require "ocserv.storage";local read=storage.read
     storage.read=function(path,limit)
         local value=read(path,limit)
         if path=="/var/run/ocserv-easy/query-test.json" then
@@ -1204,6 +1204,51 @@ test("runtime recovery failures retain a retryable journal",function()
     S.fail_command="/etc/init.d/ocserv restart"
     expect("rollback_failed",function()backend.recover(false)end)
     check(tx.pending() and S.files["/etc/config/ocserv"]==before and backend.recover(false) and not tx.pending())
+end)
+test("reboot clears volatile accounts without preventing durable rollback",function()
+    reset();local tx=require "luci.model.ocserv_easy.configuration"
+    local before=S.files["/etc/config/ocserv"];local password=S.files["/var/etc/ocpasswd"]
+    local state=tx.begin(true)
+    tx.replace(state,"ocserv",before,before.."\ninterrupted")
+    tx.replace(state,"passwd",password,"partial:*:!\n")
+    for path in pairs(S.files) do if path:match("^/var/") then S.files[path]=nil end end
+    check(backend.recover(true) and S.files["/etc/config/ocserv"]==before and not tx.pending())
+    require("ocserv.runtime").start()
+    check(S.files["/var/etc/ocpasswd"]==password and logic.standard_auth(S.files["/var/etc/ocserv.conf"]))
+end)
+test("live recovery retains conflicts when the runtime password file disappears",function()
+    reset();local tx=require "luci.model.ocserv_easy.configuration";local state=tx.begin(true)
+    tx.replace(state,"passwd",S.files["/var/etc/ocpasswd"],"partial:*:!\n")
+    S.files["/var/etc/ocpasswd"]=nil
+    expect("rollback_failed",function()backend.recover(false)end)
+    check(tx.pending())
+end)
+test("runtime render and publication failures preserve both previous files",function()
+    local runtime=require "ocserv.runtime"
+    for _,path in ipairs({"/var/etc/ocserv-stage/check.passwd","/var/etc/ocserv-stage/check.conf",
+        "/var/etc/ocpasswd","/var/etc/ocserv.conf"}) do
+        reset();local config=S.files["/var/etc/ocserv.conf"];local passwd=S.files["/var/etc/ocpasswd"]
+        S.fail_write=path
+        expect("write_failed",runtime.start)
+        check(S.files["/var/etc/ocserv.conf"]==config and S.files["/var/etc/ocpasswd"]==passwd,path)
+        check(not S.files["/var/etc/ocserv-stage/check.passwd"] and not S.files["/var/etc/ocserv-stage/check.conf"])
+    end
+end)
+test("full online snapshots fit their own cache budget including escaped display text",function()
+    reset();local json=require "luci.jsonc";local stringify=json.stringify
+    json.stringify=TEST_JSON_ENCODE
+    local ok,err=pcall(function()
+        for i=1,4096 do S.online[i]={ID=i,Username="user"..i,Groupname=string.rep('"',128),
+            ["Remote IP"]=string.rep('\\',128),IPv4=string.rep('"',128),
+            ["Last connected at"]=string.rep('\\',128),State=string.rep('\1',128)} end
+        check(#backend.status().online==4096)
+        local count=#S.commands
+        check(#backend.status().online==4096 and #S.commands==count,"online cache missed")
+        local raw=S.files["/var/run/ocserv-easy/query-online.json"]
+        check(#raw>262144 and #raw<=require("luci.model.ocserv_easy.occtl").cache_limit)
+    end)
+    json.stringify=stringify
+    if not ok then error(err) end
 end)
 TEST_PREVIEW={reset=reset,backend=backend,request=request,state=function()return S end}
 if not TEST_KEEP_SANDBOX then io.open=original_io_open end

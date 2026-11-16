@@ -6,6 +6,7 @@ from lupa.lua51 import LuaRuntime
 
 ROOT = Path(__file__).resolve().parents[1]
 MODEL = ROOT / "server/openwrt/luci-app-ocserv-easy/luasrc/model/ocserv_easy"
+SERVICE = ROOT / "server/openwrt/ocserv/files/lua"
 
 
 def socket_row(port, state="0A", ipv6=False):
@@ -78,14 +79,14 @@ class ProxyRuntimeTests(unittest.TestCase):
             package.loaded["nixio.fs"]={}
             package.loaded["nixio"]={}
             package.loaded["luci.jsonc"]={parse=parse_fixture,stringify=function(x)return '{"name":"'..x.name..'"}' end}
-            package.loaded["luci.model.ocserv_easy.process"]={run=run_fixture}
+            package.loaded["ocserv.process"]={run=run_fixture}
             io.open=open_fixture
             cursor={get=get_fixture}
         ''')
-        self.lua.execute('package.loaded["luci.model.ocserv_easy.logic"]=assert(loadstring(...))()',
-                         (MODEL / "logic.lua").read_text(encoding="utf-8"))
-        self.storage = self.lua.execute('local m=assert(loadstring(...))(); package.loaded["luci.model.ocserv_easy.storage"]=m; return m',
-                                        (MODEL / "storage.lua").read_text(encoding="utf-8"))
+        self.lua.execute('package.loaded["ocserv.logic"]=assert(loadstring(...))()',
+                         (SERVICE / "logic.lua").read_text(encoding="utf-8"))
+        self.storage = self.lua.execute('local m=assert(loadstring(...))(); package.loaded["ocserv.storage"]=m; return m',
+                                        (SERVICE / "storage.lua").read_text(encoding="utf-8"))
         self.lua.execute('package.loaded["luci.model.ocserv_easy.proxy_registry"]=assert(loadstring(...))()',
                          (MODEL / "proxy_registry.lua").read_text(encoding="utf-8"))
         self.proxy = self.lua.execute((MODEL / "proxy.lua").read_text(encoding="utf-8"))
@@ -169,7 +170,7 @@ class ProxyRuntimeTests(unittest.TestCase):
     def test_openclash_running_requires_its_own_named_procd_instance(self):
         self.lua.globals().run_fixture = lambda argv, timeout: (0, json.dumps({
             "nikki": {"instances": {"nikki": {"running": True}}}}))
-        self.lua.execute('package.loaded["luci.model.ocserv_easy.process"].run=run_fixture')
+        self.lua.execute('package.loaded["ocserv.process"].run=run_fixture')
         proxy = self.lua.execute((MODEL / "proxy.lua").read_text(encoding="utf-8"))
         self.assertFalse(proxy.running("openclash"))
 
@@ -268,7 +269,7 @@ class ProxyRuntimeTests(unittest.TestCase):
 
     def test_line_scanner_closes_on_limits_callback_failure_and_early_stop(self):
         checked_scan = self.lua.eval('''function(path, visit, limit)
-            local ok, err=pcall(require("luci.model.ocserv_easy.storage").scan_lines,path,visit,limit)
+            local ok, err=pcall(require("ocserv.storage").scan_lines,path,visit,limit)
             return ok, type(err)=="table" and err.code or err
         end''')
         for data, limit in (("abcd", 3), ("a" * 4097, 8192), ("a" * 4097 + "\n", 8192)):
@@ -285,7 +286,7 @@ class ProxyRuntimeTests(unittest.TestCase):
     def test_stopped_momo_does_not_report_nikkis_shared_tun(self):
         self.lua.globals().run_fixture = lambda argv, timeout: (0, json.dumps({
             "momo": {"instances": {"momo": {"running": False}}}}))
-        self.lua.execute('package.loaded["luci.model.ocserv_easy.process"].run=run_fixture')
+        self.lua.execute('package.loaded["ocserv.process"].run=run_fixture')
         proxy = self.lua.execute((MODEL / "proxy.lua").read_text(encoding="utf-8"))
         state = proxy.diagnostics(self.lua.globals().cursor, "momo")
         self.assertFalse(state.running)

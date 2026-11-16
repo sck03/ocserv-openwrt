@@ -1,8 +1,10 @@
 -- SPDX-License-Identifier: GPL-3.0-or-later
 -- Retain display fields only; detailed routes/cipher data can dwarf the list.
 local array = require "luci.model.ocserv_easy.json_array"
-local run = require("luci.model.ocserv_easy.process").run
-local M = {}
+local run = require("ocserv.process").run
+-- 4096 normalized rows, including JSON escaping and the cache envelope.
+-- Keep this budget separate from persistent configuration/journal limits.
+local M = { cache_limit = 4 * 1024 * 1024 }
 
 local function query(arguments, timeout, max_rows, visit)
     local command = {"/usr/bin/occtl", "-j", "show"}
@@ -14,16 +16,15 @@ end
 
 local function text(value, limit)
     if type(value) ~= "string" then return "" end
-    limit = limit or 128
-    if #value <= limit then return value end
+    limit = limit or 64
     -- Keep the byte budget without splitting a UTF-8 code point. Only inspect
     -- the cut boundary; do not decode/copy an entire potentially large field.
-    while limit > 0 do
+    while #value > limit and limit > 0 do
         local byte = value:byte(limit + 1)
         if byte < 128 or byte >= 192 then break end
         limit = limit - 1
     end
-    return value:sub(1, limit)
+    return (value:sub(1, limit):gsub("[%z\1-\31\127]", " "))
 end
 
 function M.online()
@@ -36,7 +37,7 @@ function M.online()
         local ipv4 = text(row.IPv4)
         rows[#rows + 1] = {id = tostring(id), name = text(row.Username, 64), group = text(row.Groupname),
             ip = text(row["Remote IP"]), vpn_ip = ipv4 ~= "" and ipv4 or text(row.IPv6),
-            since = text(row["Last connected at"]), state = text(row.State)}
+            since = text(row["Last connected at"]), state = text(row.State, 32)}
     end)
     return ok and {online = rows} or {online = {}, online_error = true}
 end

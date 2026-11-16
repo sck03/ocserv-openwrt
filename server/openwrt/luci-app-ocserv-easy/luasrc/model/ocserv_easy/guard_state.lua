@@ -1,6 +1,6 @@
 -- SPDX-License-Identifier: GPL-3.0-or-later
 -- Pure recovery schema. Validate the whole journal before any runtime action.
-local logic=require "luci.model.ocserv_easy.logic"
+local logic=require "ocserv.logic"
 local registry=require "luci.model.ocserv_easy.proxy_registry"
 local M={version=3,root="/etc/ocserv/easy-guard",configs={"firewall","dhcp"}}
 for _,name in ipairs(registry.names(true)) do M.configs[#M.configs+1]=name end
