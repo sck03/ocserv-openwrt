@@ -184,7 +184,7 @@ final class DesktopVPN: NSObject, ObservableObject, OSSystemExtensionRequestDele
                 guard await saveDraft(), draft.rememberPassword,
                       !(try await repository.credential(draft.id)).isEmpty else { throw ClientError.login }
                 try SMAppService.mainApp.register()
-            } else { try SMAppService.mainApp.unregister() }
+            } else { try await SMAppService.mainApp.unregister() }
             loginEnabled = enabled
             UserDefaults.standard.set(enabled, forKey: "autoConnect")
             UserDefaults.standard.set(enabled ? draft.id : "", forKey: "autoProfile")
@@ -354,24 +354,28 @@ final class DesktopVPN: NSObject, ObservableObject, OSSystemExtensionRequestDele
             OSSystemExtensionManager.shared.submitRequest(request)
         }
     }
-    func request(_ request: OSSystemExtensionRequest, actionForReplacingExtension existing: OSSystemExtensionProperties,
+    nonisolated func request(_ request: OSSystemExtensionRequest, actionForReplacingExtension existing: OSSystemExtensionProperties,
                  withExtension ext: OSSystemExtensionProperties) -> OSSystemExtensionRequest.ReplacementAction { .replace }
-    func requestNeedsUserApproval(_ request: OSSystemExtensionRequest) {
-        detail = "请在系统设置中允许 Lansyra 系统扩展。"
+    nonisolated func requestNeedsUserApproval(_ request: OSSystemExtensionRequest) {
+        Task { @MainActor in detail = "请在系统设置中允许 Lansyra 系统扩展。" }
     }
-    func request(_ request: OSSystemExtensionRequest, didFinishWithResult result: OSSystemExtensionRequest.Result) {
-        extensionReady = result == .completed
-        let completion = extensionCompletion
-        extensionCompletion = nil
-        if extensionReady { completion?.resume() }
-        else { completion?.resume(throwing: ClientError.extensionRestart) }
-        if !wanted { refresh() }
+    nonisolated func request(_ request: OSSystemExtensionRequest, didFinishWithResult result: OSSystemExtensionRequest.Result) {
+        Task { @MainActor in
+            extensionReady = result == .completed
+            let completion = extensionCompletion
+            extensionCompletion = nil
+            if extensionReady { completion?.resume() }
+            else { completion?.resume(throwing: ClientError.extensionRestart) }
+            if !wanted { refresh() }
+        }
     }
-    func request(_ request: OSSystemExtensionRequest, didFailWithError error: Error) {
-        let completion = extensionCompletion
-        extensionCompletion = nil
-        completion?.resume(throwing: error)
-        if !wanted { refresh() }
+    nonisolated func request(_ request: OSSystemExtensionRequest, didFailWithError error: Error) {
+        Task { @MainActor in
+            let completion = extensionCompletion
+            extensionCompletion = nil
+            completion?.resume(throwing: error)
+            if !wanted { refresh() }
+        }
     }
     func importProfile() {
         guard !busy, !storageBusy else { return }

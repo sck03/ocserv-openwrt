@@ -132,6 +132,9 @@ HWND await_window(const wchar_t *type) {
     return result;
 }
 void command(HWND window, int id) {
+    // Saving now finishes with an asynchronous metadata reload. A real user
+    // cannot click the disabled owner while that operation is still running.
+    wait_for([&] { return IsWindowEnabled(window) != FALSE; }, "Command owner remained disabled");
     PostMessageW(window, WM_COMMAND, static_cast<WPARAM>(id), 0);
 }
 void set(HWND window, int id, const wchar_t *value) {

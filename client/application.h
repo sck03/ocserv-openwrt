@@ -30,6 +30,7 @@ private:
     void rebuild_menu();
     void translate();
     bool reload(const std::string &selected = {});
+    void populate_profiles(const std::string &selected = {});
     void update_controls();
     void select_tab();
     void command(int id);

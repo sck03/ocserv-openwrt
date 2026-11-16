@@ -66,8 +66,6 @@ actor ProfileRepository {
         return VPNProfile(name: values["Name"] ?? url.deletingPathExtension().lastPathComponent,
                           server: values["Server"] ?? "", username: "", pin: values["ServerPin"] ?? "")
     }
-
-    func export(_ data: Data, to url: URL) throws { try data.write(to: url, options: .atomic) }
 }
 enum ClientError: LocalizedError {
     case invalidProfile, missingPassword, invalidStore, keychain, keychainRecovery, login, extensionPending, extensionRestart

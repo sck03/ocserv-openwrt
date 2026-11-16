@@ -143,7 +143,9 @@ void Application::create_controls() {
     control(L"STATIC", L"", SS_LEFTNOWORDWRAP, Status, 16, 239, 448, 24);
     control(L"STATIC", L"", 0, StatusDetail, 16, 267, 448, 40);
     translate();
-    reload();
+    // run() already loaded this snapshot before creating the window. Avoid a
+    // nested modal loop inside WM_CREATE, where close can race initialization.
+    populate_profiles();
 }
 void Application::rebuild_menu() {
     HMENU menu = CreateMenu(), file = CreatePopupMenu(), profiles = CreatePopupMenu(),
@@ -254,6 +256,10 @@ bool Application::reload(const std::string &id) {
     profiles_ = std::move(profiles);
     if (!pending_preferences)
         preferences_ = current;
+    populate_profiles(id);
+    return true;
+}
+void Application::populate_profiles(const std::string &id) {
     if (!preferences_.auto_connect.empty() &&
         std::none_of(profiles_.begin(), profiles_.end(),
                      [this](const auto &profile) { return profile.id == preferences_.auto_connect; }))
@@ -279,7 +285,6 @@ bool Application::reload(const std::string &id) {
         save_preferences();
     rebuild_menu();
     update_controls();
-    return true;
 }
 void Application::select_tab() {
     bool main = TabCtrl_GetCurSel(item(Tabs)) == 0;
