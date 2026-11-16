@@ -256,7 +256,7 @@
         },t('保存并生效','Save and activate'));
     }
     function createList(view,headers,searchLabel,searchText,renderRow) {
-        return window.LansyraTable({view:view,headers:headers,searchText:searchText,renderRow:renderRow,labels:{
+        return window.LansyraTable({view:view,headers:headers,key:function(item){return item.id;},searchText:searchText,renderRow:renderRow,labels:{
             search:searchLabel,previous:t('上一页','Previous'),next:t('下一页','Next'),
             empty:t('暂无记录','No records'),noMatches:t('没有匹配的记录，请调整搜索条件。','No matching records. Try another search.'),
             count:function(first,last,count,total){return t(first+'–'+last+' / '+count+' 条',first+'–'+last+' of '+count)+(count===total?'':t('（全部 '+total+' 条）',' ('+total+' total)'));},
@@ -476,7 +476,16 @@
         content.replaceChildren();
         if(activeTab==='users')renderUsers(); else if(activeTab==='settings')renderSettings(); else if(activeTab==='guard')renderGuard();
         else if(activeTab==='maintenance')content.appendChild(window.LansyraMaintenance(element,button,t)); else renderExport();
-        root.querySelectorAll('[role="tab"]').forEach(function(b){b.setAttribute('aria-selected',String(b.dataset.tab===activeTab));});
+        root.querySelectorAll('[role="tab"]').forEach(function(b){
+            var selected=b.dataset.tab===activeTab;
+            b.setAttribute('aria-selected',String(selected)); b.tabIndex=selected?0:-1;
+        });
+        content.setAttribute('aria-labelledby','easy-tab-'+activeTab);
+    }
+    function selectTab(tab) {
+        // Reselecting a tab must not discard its unsaved form or list nodes.
+        if(activeTab===tab)return;
+        activeTab=tab; renderTab();
     }
     function render() {
         removeModal(); root.replaceChildren();
@@ -496,9 +505,23 @@
         if(state.recovery_pending)notice(errors.recovery_pending,true);
         if(!state.supported)notice(state.version==='unknown'?errors.version_unavailable:errors.upgrade_required,true);
         else if(!options.writable)notice(errors.forbidden);
-        var tabs=element('div',{className:'easy-tabs',role:'tablist'});
-        [['users',t('账号与在线用户','Accounts and connections')],['settings',t('服务设置','Service settings')],['guard',t('VPN 专用上网','VPN-only access')],['export',t('客户端配置','Client profiles')],['maintenance',t('系统维护','Maintenance')]].forEach(function(item){var b=button(item[1],function(){activeTab=item[0];renderTab();});b.dataset.tab=item[0];b.setAttribute('role','tab');tabs.appendChild(b);});
-        root.appendChild(tabs);content=element('div',{});root.appendChild(content);renderTab();
+        var tabs=element('div',{className:'easy-tabs',role:'tablist','aria-label':t('管理功能','Administration')});
+        [['users',t('账号与在线用户','Accounts and connections')],['settings',t('服务设置','Service settings')],['guard',t('VPN 专用上网','VPN-only access')],['export',t('客户端配置','Client profiles')],['maintenance',t('系统维护','Maintenance')]].forEach(function(item){
+            var b=button(item[1],function(){selectTab(item[0]);});
+            b.dataset.tab=item[0]; b.id='easy-tab-'+item[0]; b.setAttribute('role','tab'); b.setAttribute('aria-controls','easy-panel'); tabs.appendChild(b);
+        });
+        tabs.addEventListener('keydown',function(event){
+            if(busy || event.altKey || event.ctrlKey || event.metaKey)return;
+            var buttons=Array.from(tabs.children), index=buttons.indexOf(event.target);
+            if(index<0)return;
+            if(event.key==='ArrowRight')index=(index+1)%buttons.length;
+            else if(event.key==='ArrowLeft')index=(index+buttons.length-1)%buttons.length;
+            else if(event.key==='Home')index=0;
+            else if(event.key==='End')index=buttons.length-1;
+            else return;
+            event.preventDefault(); buttons[index].focus(); selectTab(buttons[index].dataset.tab);
+        });
+        root.appendChild(tabs);content=element('div',{id:'easy-panel',role:'tabpanel',tabindex:'0'});root.appendChild(content);renderTab();
     }
     var loadRead=readSlot('data'), statusRead=readSlot('status'), loadGeneration=0, formEdited=false, backgroundRefresh=false;
     function edited(event) {

@@ -83,7 +83,7 @@ end
 function M.data(admin)
     local s=snapshot(); local state=M.status(true)
     state.version=version()
-    state.ui_version="0.6.21"
+    state.ui_version="0.6.22"
     state.supported=logic.supported_version(state.version)
     state.capabilities=capabilities()
     state.revision=s.revision

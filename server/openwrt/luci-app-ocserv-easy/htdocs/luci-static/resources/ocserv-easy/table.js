@@ -5,7 +5,7 @@
     // Own only filtering, pagination and visible rows. The page owns data,
     // permissions and actions; view retains the user's position across refreshes.
     window.LansyraTable = function (options) {
-        var size = 50, items = [], matches = [], visibleKey = null;
+        var size = 50, items = [], matches = [], rows = new Map(), emptyText = null;
         var view = options.view;
         function node(tag, className, text) {
             var result = document.createElement(tag);
@@ -47,24 +47,50 @@
         pager.append(previous, position, next);
         root.append(toolbar, scroll, pager);
 
+        function renderRows(visible) {
+            var active = document.activeElement, focus = null, nextRows = new Map();
+            var controls = 'button,input,select,textarea,a[href],[tabindex]';
+            if (body.contains(active)) rows.forEach(function (entry, id) {
+                if (entry.node.contains(active)) focus = {id:id, index:Array.from(entry.node.querySelectorAll(controls)).indexOf(active)};
+            });
+            visible.forEach(function (item) {
+                var id = options.key(item), signature = JSON.stringify(item), entry = rows.get(id);
+                if (!entry || entry.signature !== signature) entry = {node:options.renderRow(item), signature:signature};
+                nextRows.set(id, entry);
+            });
+            // Keep only this page's nodes and signatures. Unchanged rows retain
+            // their action closures; changed rows receive the latest record.
+            rows.forEach(function (entry, id) {
+                if (nextRows.get(id) !== entry) entry.node.remove();
+            });
+            if (emptyText !== null) { body.replaceChildren(); emptyText = null; }
+            var cursor = body.firstChild;
+            nextRows.forEach(function (entry) {
+                if (entry.node === cursor) cursor = cursor.nextSibling;
+                else body.insertBefore(entry.node, cursor);
+            });
+            rows = nextRows;
+            if (!visible.length) {
+                var text = view.query.trim() ? options.labels.noMatches : options.labels.empty;
+                var row = node('tr'), cell = node('td', 'easy-empty', text);
+                cell.colSpan = options.headers.length;
+                row.appendChild(cell);
+                body.replaceChildren(row);
+                emptyText = text;
+            }
+            // Replacing or moving a focused row can blur its control. Restore
+            // only that record's action, never an action on a different record.
+            if (focus && document.activeElement !== active) {
+                var retained = rows.get(focus.id);
+                var target = retained && retained.node.querySelectorAll(controls)[focus.index];
+                (target && !target.disabled ? target : scroll).focus({preventScroll:true});
+            }
+        }
         function render() {
             var pages = Math.max(1, Math.ceil(matches.length / size));
             view.page = Math.max(0, Math.min(view.page, pages - 1));
             var start = view.page * size, visible = matches.slice(start, start + size);
-            var key = visible.length ? JSON.stringify(visible) :
-                (view.query.trim() ? options.labels.noMatches : options.labels.empty);
-            // Changes outside this page must not rebuild focused action buttons.
-            if (key !== visibleKey) {
-                visibleKey = key;
-                if (visible.length) body.replaceChildren(...visible.map(options.renderRow));
-                else {
-                    var row = node('tr'), cell = node('td', 'easy-empty',
-                        view.query.trim() ? options.labels.noMatches : options.labels.empty);
-                    cell.colSpan = options.headers.length;
-                    row.appendChild(cell);
-                    body.replaceChildren(row);
-                }
-            }
+            if (visible.length || emptyText !== (view.query.trim() ? options.labels.noMatches : options.labels.empty)) renderRows(visible);
             function assign(target, property, value) {
                 if (target[property] !== value) target[property] = value;
             }
@@ -86,6 +112,7 @@
             view.query = search.value;
             view.page = 0;
             filter();
+            scroll.scrollTop = 0;
         });
         return {
             element: root,

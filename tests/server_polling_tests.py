@@ -20,6 +20,18 @@ with sync_playwright() as pw:
     page.clock.install()
     page.goto(args.url, wait_until='networkidle')
     expect(page.get_by_role('tab')).to_have_count(5)
+    for tab, field, value in (('服务设置', '服务端口（TCP）', '5555'),
+                              ('客户端配置', '客户端实际连接的服务器地址', 'unsaved.example.com:4443')):
+        current = page.get_by_role('tab', name=tab, exact=True)
+        current.click()
+        page.get_by_label(field, exact=True).fill(value)
+        page.evaluate('window.editedForm = document.querySelector("#easy-panel form")')
+        current.click()
+        current.press('Enter')
+        page.clock.run_for(3000)
+        expect(page.get_by_label(field, exact=True)).to_have_value(value)
+        assert page.evaluate('editedForm === document.querySelector("#easy-panel form")')
+    checks.append('reselecting the current tab by pointer or keyboard retains unsaved settings and profile fields')
     page.get_by_role('tab', name='VPN 专用上网', exact=True).click()
     expect(page.get_by_role('button', name='开启', exact=True)).to_be_enabled()
 

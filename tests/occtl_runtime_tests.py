@@ -165,6 +165,18 @@ class OcctlRuntimeTests(unittest.TestCase):
         self.assertFalse(result.online_error)
         self.assertEqual(len(result.online), 0)
 
+    def test_duplicate_normalized_ids_reject_the_entire_online_snapshot(self):
+        for duplicate in (7, "7", "007", "7.0"):
+            with self.subTest(duplicate=duplicate):
+                raw = json.dumps([{"ID": 7, "Username": "first"},
+                                  {"ID": duplicate, "Username": "other"}])
+                lua, occtl = self.runtime(raw, chunk=7)
+                result = occtl.online()
+                self.assertTrue(result.online_error)
+                self.assertEqual(len(result.online), 0)
+                self.assertEqual(lua.globals().closed, 2)
+                self.assertTrue(lua.globals().reaped)
+
     def test_row_budget_has_exact_boundary(self):
         prefix = '{"ID":1,"Username":"user","unused":"'
         for size in (65536, 65537):
