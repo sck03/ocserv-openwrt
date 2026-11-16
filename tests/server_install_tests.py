@@ -224,7 +224,7 @@ with tempfile.TemporaryDirectory(prefix='lansyra-install-test-') as temporary:
         script = (ROOT / 'server/tools/install.sh').read_text(encoding='utf-8')
         script = re.sub(r'/(etc|root|tmp|usr|var)/', lambda match: str(root / match[1]) + '/', script)
         (root / 'bundle/install.sh').write_text(script, encoding='utf-8')
-        (root / 'bundle/with-lock.lua').write_text((ROOT / 'server/tools/with-lock.lua').read_text(encoding='utf-8'), encoding='utf-8')
+        (root / 'bundle/with-lock.lua').write_text((ROOT / 'server/openwrt/luci-app-ocserv-easy/root/usr/share/ocserv-easy/with-lock.lua').read_text(encoding='utf-8'), encoding='utf-8')
         lease=(ROOT / 'server/openwrt/luci-app-ocserv-easy/luasrc/model/ocserv_easy/lease.lua').read_text(encoding='utf-8')
         (root / 'bundle/lease.lua').write_text(lease.replace('/var/run/',str(root/'var/run')+'/'),encoding='utf-8')
         preflight=(ROOT/'server/tools/preflight.sh').read_text(encoding='utf-8')
@@ -292,6 +292,13 @@ with tempfile.TemporaryDirectory(prefix='lansyra-install-test-') as temporary:
     assert result.returncode!=0 and '待恢复的管理页事务' in result.stderr
     assert 'apk update' not in (root/'commands').read_text() and not list((root/'root').iterdir())
     checks.append('a pending management transaction is preserved for recovery before an upgrade')
+
+    root=fixture('pending_uninstall',existing=True)
+    (root/'etc/lansyra-uninstall').mkdir()
+    result=run(root)
+    assert result.returncode!=0 and '上次卸载尚未完成' in result.stderr
+    assert 'apk update' not in (root/'commands').read_text() and (root/'running').exists()
+    checks.append('an interrupted uninstall blocks installation before package or service changes')
 
     for phase in ('queued','applying','pending','restoring','recovery_failed','invalid'):
         root=fixture('guard_'+phase,existing=True)

@@ -47,6 +47,10 @@ if [ "${OCSERV_EASY_LOCK_OWNER:-}" != "$$" ]; then
     # remains held throughout recovery, package hooks, service work and cleanup.
     exec lua ./with-lock.lua /bin/sh ./install.sh
 fi
+[ ! -e /etc/lansyra-uninstall ] || {
+    echo '上次卸载尚未完成，请先重新运行卸载脚本完成恢复，再安装。' >&2
+    exit 1
+}
 [ ! -f /etc/ocserv/easy-transaction/state.json ] || {
     echo '存在待恢复的管理页事务，请等待后台恢复完成，或先在 LuCI 处理恢复错误后再安装。' >&2
     exit 1

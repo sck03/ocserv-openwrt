@@ -70,10 +70,11 @@ def main():
         ui_roots = list((sdk / "build_dir").glob("target-*/luci-app-ocserv-easy/.pkgdir/luci-app-ocserv-easy"))
         if len(ui_roots) != 1:
             raise RuntimeError("Cannot locate the staged management package")
-        for relative in ("etc/init.d/ocserv-easy-guard", "usr/libexec/ocserv-easy-guard", "usr/share/ocserv-easy/guard.nft.in"):
+        for relative in ("etc/init.d/ocserv-easy-guard", "usr/libexec/ocserv-easy-guard", "usr/share/ocserv-easy/guard.nft.in",
+                         "usr/sbin/lansyra-uninstall", "usr/share/ocserv-easy/with-lock.lua"):
             if sha256(ui_roots[0] / relative) != sha256(ROOT / "server/openwrt/luci-app-ocserv-easy/root" / relative):
                 raise RuntimeError("Stale guard runtime file: " + relative)
-        for relative in ("etc/init.d/ocserv-easy-guard", "usr/libexec/ocserv-easy-guard"):
+        for relative in ("etc/init.d/ocserv-easy-guard", "usr/libexec/ocserv-easy-guard", "usr/sbin/lansyra-uninstall"):
             if not (ui_roots[0] / relative).stat().st_mode & 0o111:
                 raise RuntimeError("Guard runtime is not executable: " + relative)
         module_root = Path("server/openwrt/luci-app-ocserv-easy/luasrc/model/ocserv_easy")
@@ -88,7 +89,7 @@ def main():
                 raise RuntimeError("Stale management entry point: " + relative)
         dynamic = subprocess.check_output(["readelf", "-d", str(executables[0])], text=True)
         ui_hashes = {}
-        for filename in ("app.js", "table.js", "style.css"):
+        for filename in ("app.js", "table.js", "maintenance.js", "style.css"):
             assets = list((sdk / "build_dir").glob(
                 "target-*/luci-app-ocserv-easy/.pkgdir/luci-app-ocserv-easy/www/luci-static/resources/ocserv-easy/" + filename))
             if len(assets) != 1:
@@ -108,10 +109,13 @@ def main():
         (output / "BUILDINFO.json").write_text(json.dumps(info, indent=2) + "\n", encoding="utf-8")
         (output / "APK-ARCHITECTURES").write_text("\n".join(target["apk_architectures"]) + "\n", encoding="ascii")
         shutil.copyfile(sdk / "feeds.conf", output / "feeds.conf.build")
-        for filename in ("install.sh", "preflight.sh", "diagnose-n1.sh", "add-user.sh", "with-lock.lua"):
+        for filename in ("install.sh", "preflight.sh", "diagnose-n1.sh", "add-user.sh"):
             shutil.copyfile(ROOT / "server/tools" / filename, output / filename)
+        runtime = ROOT / "server/openwrt/luci-app-ocserv-easy/root"
+        shutil.copyfile(runtime / "usr/sbin/lansyra-uninstall", output / "uninstall.sh")
+        shutil.copyfile(runtime / "usr/share/ocserv-easy/with-lock.lua", output / "with-lock.lua")
         shutil.copyfile(ROOT / "server/openwrt/luci-app-ocserv-easy/luasrc/model/ocserv_easy/lease.lua", output / "lease.lua")
-        for filename in ("OPENWRT-N1.md", "OPENWRT.md", "SERVER-UI.md", "VPN-ONLY-PROXY.md", "WAN.md"):
+        for filename in ("OPENWRT-N1.md", "OPENWRT.md", "SERVER-UI.md", "UNINSTALL.md", "VPN-ONLY-PROXY.md", "WAN.md"):
             shutil.copyfile(ROOT / "docs" / filename, output / filename)
         source = output / "source"
         source.mkdir(exist_ok=True)

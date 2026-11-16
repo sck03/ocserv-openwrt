@@ -2,7 +2,8 @@
 -- Run shell maintenance under the same lease as LuCI and recovery workers.
 local nixio = require "nixio"
 local directory = (arg[0] or ""):match("^(.*)/[^/]+$") or "."
-local lease = assert(loadfile(directory .. "/lease.lua"))()
+local bundled = loadfile(directory .. "/lease.lua")
+local lease = bundled and bundled() or require "luci.model.ocserv_easy.lease"
 local file, code = lease.acquire()
 if not file then
     io.stderr:write(code == "busy" and "Lansyra 正在执行其他维护操作，请稍后重试。\n" or "无法取得 Lansyra 维护锁。\n")

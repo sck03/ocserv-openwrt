@@ -19,7 +19,7 @@ with sync_playwright() as pw:
     page.on('pageerror', lambda error: errors.append(str(error)))
     page.clock.install()
     page.goto(args.url, wait_until='networkidle')
-    expect(page.get_by_role('tab')).to_have_count(4)
+    expect(page.get_by_role('tab')).to_have_count(5)
     page.get_by_role('tab', name='VPN 专用上网', exact=True).click()
     expect(page.get_by_role('button', name='开启', exact=True)).to_be_enabled()
 

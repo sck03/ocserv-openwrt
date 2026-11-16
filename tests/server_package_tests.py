@@ -59,7 +59,7 @@ class ServerPackageTests(unittest.TestCase):
         shutil.copytree(ui / "luasrc", self.ui_stage / "usr/lib/lua/luci")
         shutil.copytree(ui / "htdocs", self.ui_stage / "www")
         self.runtime = {self.ui_stage / relative for relative in (
-            "etc/init.d/ocserv-easy-guard", "usr/libexec/ocserv-easy-guard")}
+            "etc/init.d/ocserv-easy-guard", "usr/libexec/ocserv-easy-guard", "usr/sbin/lansyra-uninstall")}
         for path in self.runtime:
             path.chmod(0o755)
 
@@ -108,9 +108,12 @@ class ServerPackageTests(unittest.TestCase):
             info = json.loads(contents.read(prefix + "BUILDINFO.json"))
             self.assertEqual(info["build_timestamp"], "2026-09-29T01:02:03Z")
             self.assertEqual(info["management_ui_release"], "2")
-            self.assertEqual(contents.read(prefix + "with-lock.lua"), (self.root / "server/tools/with-lock.lua").read_bytes())
+            self.assertEqual(contents.read(prefix + "with-lock.lua"), (self.root / "server/openwrt/luci-app-ocserv-easy/root/usr/share/ocserv-easy/with-lock.lua").read_bytes())
             self.assertEqual(contents.read(prefix + "lease.lua"),
                              (self.root / "server/openwrt/luci-app-ocserv-easy/luasrc/model/ocserv_easy/lease.lua").read_bytes())
+            self.assertEqual(contents.read(prefix + "uninstall.sh"),
+                             (self.ui_stage / "usr/sbin/lansyra-uninstall").read_bytes())
+            self.assertIn(prefix + "UNINSTALL.md", contents.namelist())
             self.assertFalse(any("/validation/" in name or name.endswith("ocserv-elf-dependencies.txt")
                                  for name in contents.namelist()))
             self.assertEqual(contents.getinfo(prefix + "source/ocserv-1.6.0.tar.xz").compress_type, zipfile.ZIP_STORED)
@@ -170,6 +173,20 @@ class ServerPackageTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "Stale management module: lease.lua"):
             self.bundle()
         self.assertEqual(package.sha256(archive), checksum)
+
+    def test_stale_uninstaller_and_maintenance_page_reject_the_bundle(self):
+        for relative, source in (
+            ('usr/sbin/lansyra-uninstall', 'root/usr/sbin/lansyra-uninstall'),
+            ('usr/share/ocserv-easy/with-lock.lua', 'root/usr/share/ocserv-easy/with-lock.lua'),
+            ('www/luci-static/resources/ocserv-easy/maintenance.js',
+             'htdocs/luci-static/resources/ocserv-easy/maintenance.js'),
+        ):
+            with self.subTest(relative=relative):
+                path = self.ui_stage / relative
+                path.write_text('stale fixture')
+                with self.assertRaisesRegex(RuntimeError, 'Stale'):
+                    self.bundle()
+                shutil.copyfile(self.root / 'server/openwrt/luci-app-ocserv-easy' / source, path)
 
     def test_stale_recovery_schema_rejects_the_bundle(self):
         archive = self.bundle()

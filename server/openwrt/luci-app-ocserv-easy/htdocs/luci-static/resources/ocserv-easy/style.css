@@ -62,3 +62,11 @@
   #ocserv-easy .easy-summary strong { font-size:18px; }
 }
 #ocserv-easy .easy-guard-log { max-height:55vh; overflow:auto; white-space:pre-wrap; overflow-wrap:anywhere; font-size:12px; line-height:1.6; padding:12px; border:1px solid var(--border-color, #dfe5ec); border-radius:8px; background:var(--background-color-low, #f4f6f8); }
+#ocserv-easy .easy-maintenance { border-top:3px solid #bd704b; }
+#ocserv-easy .easy-eyebrow { display:block; font-size:11px; letter-spacing:.12em; color:var(--text-color-medium, #66768b); margin-bottom:10px; }
+#ocserv-easy .easy-maintenance h3 { margin:0; font-size:22px; }
+#ocserv-easy .easy-maintenance-label { padding:5px 11px; background:#e8f5ee; color:#13795b; border-radius:20px; font-size:12px; white-space:nowrap; }
+#ocserv-easy .easy-maintenance-steps { padding-left:24px; margin:22px 0; line-height:2; }
+#ocserv-easy .easy-command { display:flex; flex-wrap:wrap; gap:10px; padding:14px; border-radius:9px; background:var(--background-color-low, #f4f6f8); }
+#ocserv-easy .easy-command input { flex:1 1 220px; min-width:0; font-family:ui-monospace,Consolas,monospace; }
+#ocserv-easy .easy-command button { flex:0 0 auto; }

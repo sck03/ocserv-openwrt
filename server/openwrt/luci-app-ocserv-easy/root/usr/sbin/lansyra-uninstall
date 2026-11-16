@@ -1,0 +1,203 @@
+#!/bin/sh
+# SPDX-License-Identifier: GPL-3.0-or-later
+# One-shot removal. The package-independent copy survives removal of this file.
+set -eu
+umask 077
+fail() { echo "$*" >&2; exit 1; }
+mode=${1:-}
+[ "$#" -le 1 ] || fail '用法：lansyra-uninstall [--yes|--dry-run]'
+case "$mode" in
+    --help|-h) echo '用法：lansyra-uninstall [--yes|--dry-run]'; exit 0 ;;
+    ''|--yes|--dry-run) ;;
+    *) fail '未知参数。用法：lansyra-uninstall [--yes|--dry-run]' ;;
+esac
+[ "$(id -u)" = 0 ] || fail '请通过局域网 SSH 以 root 执行卸载。'
+for command in apk uci lua fw4 timeout; do command -v "$command" >/dev/null || fail "缺少命令：$command"; done
+directory=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
+if [ "${OCSERV_EASY_LOCK_OWNER:-}" != "$$" ]; then
+    echo '将卸载 ocserv 和 Lansyra 管理页，删除 VPN 账号、证书及本项目网络规则。'
+    echo '卸载前备份到 /root/lansyra-before-uninstall-*；VPN 连接会断开，请使用局域网 SSH。'
+    if [ -z "$mode" ]; then
+        printf '输入 UNINSTALL 确认：'
+        read -r answer || exit 1
+        [ "$answer" = UNINSTALL ] || fail '已取消卸载。'
+    fi
+    # Recovery uses the installed version's own transaction format. Never erase
+    # records that its runtime cannot restore, and never migrate old schemas.
+    if [ "$mode" != --dry-run ]; then
+        if [ -e /etc/ocserv/easy-transaction/state.json ]; then
+            lua -e 'assert(require("luci.model.ocserv_easy.backend").recover(false))' || fail '服务设置恢复失败，尚未卸载。'
+        fi
+        if [ -e /etc/ocserv/easy-guard/state.json ]; then
+            timeout 30 /usr/libexec/ocserv-easy-guard disable || fail 'VPN 专用上网恢复失败，尚未卸载。'
+            attempt=0
+            while [ -e /etc/ocserv/easy-guard/state.json ] && [ "$attempt" -lt 120 ]; do
+                sleep 1; attempt=$((attempt + 1))
+            done
+            [ ! -e /etc/ocserv/easy-guard/state.json ] || fail '隔离恢复尚未完成，请检查管理页日志后重试。'
+        fi
+    fi
+    runtime=/usr/share/ocserv-easy
+    [ ! -f "$directory/with-lock.lua" ] || runtime=$directory
+    lease=/usr/lib/lua/luci/model/ocserv_easy/lease.lua
+    [ ! -f "$runtime/lease.lua" ] || lease=$runtime/lease.lua
+    work=$(mktemp -d /tmp/lansyra-uninstall.XXXXXX)
+    trap 'rm -rf -- "$work"' EXIT
+    trap 'exit 129' HUP
+    trap 'exit 130' INT
+    trap 'exit 143' TERM
+    cp "$0" "$work/uninstall.sh"
+    cp "$runtime/with-lock.lua" "$work/with-lock.lua"
+    cp "$lease" "$work/lease.lua"
+    lua "$work/with-lock.lua" /bin/sh "$work/uninstall.sh" "${mode:---yes}"
+    exit $?
+fi
+
+journal=/etc/lansyra-uninstall
+keys='firewall nikki momo nikki-template momo-template'
+target() {
+    case "$1" in
+        firewall|nikki|momo) printf '/etc/config/%s' "$1" ;;
+        nikki-template) printf '/etc/nikki/ucode/hijack.ut' ;;
+        momo-template) printf '/etc/momo/ucode/hijack.ut' ;;
+        *) return 1 ;;
+    esac
+}
+replace_file() {
+    cp -p "$1" "$2.lansyra-new" && mv -f "$2.lansyra-new" "$2"
+}
+reload_network() {
+    timeout 30 fw4 check && timeout 30 /etc/init.d/firewall reload || return 1
+    for proxy in nikki momo; do
+        if [ -f "$journal/restart-$proxy" ]; then timeout 100 /etc/init.d/"$proxy" restart || return 1; fi
+    done
+}
+recover_network() {
+    [ -d "$journal" ] || return 0
+    if [ -f "$journal/prepared" ] && [ ! -f "$journal/complete" ]; then
+        # Check every target before restoring any; retain concurrent edits.
+        for key in $keys; do
+            [ -f "$journal/before/$key" ] || continue
+            path=$(target "$key")
+            cmp -s "$path" "$journal/before/$key" || cmp -s "$path" "$journal/after/$key" || {
+                echo "检测到后续修改，保留恢复记录：$journal ($path)" >&2; return 1;
+            }
+        done
+        for key in $keys; do
+            [ -f "$journal/before/$key" ] || continue
+            path=$(target "$key")
+            cmp -s "$path" "$journal/before/$key" || replace_file "$journal/before/$key" "$path" || return 1
+        done
+        reload_network || return 1
+    fi
+    rm -rf -- "$journal"
+    sync
+}
+# Fixed roots only. A symlink must never redirect cleanup into unrelated data.
+for path in /etc/ocserv /etc/config/ocserv "$journal" /var/run/ocserv-easy; do
+    [ ! -L "$path" ] || fail "拒绝清理符号链接：$path"
+done
+for package in ocserv firewall dhcp openclash nikki momo; do
+    [ -z "$(uci -q changes "$package")" ] || fail "存在未提交的 $package 修改，请先应用或撤销。"
+done
+set --
+for package in luci-app-ocserv-easy luci-i18n-ocserv-zh-cn luci-app-ocserv ocserv; do
+    if apk info -e "$package" >/dev/null 2>&1; then set -- "$@" "$package"; fi
+done
+echo "卸载软件包：${*:-（无，检查残留配置）}"
+if [ "$#" -gt 0 ]; then apk del --simulate "$@" || fail '软件包卸载预检失败。'; fi
+if [ "$mode" = --dry-run ]; then
+    echo '仅预览：未停止服务、恢复事务或删除文件。APK 会同时清理不再需要的依赖。'
+    exit 0
+fi
+for record in /etc/ocserv/easy-transaction/state.json /etc/ocserv/easy-guard/state.json /etc/ocserv/easy-install-network; do
+    [ ! -e "$record" ] || fail "存在待恢复事务：$record；请先完成恢复。"
+done
+recover_network || exit 1
+backup=$(mktemp -d /root/lansyra-before-uninstall-XXXXXX)
+echo "卸载前备份：$backup"
+cp "$directory/uninstall.sh" "$directory/with-lock.lua" "$directory/lease.lua" "$backup/"
+for package in ocserv firewall dhcp openclash nikki momo; do
+    [ ! -f "/etc/config/$package" ] || cp -p "/etc/config/$package" "$backup/$package.uci"
+done
+[ ! -d /etc/ocserv ] || cp -pR /etc/ocserv "$backup/ocserv"
+cleanup() {
+    result=$?
+    if ! recover_network; then result=1; fi
+    if [ "$result" != 0 ]; then echo "卸载未完成；修正错误后可运行：sh $backup/uninstall.sh --yes" >&2; fi
+    trap - EXIT HUP INT TERM
+    exit "$result"
+}
+trap cleanup EXIT
+trap 'exit 129' HUP
+trap 'exit 130' INT
+trap 'exit 143' TERM
+
+# A failed stop must not be followed by deletion of credentials or packages.
+for service in ocserv-easy-guard ocserv; do
+    [ -x "/etc/init.d/$service" ] || continue
+    timeout 15 /etc/init.d/"$service" disable
+    timeout 20 /etc/init.d/"$service" stop
+    attempt=0
+    while /etc/init.d/"$service" status >/dev/null 2>&1; do
+        [ "$attempt" -lt 10 ] || fail "$service 未停止，已中止卸载。"
+        sleep 1; attempt=$((attempt + 1))
+    done
+done
+mkdir -m 700 "$journal" "$journal/before" "$journal/after" "$journal/delta"
+for key in $keys; do
+    path=$(target "$key")
+    [ ! -L "$path" ] || fail "拒绝修改符号链接：$path"
+    [ -f "$path" ] || continue
+    cp -p "$path" "$journal/before/$key"
+    cp -p "$path" "$journal/after/$key"
+    cp -p "$path" "$backup/$key"
+done
+[ -f "$journal/after/firewall" ] || fail '无法读取防火墙配置。'
+for package in firewall nikki momo; do
+    [ -f "$journal/after/$package" ] || continue
+    uci -c "$journal/after" -t "$journal/delta" export "$package" >/dev/null
+    sections=lansyra_vpn
+    [ "$package" != firewall ] || sections='ocserv_vpn ocserv_vpn_to_lan ocserv_vpn_nat ocserv_vpn_entry'
+    for section in $sections; do
+        if uci -c "$journal/after" -t "$journal/delta" -q get "$package.$section" >/dev/null; then
+            uci -c "$journal/after" -t "$journal/delta" delete "$package.$section"
+        fi
+    done
+    uci -c "$journal/after" -t "$journal/delta" commit "$package"
+done
+for proxy in nikki momo; do
+    template="$journal/after/$proxy-template"
+    if [ -f "$template" ]; then
+        # Undo only our exact insertion; preserve later template modifications.
+        sed 's/const lan_inbound_device = \["vpns\*"\]; \/\* Lansyra VPN ingress \*\//const lan_inbound_device = [];/' "$template" > "$template.new"
+        cat "$template.new" > "$template"
+        rm -f "$template.new"
+    fi
+    if { [ -f "$journal/before/$proxy" ] && ! cmp -s "$journal/before/$proxy" "$journal/after/$proxy"; } ||
+       { [ -f "$journal/before/$proxy-template" ] && ! cmp -s "$journal/before/$proxy-template" "$template"; }; then
+        if /etc/init.d/"$proxy" status >/dev/null 2>&1; then : > "$journal/restart-$proxy"; fi
+    fi
+done
+: > "$journal/prepared"
+sync
+for key in $keys; do
+    [ -f "$journal/after/$key" ] || continue
+    path=$(target "$key")
+    cmp -s "$path" "$journal/before/$key" || fail "配置已变化：$path"
+    cmp -s "$path" "$journal/after/$key" || replace_file "$journal/after/$key" "$path"
+done
+reload_network
+if [ "$#" -gt 0 ]; then apk del "$@"; fi
+for package in ocserv luci-app-ocserv-easy luci-app-ocserv luci-i18n-ocserv-zh-cn; do
+    if apk info -e "$package" >/dev/null 2>&1; then fail "$package 仍被其他包依赖，未删除配置。"; fi
+done
+rm -f /etc/config/ocserv /etc/config/ocserv.apk-new /etc/config/ocserv.apk-old
+rm -rf -- /etc/ocserv
+rm -f /var/etc/ocserv.conf /var/etc/ocpasswd /var/run/ocserv.pid
+# Keep the shared lock inode: an already waiting process must see the same lock.
+find /var/run/ocserv-easy -mindepth 1 -maxdepth 1 ! -name lock -exec rm -rf -- '{}' ';'
+rm -f /tmp/luci-indexcache* /tmp/luci-modulecache/*
+: > "$journal/complete"
+sync
+echo "卸载完成。备份：$backup。重新登录 LuCI 后可全新安装。"

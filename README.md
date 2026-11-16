@@ -1,10 +1,10 @@
 # 岚序（Lansyra）
 
-岚序（Lansyra）提供 Windows 10/11 原生客户端 0.7.5、macOS 13+ Universal 客户端 0.1.5 和 Linux amd64/arm64 桌面客户端 0.1.5，以及 Android 0.2.5 / iOS 0.2.5 移动客户端。配套 ocserv 1.6.0-r1 服务端和中文管理页 0.6.20-r1。Windows 提供 x86/x64 便携包；Linux 支持 Debian 13 / Ubuntu 26.04，macOS 实际连接需要有效的 Apple 系统扩展签名。桌面安装方式见[桌面客户端说明](docs/DESKTOP.md)。服务端支持 **OpenWrt 25.12 / APK** 的六个目标，具体架构见 [OpenWrt 多架构说明](docs/OPENWRT.md)。
+岚序（Lansyra）提供 Windows 10/11 原生客户端 0.7.5、macOS 13+ Universal 客户端 0.1.5 和 Linux amd64/arm64 桌面客户端 0.1.5，以及 Android 0.2.5 / iOS 0.2.5 移动客户端。配套 ocserv 1.6.0-r1 服务端和中文管理页 0.6.21-r1。Windows 提供 x86/x64 便携包；Linux 支持 Debian 13 / Ubuntu 26.04，macOS 实际连接需要有效的 Apple 系统扩展签名。桌面安装方式见[桌面客户端说明](docs/DESKTOP.md)。服务端支持 **OpenWrt 25.12 / APK** 的六个目标，具体架构见 [OpenWrt 多架构说明](docs/OPENWRT.md)。
 
 客户端界面名称统一为 **岚序 Lansyra**，Windows 程序为 `Lansyra.exe`，Linux 包和命令为 `lansyra`，Android / iOS 默认安装 ID 为 `io.github.sck03.lansyra`，macOS 为 `io.github.sck03.lansyra.macos`。首次安装需填写服务器、账号、证书指纹并设置启动项；Apple 签名描述文件须匹配应用标识。本次维护沿用同名 Lansyra 的数据格式：升级前退出客户端并备份配置，同一用户、相同安装标识和签名下可保留现有配置。其他旧产品的数据、加密凭据和系统连接不自动迁移。
 
-同名 Lansyra 服务端可使用完整新套装覆盖升级：先在原管理页关闭 VPN 专用上网并等待恢复完成，再运行安装脚本。脚本备份配置，原地更新两个 APK，保留账号、证书和防火墙规则，并恢复升级前的服务运行状态。0.6.10 使用新的隔离恢复记录格式，不迁移旧事务；已有恢复异常应先用原版本处理，不能直接删除记录。旧项目或不同包标识按全新安装部署。
+重新部署服务端可先运行 `lansyra-uninstall --yes`，自动备份并清理软件包、账号、证书和本项目网络规则，再执行新套装的 `sh install.sh`。旧安装尚无卸载命令时，可直接运行新套装中的 `sh uninstall.sh --yes`，无需先覆盖安装。不迁移旧数据；范围和故障重试见[卸载与重装](docs/UNINSTALL.md)。同名包仍可原地更新，但必须先关闭 VPN 专用上网并完成恢复。
 
 Windows 客户端提供服务器配置列表、VPN 信息、独立日志、服务器认证弹窗和托盘，默认中文，可切换英文。静态合并 OpenConnect 9.21、GnuTLS、软件令牌和 XML/压缩库，无需安装 Qt、.NET 或 VC 运行库。完整保留随包的 `wintun.dll` 和 `vpnc-script-win.js`。会话编号与状态代次隔离旧回调，支持网络变化、睡眠恢复、可选登录后连接、有限重试及脱敏诊断导出。
 
@@ -48,7 +48,7 @@ sh install.sh
 
 管理页按 procd 服务归属识别代理，等待 DNS 规则和实际监听就绪。代理能力由统一登记表维护；PassWall、PassWall 2、HomeProxy、SSR Plus+ 目前仅提供检测与未适配提示。0.6.13 完整校验 DNS 与分流路由列表，合并等价路由，避免异常输入被截断接收及重复路由引起无效写入和重启。只读查询统一去重与取消，未保存表单保留原修订号；异常会话列表明确报错，无法确认账号撤销时回滚配置。恢复事务完整校验并保留异常现场。具体行为见[管理页说明](docs/SERVER-UI.md)，模块职责见[架构说明](docs/ARCHITECTURE.md)。
 
-管理页 0.6.20 将账号和在线列表统一为每页 50 条，支持按在线账号或 IP 搜索，刷新与切换标签保留搜索和页码。账号分别显示启用状态和在线状态，多条连接显示数量；查询失败显示“未知”，自动恢复后更新。轮询仅更新可见内容，避免连接变化打断账号操作；窄屏使用局部滚动表格。会话响应逐条解析，代理监听按块扫描，只保留必要结果。验证与资源测量边界见[验证记录](docs/VALIDATION.md)。
+管理页将账号和在线列表统一为每页 50 条，支持搜索并保留页码；轮询仅更新可见内容，窄屏使用局部滚动表格。0.6.21 增加系统维护和卸载命令复制，其他标签页不再重复汇总账号在线标记。会话响应逐条解析，代理监听按块扫描，只保留必要结果。验证与资源测量边界见[验证记录](docs/VALIDATION.md)。
 
 ## 构建与发行
 
@@ -70,6 +70,7 @@ sh install.sh
 - [OpenWrt 多架构支持与安装](docs/OPENWRT.md)
 - [N1 安装与首次配置](docs/OPENWRT-N1.md)
 - [中文管理页](docs/SERVER-UI.md)
+- [服务端一键卸载与重装](docs/UNINSTALL.md)
 - [客户端证书与密码保存](docs/CLIENT.md)
 - [macOS 与 Linux 桌面客户端](docs/DESKTOP.md)
 - [域名、IPv6、DDNS 与公网部署](docs/WAN.md)

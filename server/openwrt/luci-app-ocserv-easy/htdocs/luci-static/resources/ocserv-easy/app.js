@@ -280,6 +280,7 @@
         if(badge.className!==className)badge.className=className;
     }
     function renderUsers() {
+        updateOnlinePresence();
         accountList=createList(listViews.users,[t('登录账号','Username'),t('用户组','Group'),t('账号状态','Account status'),t('在线状态','Online'),t('操作','Actions')],
             t('搜索账号','Search accounts'),function(user){return user.name;},function(user){
                 var toggle=mutationButton(user.enabled?t('停用','Disable'):t('恢复','Enable'),function(){
@@ -460,7 +461,7 @@
     function renderStatus() {
         var label=state.running?t('停止服务','Stop service'):t('启动服务','Start service');
         if(serviceButton.textContent!==label)serviceButton.textContent=label;
-        updateOnlinePresence();
+        if(accountList)updateOnlinePresence();
         renderOnline();
         var key=JSON.stringify([state.running,array(state.online).length,state.online_error,array(state.users).length]);
         if(key===statusKey)return;
@@ -471,8 +472,10 @@
     function renderTab() {
         formEdited=false;
         accountList=null; onlineList=null; onlineError=null;
+        onlineCounts=Object.create(null);
         content.replaceChildren();
-        if(activeTab==='users')renderUsers(); else if(activeTab==='settings')renderSettings(); else if(activeTab==='guard')renderGuard(); else renderExport();
+        if(activeTab==='users')renderUsers(); else if(activeTab==='settings')renderSettings(); else if(activeTab==='guard')renderGuard();
+        else if(activeTab==='maintenance')content.appendChild(window.LansyraMaintenance(element,button,t)); else renderExport();
         root.querySelectorAll('[role="tab"]').forEach(function(b){b.setAttribute('aria-selected',String(b.dataset.tab===activeTab));});
     }
     function render() {
@@ -494,7 +497,7 @@
         if(!state.supported)notice(state.version==='unknown'?errors.version_unavailable:errors.upgrade_required,true);
         else if(!options.writable)notice(errors.forbidden);
         var tabs=element('div',{className:'easy-tabs',role:'tablist'});
-        [['users',t('账号与在线用户','Accounts and connections')],['settings',t('服务设置','Service settings')],['guard',t('VPN 专用上网','VPN-only access')],['export',t('客户端配置','Client profiles')]].forEach(function(item){var b=button(item[1],function(){activeTab=item[0];renderTab();});b.dataset.tab=item[0];b.setAttribute('role','tab');tabs.appendChild(b);});
+        [['users',t('账号与在线用户','Accounts and connections')],['settings',t('服务设置','Service settings')],['guard',t('VPN 专用上网','VPN-only access')],['export',t('客户端配置','Client profiles')],['maintenance',t('系统维护','Maintenance')]].forEach(function(item){var b=button(item[1],function(){activeTab=item[0];renderTab();});b.dataset.tab=item[0];b.setAttribute('role','tab');tabs.appendChild(b);});
         root.appendChild(tabs);content=element('div',{});root.appendChild(content);renderTab();
     }
     var loadRead=readSlot('data'), statusRead=readSlot('status'), loadGeneration=0, formEdited=false, backgroundRefresh=false;
