@@ -15,7 +15,7 @@
 
 Nettle 4 删除摘要长度参数并要求 Base64 解码显式传入目标容量，stoken 适配补丁直接使用新接口；GnuTLS 3.8.13 自带 Nettle 4 支持。stoken 0.93 的校验归档使用原始标签目录，下载器显式映射到构建目录；只在独立打补丁副本生成 configure，源码缓存保持不变。OpenSSL、LZ4 新归档与官方 Release 摘要一致，stoken 与 Debian 源码描述中的 SHA-256 一致，Nettle 从 GNU HTTPS 正式归档下载并锁定摘要。许可证随源码与发行包保留。
 
-Android 直接依赖以 Google Maven / Maven Central 的正式版本元数据核对：Core 1.19.1、Lifecycle 2.11.0、Activity 1.13.0、Compose BOM 2026.09.00、Navigation 2.10.2、DataStore 1.3.0、SplashScreen 1.2.0、Serialization 1.13.0、Coroutines 1.11.0；测试使用 JUnit 4.13.2 和 AndroidX Test 1.3.0。版本统一在 `mobile/android/libs.versions.toml`，Compose 内部组件遵循 BOM。构建使用 Kotlin 2.4.21、AGP 9.5.1、Gradle 9.9.1、SDK/Build Tools 37、NDK 30.0.16248370；Gradle 分发包也固定官方 SHA-256。应用构建配置直接维护，使用 AGP 内置 Kotlin 和公开 DSL，移除旧 variant 内部 API。
+Android 直接依赖以 Google Maven / Maven Central 的正式版本元数据核对：Core 1.19.1、Lifecycle 2.11.0、Activity 1.13.0、Compose BOM 2026.09.00、Navigation 2.10.2、DataStore 1.3.0、SplashScreen 1.2.0、Serialization 1.13.0、Coroutines 1.11.0；测试使用 JUnit 4.13.2 和 AndroidX Test 1.3.0。版本统一在 `mobile/android/libs.versions.toml`，Compose 内部组件遵循 BOM。构建使用 Kotlin 2.4.21、AGP 9.5.1、Gradle 9.9.1、SDK 37.2 / Build Tools 37.0.0、NDK 30.0.16248370；Gradle 分发包也固定官方 SHA-256。应用构建配置直接维护，使用 AGP 内置 Kotlin 和公开 DSL，移除旧 variant 内部 API。
 
 下面 2026-11-10 的记录说明历史决策；当前清单以上表为准。构建与回归结果见 [验证记录](VALIDATION.md)，编译通过不代表实际设备的耗电、吞吐或长期重连已经测量。
 
@@ -57,11 +57,11 @@ python3 scripts/package-server.py /tmp/sdk-25.12
 
 构建工具链宿主使用 `ubuntu-26.04`，这是 GitHub 运行器系统，与 OpenWrt 版本选择无关。升级源码、SDK 或 LuCI feed 后，应重新运行本地和 CI 检查，并完成设备上登录、转发、DNS、重连与开关恢复验证。
 
-## 工作流稳定版本（2026-10-05 核对）
+## 工作流稳定版本（2026-11-17 核对）
 
-官方 Actions 使用稳定发布标签：checkout 7.0.1、setup-python 7.0.0、setup-node 7.0.0、setup-java 6.0.1、cache 6.1.0、upload-artifact 7.0.1、download-artifact 8.0.1。通过各 Action 仓库的 Releases 核对，升级时排除预发布版。
+官方 Actions 使用稳定发布标签：checkout 7.0.1、setup-python 7.1.0、setup-node 7.1.0、setup-java 6.3.0、cache 6.1.0、upload-artifact 7.0.2、download-artifact 8.0.2。通过各 Action 仓库的 Releases 核对，升级时排除预发布版。
 
-显式配置的 Python 使用 3.14，JavaScript 检查使用 Node.js 26；`check-latest` 获取该系列最新补丁。管理页浏览器回归使用 Playwright 1.63.0，Lua 回归使用 lupa 2.8。Android JDK 17、NDK 和系统运行器保持现有构建兼容要求。
+显式配置的 Python 使用 3.14，JavaScript 检查使用 Node.js 26；`check-latest` 获取该系列最新补丁。管理页浏览器回归使用 Playwright 1.65.2，Lua 回归使用 lupa 2.8。Android JDK 17、NDK 和系统运行器保持现有构建兼容要求。
 
 ## 原生依赖复核（2026-11-10）
 

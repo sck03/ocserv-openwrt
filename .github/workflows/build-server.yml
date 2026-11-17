@@ -56,7 +56,7 @@ jobs:
       - uses: actions/checkout@v7.0.1
         with:
           persist-credentials: false
-      - uses: actions/setup-python@v7.0.0
+      - uses: actions/setup-python@v7.1.0
         with:
           python-version: "3.14"
           check-latest: true
@@ -70,7 +70,7 @@ jobs:
         env:
           SDK_VERSION: ${{ inputs.sdk_version }}
         run: python3 scripts/sdk_config.py --version "$SDK_VERSION" --github-output
-      - uses: actions/setup-node@v7.0.0
+      - uses: actions/setup-node@v7.1.0
         with:
           node-version: "26"
           check-latest: true
@@ -112,7 +112,7 @@ jobs:
           sudo python3 tests/vpn_guard_tests.py 2>&1 | tee test-results/vpn-guard-tests.log
       - name: Validate management page and stalled requests
         run: |
-          python -m pip install playwright==1.63.0
+          python -m pip install playwright==1.65.2
           # Hosted Ubuntu already provides Chrome and its runtime libraries.
           # Keep a fallback for images without it; avoid downloading a second
           # browser and upgrading unrelated fonts/X11 packages on every run.
@@ -141,7 +141,7 @@ jobs:
             wait "$preview_pid" || true
             trap - EXIT
           done
-      - uses: actions/upload-artifact@v7.0.1
+      - uses: actions/upload-artifact@v7.0.2
         if: always()
         with:
           name: server-regression-results
@@ -178,7 +178,7 @@ jobs:
       - uses: actions/checkout@v7.0.1
         with:
           persist-credentials: false
-      - uses: actions/setup-python@v7.0.0
+      - uses: actions/setup-python@v7.1.0
         with:
           python-version: '3.14'
           check-latest: true
@@ -209,7 +209,7 @@ jobs:
           mkdir -p test-results
           bash server/tools/build-ocserv.sh "$RUNNER_TEMP/sdk-25.12" 2>&1 | tee test-results/build-server-25.12.log
           python3 scripts/package-server.py "$RUNNER_TEMP/sdk-25.12"
-      - uses: actions/upload-artifact@v7.0.1
+      - uses: actions/upload-artifact@v7.0.2
         with:
           name: openwrt-25.12-${{ matrix.architecture }}
           path: |
@@ -218,14 +218,14 @@ jobs:
           if-no-files-found: error
           compression-level: 0
           retention-days: 7
-      - uses: actions/upload-artifact@v7.0.1
+      - uses: actions/upload-artifact@v7.0.2
         if: always()
         with:
           name: server-package-audit-${{ matrix.architecture }}
           path: test-results/package-openwrt-${{ matrix.architecture }}/
           if-no-files-found: ignore
           retention-days: 7
-      - uses: actions/upload-artifact@v7.0.1
+      - uses: actions/upload-artifact@v7.0.2
         if: failure()
         with:
           name: server-build-log-25.12-${{ matrix.architecture }}
@@ -247,11 +247,11 @@ jobs:
       - uses: actions/checkout@v7.0.1
         with:
           persist-credentials: false
-      - uses: actions/setup-python@v7.0.0
+      - uses: actions/setup-python@v7.1.0
         with:
           python-version: '3.14'
           check-latest: true
-      - uses: actions/download-artifact@v8.0.1
+      - uses: actions/download-artifact@v8.0.2
         with:
           pattern: openwrt-25.12-*
           path: dist

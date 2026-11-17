@@ -42,7 +42,7 @@ jobs:
         run: |
           git config --global --add safe.directory "$GITHUB_WORKSPACE"
           bash scripts/build-linux.sh
-      - uses: actions/upload-artifact@v7.0.1
+      - uses: actions/upload-artifact@v7.0.2
         with:
           name: linux-${{ matrix.arch }}
           path: |
@@ -51,7 +51,7 @@ jobs:
           if-no-files-found: error
           retention-days: 7
           compression-level: 0
-      - uses: actions/upload-artifact@v7.0.1
+      - uses: actions/upload-artifact@v7.0.2
         if: matrix.arch == 'amd64'
         with:
           name: linux-source
@@ -59,7 +59,7 @@ jobs:
           if-no-files-found: error
           retention-days: 7
           compression-level: 0
-      - uses: actions/upload-artifact@v7.0.1
+      - uses: actions/upload-artifact@v7.0.2
         if: always()
         with:
           name: linux-validation-${{ matrix.arch }}
@@ -98,7 +98,7 @@ jobs:
       - uses: actions/checkout@v7.0.1
         with:
           persist-credentials: false
-      - uses: actions/download-artifact@v8.0.1
+      - uses: actions/download-artifact@v8.0.2
         with:
           name: linux-${{ matrix.arch }}
           path: dist/linux
@@ -112,7 +112,7 @@ jobs:
           /usr/bin/lansyra --version
           NO_AT_BRIDGE=1 xvfb-run -a dbus-run-session -- /usr/bin/lansyra --smoke-test
           /usr/bin/lansyra --check-runtime
-      - uses: actions/upload-artifact@v7.0.1
+      - uses: actions/upload-artifact@v7.0.2
         if: always()
         with:
           name: linux-install-validation-${{ matrix.arch }}-${{ matrix.distro }}
@@ -128,7 +128,7 @@ jobs:
       - uses: actions/checkout@v7.0.1
         with:
           persist-credentials: false
-      - uses: actions/setup-python@v7.0.0
+      - uses: actions/setup-python@v7.1.0
         with:
           python-version: '3.14'
       - name: Install build tools
@@ -150,7 +150,7 @@ jobs:
           key: mobile-sources-${{ hashFiles('mobile/sources.json') }}
       - name: Build both CPU architectures and the packet tunnel extension
         run: bash scripts/build-macos.sh unsigned
-      - uses: actions/upload-artifact@v7.0.1
+      - uses: actions/upload-artifact@v7.0.2
         with:
           name: macos-universal-unsigned
           path: |
@@ -160,14 +160,14 @@ jobs:
           if-no-files-found: error
           retention-days: 7
           compression-level: 0
-      - uses: actions/upload-artifact@v7.0.1
+      - uses: actions/upload-artifact@v7.0.2
         with:
           name: macos-source
           path: dist/macos-source/
           if-no-files-found: error
           retention-days: 7
           compression-level: 0
-      - uses: actions/upload-artifact@v7.0.1
+      - uses: actions/upload-artifact@v7.0.2
         if: failure()
         with:
           name: macos-configure-logs
