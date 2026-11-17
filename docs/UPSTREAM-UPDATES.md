@@ -65,6 +65,8 @@ python3 scripts/package-server.py /tmp/sdk-25.12
 
 ## 原生依赖复核（2026-11-10）
 
+以下保留当时的选择依据；当前版本以上方 2026-11-17 清单为准，OpenSSL 已升级至 4.1.0 并通过跨平台构建与自动化回归。
+
 [OpenConnect 9.21](https://www.infradead.org/openconnect/download/) 和 [ocserv 1.6.0](https://www.infradead.org/ocserv/download/) 仍为官方最新正式版。OpenTunnel 最新提交仍为清单锁定的 `0535533`。[OpenWrt SDK](https://downloads.openwrt.org/releases/) 的 25.12 系列最新稳定版为 25.12.6，工作流继续在每次运行时解析该系列。GnuTLS 正式标签仍为 3.8.13；开发分支已移除内置 libtasn1 等构建选项，不能直接将未发布分支代入现有配方。
 
 | 组件 | 本轮调整 | 相关修复与适用范围 |

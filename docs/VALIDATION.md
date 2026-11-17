@@ -6,7 +6,15 @@
 
 修复普通账号事务重启后无法恢复、启动渲染失败覆盖账号文件、隔离预检临时密码文件残留，以及大在线列表缓存容量不足。启动和管理统一使用 ocserv 包的 Lua 渲染、存储和预检；删除重复 shell 实现。Windows 配置操作后台执行并保持消息循环，Linux 偏好失败反馈与选项回退，macOS 文件/钥匙串由串行 actor 处理，Apple 回调使用局部释放池。管理页拆分 API、文案、DOM 模块；Android 存储和日志业务迁入正式 Kotlin 文件。
 
-本地已通过服务端逻辑 126、隔离事务 107、进程 20、occtl 18、代理运行 20、配置渲染 4、包审计 13、浏览器列表 20 和轮询 32 项；浏览器无脚本错误。故障注入涵盖 `/var` 在重启后消失、预检/运行文件写入失败及 4096 条包含 JSON 转义的在线记录缓存命中。另有控制器、构建、发布、移动构建及清理脚本回归通过。完整平台构建结果将在验证完成后补充。
+本地已通过服务端逻辑 126、隔离事务 107、进程 20、occtl 18、代理运行 20、配置渲染 4、包审计 13、浏览器列表 20 和轮询 32 项；浏览器无脚本错误。故障注入涵盖 `/var` 在重启后消失、预检/运行文件写入失败及 4096 条包含 JSON 转义的在线记录缓存命中。另有控制器、构建、发布、移动构建及清理脚本回归通过。[服务端完整构建](https://github.com/sck03/ocserv-openwrt/actions/runs/43982251225) 六架构全部成功，额外确认 Linux 安装恢复 51、卸载 15、证书 14 及真实 nftables 报文检查；三款代理各 21 项页面流程通过。[更新 Actions / Playwright 1.65.2 后的服务端回归](https://github.com/sck03/ocserv-openwrt/actions/runs/43988396828) 再次通过。
+
+按免费最新稳定版要求更新 OpenSSL 4.1.0、Nettle 4.0、stoken 0.93、LZ4 1.11.1，以及 Android 正式库、构建插件、SDK 与 NDK；版本依据和许可见[上游更新](UPSTREAM-UPDATES.md)。Android Gradle 文件与版本目录直接维护，移除旧内部 variant API。stoken 的 Nettle 4 补丁直接采用新摘要与解码容量接口，新增三组上游已知答案向量。修复验证发现的 Windows 启动重复读取、保存后刷新期间窗口短暂恢复交互、macOS 注销登录项缺少 await，以及 OpenSSL 4 的库构建输出目录问题。
+
+最终应用提交 [`3e61e5f`](https://github.com/sck03/ocserv-openwrt/commit/3e61e5f) 的 [Windows 双架构](https://github.com/sck03/ocserv-openwrt/actions/runs/43988901656)、[Android 三架构](https://github.com/sck03/ocserv-openwrt/actions/runs/43988897672)、[iOS 未签名](https://github.com/sck03/ocserv-openwrt/actions/runs/43988907017) 与 [macOS Universal 未签名 / Linux 双架构](https://github.com/sck03/ocserv-openwrt/actions/runs/43988911360) 构建和配套回归均通过，覆盖更新后的 Actions 与显式锁定的 Coroutines 运行库。Windows x64/x86 包含原生窗口、DPAPI、回环 TLS、令牌向量和资源回收；x64 CI 另执行隔离 Wintun/路由检查。Android 包含 JUnit、16 KiB 对齐及 APK 签名校验；Apple 包含共享地址、网络设置、数据包及存储检查。Linux amd64/arm64 和 Debian 13 / Ubuntu 26.04 四组安装启动验证通过。
+
+经 GitHub SHA-256 与 ZIP CRC 校验的 Windows x64 产物在本机再通过中英文启动退出、令牌 3、连接策略 61、配置 92、界面 51、脚本 7、资源 9、回环认证 35 项，以及后台存储的线程、心跳和异常收尾检查。资源压力用例处理 600,000 个事件和 1,000 轮清空，句柄计数保持 134；这是隔离夹具的回收检查，不是长期 VPN 性能数据。精简报告保存在 `artifacts/verification/2026-11-17-maintenance/`。
+
+最终 CI 的 Windows、Linux 验证报告和 Apple 构建信息已核验归档。清理脚本删除构建输出、解压依赖、测试输出及 Python 缓存，共 4 个目录、27,916 个文件、689,223,163 字节（约 657 MiB）。82 个既有发行包、私有配置及备份文件清理前后 SHA-256 一致；当前锁定的依赖归档、开发工具及验证证据保留。直接删除 4 个旧依赖归档的命令被执行环境策略拒绝，这些未被构建引用的缓存暂留在 `.tools/`，共约 54 MiB。
 
 这些测试使用实际 Lua/浏览器/本机窗口运行时与隔离平台接口，不代替真实路由器断电、移动端耗电、Apple 签名扩展或长期吞吐验收。没有增加旧数据迁移层，也没有为了精简而删除事务、凭据绑定或协议安全检查。
 

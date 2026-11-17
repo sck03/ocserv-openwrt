@@ -84,7 +84,7 @@ iOS 0.2.3 在 iOS 16 及后续系统读取扩展返回的最后断开原因，�
 
 `mobile/sources.json` 固定上游源码 URL、版本及 SHA-256；下载与缓存均校验，解包拒绝越界路径。Android 编译版本和 Apple 源码目录通过 `scripts/source-directory.py --mobile` 从同一清单解析，升级依赖不再需要手动修改 shell 脚本；归档名与目录不一致时停止构建。Android 上游源码和 OpenConnect 9.21 / OpenSSL 4.1.0 / libxml2 2.15.4 / LZ4 1.11.1 的实际归档随产物提供；iOS 不使用 LZ4。Java/Maven 依赖由本仓库 `mobile/android/libs.versions.toml` 固定；应用 Gradle 配置也直接维护，使用 AGP 内置 Kotlin、正式 compilerOptions 和校验过的 Gradle 9.9.1 分发包。构建不是位级可复现承诺，Xcode、SDK 和包管理器的辅助工具版本仍受运行器环境影响。
 
-Android 使用 Linux、JDK 17、Android SDK 37、NDK `30.0.16248370`、CMake 和 autotools：
+Android 使用 Linux、JDK 17、Android SDK 37.2（`platforms;android-37.2`，targetSdk 37）、Build Tools 37.0.0、NDK `30.0.16248370`、CMake 和 autotools：
 
 ```sh
 export ANDROID_NDK_HOME="$ANDROID_HOME/ndk/30.0.16248370"

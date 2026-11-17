@@ -106,7 +106,7 @@ python -m pip install -r client/tests/requirements.txt
 
 ## 验证
 
-服务包新增 `/usr/libexec/ocserv-render` 和 `/usr/lib/lua/ocserv/`，包审计逐个核对共享模块；管理页新增 api/messages/dom 资源。Windows 原生入口额外运行 `native_storage_tests`，验证慢存储期间消息循环继续运行、异常回传及操作收尾。服务端配置/账号测试改为共享渲染策略与真实启动函数的失败传播，不再测试已删除的 shell 渲染副本。
+服务包新增 `/usr/libexec/ocserv-render` 和 `/usr/lib/lua/ocserv/`，包审计逐个核对共享模块；管理页新增 api/messages/dom 资源。Windows 原生入口额外运行 `native_storage_tests`，验证慢存储期间消息循环继续运行、异常回传及操作收尾；`native_crypto_tests` 使用 stoken 上游三组已知答案向量验证 Nettle 4 下的令牌导入、解密与计算。服务端配置/账号测试改为共享渲染策略与真实启动函数的失败传播，不再测试已删除的 shell 渲染副本。
 
 ~~~sh
 python tests/build_config_tests.py
