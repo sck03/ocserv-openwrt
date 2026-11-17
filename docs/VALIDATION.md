@@ -2,6 +2,29 @@
 
 本页记录岚序（Lansyra）全新安装版本的验证证据与实机边界。以前的打包和系统升级记录见[历史版本](https://github.com/sck03/ocserv-openwrt/blob/ba903fe/docs/VALIDATION.md)。
 
+## 2026-11-18 卸载恢复、证书文件与客户端采样
+
+应用提交为 [`18af54b`](https://github.com/sck03/ocserv-openwrt/commit/18af54b)。管理页更新为 0.7.1-r1、Android 0.2.7、macOS 0.1.6，ocserv 为 1.6.0-r2。卸载复用项目的有时限进程执行器，消除对系统 `timeout` 的依赖；独立备份带齐执行模块，APK 删除期间保留 Lua/nixio，网络事务及文件清理完成后才释放临时依赖。安装、管理和卸载共用防火墙规则定义。
+
+Android 忘记证书显式绑定编辑对象 ID 和服务器来源；选择器内容有界导入私有文件，保存、删除与活动连接共享文件归属。持久化失败保留表单，空白名单或全部失效时拒绝建立隧道。移除未生效的高级选项，DPD 覆盖关闭时使用网关默认值。应用流量采样随页面可见性、前台状态与手动暂停启停，复用应用查询的 UID，缓存到期重新加载，查询和排序在后台完成。Android 配置使用 schema 3，不增加旧数据迁移层。macOS 相同密码复用钥匙串引用，相同配置跳过文件写入，保留原子提交和失败回滚。
+
+| 验证 | 结果与证据 |
+| --- | --- |
+| 自动回归 | [通过](https://github.com/sck03/ocserv-openwrt/actions/runs/44182685047)：源码、服务端、Linux 安装/卸载、真实浏览器、Linux 三组 CTest 和 Apple 存储 |
+| Android | [三架构完整构建通过](https://github.com/sck03/ocserv-openwrt/actions/runs/44182778932)：Gradle 单元测试、APK 签名与 16 KiB 对齐检查；本地重新核对 APK 架构及摘要 |
+| macOS | [Universal 完整构建通过](https://github.com/sck03/ocserv-openwrt/actions/runs/44182788156)：未签名应用与系统扩展；本地核对两个可执行文件均含 Intel 和 Apple Silicon |
+| 服务端 | [OpenWrt 25.12.6 六架构完整构建通过](https://github.com/sck03/ocserv-openwrt/actions/runs/44182770328)：安装恢复 51、卸载 18、证书 14 和隔离网络检查通过；APK 审计、套装及源码内辅助文件核验通过 |
+
+本地 406 项逻辑、构建、打包和清理脚本检查通过，另有 64 个 Android JVM 用例、6 个 Shell 脚本和 10 个 JavaScript 文件的语法检查通过。Linux 卸载用例实际执行 shell 和文件操作，模拟 APK/UCI/服务，覆盖缺少 `timeout`、软件包删除及运行库释放后的备份重试、停止失败、状态查询超时、维护锁和管理员后续修改。服务端 CI 还对 OpenClash、Nikki、Momo 各执行 21 项页面检查，以及列表 20、轮询 32 项检查。Apple 存储检查确认连续 100 次相同保存只发生首次文件和钥匙串写入；改名仅写配置，密码/来源变化和提交失败继续验证凭据事务。
+
+本地六架构服务端套装及 Android、macOS 测试包保存在 `dist/2026-11-18-maintenance/`，精简证据保存在 `artifacts/verification/2026-11-18-maintenance/`。16 份 GitHub 附件均核对服务端 SHA-256 和 ZIP CRC，另核验包内摘要及客户端架构。每份服务端套装中的安装、卸载和六个 Lua 辅助文件与应用提交逐字节一致，源码归档也包含新增的 `run.lua`、`network.lua`。
+
+清理脚本删除测试输出、重复下载的 CI 附件及一次性工具，共 265 个文件、153,777,253 字节（约 146.7 MiB）；84 个既有安装包和私有配置清理前后逐个 SHA-256 一致。当前锁定的依赖源码、本轮构建产物与精简证据保留。
+
+临时 JVM 编译缓存的删除被自动审批策略拒绝（`blocked by policy`），已按用户要求完整移到 `artifacts/待手动删除-20261118/kotlin-tests-20261118/`：16 个文件、69,812,145 字节（约 66.6 MiB），移动前后逐个 SHA-256 一致，可手动删除整个 `待手动删除-20261118` 目录。
+
+本轮没有连接真实路由器或手机，不将采样启停和重复写入回归当作实测耗电、内存或吞吐收益。macOS 包未经正式签名；真实设备断电恢复、长时间重连和签名扩展仍需实机验收。Windows、iOS 运行源码本轮没有变化，其完整构建证据沿用上一节记录。本轮构建使用 `publish_release=false`，产物未发布到 Releases。
+
 ## 2026-11-17 模块解耦、凭据事务与资源优化
 
 本轮应用提交为 [`f11ecfc`](https://github.com/sck03/ocserv-openwrt/commit/f11ecfc)。Windows 将配置和偏好分成独立存储，认证交互移至 `session_auth`，路由策略以区间归并识别完整 IPv4 覆盖，并正确处理 OpenConnect 的双栈路由列表、无效输入和数量预算。Android 业务源码迁入 `mobile/android/owned/`，移除大段字符串补丁脚本；列表不再解密全部凭据，连接只解密所选配置，重排在事务内按 ID 更新最新记录。Android 同时检查固定指纹证书的有效期，严格读取连接设置，移除无效周期探测，只在图表有订阅时生成历史快照。Linux 偏好及登录启动写入移至后台串行模块；macOS 使用不可变版本钥匙串项与原子文件引用，避免保存中断破坏旧凭据。管理页拆分账号、设置、隔离和导出模块，以显式依赖注入连接界面与状态。

@@ -1,6 +1,6 @@
 # Lansyra Android / iOS 客户端
 
-Lansyra 移动端当前版本为 **Android 0.2.7 / iOS 0.2.5**，使用 **OpenConnect / Cisco AnyConnect 协议**连接本项目的 ocserv。Android / iOS 默认安装标识为 `io.github.sck03.lansyra`。本轮 Android 使用 schema 3 存储和加密上下文，不迁移旧数据；请全新创建配置并填写凭据。iOS 与 macOS 共用 `client/apple` 中的地址、数据包与会话代码；桌面使用方法见[桌面说明](DESKTOP.md)。
+Lansyra 移动端当前版本为 **Android 0.2.7 / iOS 0.2.5**，使用 **OpenConnect / Cisco AnyConnect 协议**连接本项目的 ocserv。Android / iOS 默认安装标识为 `io.github.sck03.lansyra`。本轮 Android 使用 schema 3 存储和加密上下文，不迁移旧数据；如已安装旧测试版，请先清除该应用的数据或卸载重装，再创建新配置并填写凭据。iOS 与 macOS 共用 `client/apple` 中的地址、数据包与会话代码；桌面使用方法见[桌面说明](DESKTOP.md)。
 
 ## GitHub Actions 构建
 
