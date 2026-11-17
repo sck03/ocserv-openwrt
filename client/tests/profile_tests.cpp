@@ -98,7 +98,7 @@ int main(int argc, char **argv) {
               "an unstarted preference writer accepted work that could not complete");
         writer.start({});
         Handle preference_lease(CreateMutexW(
-            nullptr, TRUE, local_object_name(L"ProfileStore", async_store.directory()).c_str()));
+            nullptr, TRUE, (local_object_name(L"ProfileStore", async_store.directory()) + L".preferences").c_str()));
         Preferences async_preferences;
         async_preferences.language = Language::English;
         check(writer.request(async_preferences, error), "preference request was rejected");
@@ -126,7 +126,7 @@ int main(int argc, char **argv) {
         check(!writer.request(async_preferences, error), "a stopped preference writer accepted more work");
         check(async_store.load_metadata(async_profiles, saved_preferences, error) && saved_preferences.log_level == 3,
               "writer shutdown dropped the last queued preferences");
-        check(write_atomic(async_store.directory() / L"profiles.json", "{corrupt", error),
+        check(write_atomic(async_store.directory() / L"preferences.json", "{corrupt", error),
               "asynchronous failure fixture creation");
         writer.start({});
         check(writer.request(async_preferences, error), "preference request was rejected");
@@ -208,7 +208,7 @@ int main(int argc, char **argv) {
                   CompareFileTime(&marker, &attributes.ftLastWriteTime) == 0,
               "identical preferences rewrote the file");
         auto invalid_preferences = preferences;
-        invalid_preferences.auto_connect = std::string(32, '0');
+        invalid_preferences.auto_connect = "invalid-id";
         check(!store.save_preferences(invalid_preferences, error) &&
                   store.load(profiles, preferences, error) && preferences.auto_connect == second.id,
               "invalid automatic profile overwrote valid preferences");
@@ -282,11 +282,11 @@ int main(int argc, char **argv) {
         check(store.save(first, error) && first.password.empty(), "changed gateway clears saved password");
         auto path = store.directory() / L"profiles.json";
         check(write_atomic(path, "{invalid fixture JSON", error), "write corrupt fixture");
-        check(!store.load(profiles, preferences, error) && !store.save_preferences(preferences, error),
-              "corrupt stores are not overwritten");
+        check(!store.load(profiles, preferences, error) && store.save_preferences(preferences, error),
+              "independent preferences do not depend on corrupt profile data");
         check(read_file(path, raw, error) && raw == "{invalid fixture JSON", "corrupt original retained");
         ProfileStore bounded(root / L"bounded");
-        nlohmann::json large{{"schema", 2}, {"profiles", nlohmann::json::array()}};
+        nlohmann::json large{{"schema", 3}, {"profiles", nlohmann::json::array()}};
         for (unsigned i = 0; i < 490; ++i) {
             auto id = random_id();
             large["profiles"].push_back({{"id", id},

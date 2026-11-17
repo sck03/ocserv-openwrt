@@ -66,7 +66,7 @@ class AndroidTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             android_prepare.once("old old", "old", "new")
         with self.assertRaises(ValueError):
-            android_prepare.section("end before start", "start", "end", "new")
+            __import__("source_edits").section("end before start", "start", "end", "new")
 
     def test_apk_identity_checks_every_localized_name(self):
         badging = "package: name='io.github.sck03.lansyra' versionCode='20'\napplication-label:'岚序 Lansyra'\n"

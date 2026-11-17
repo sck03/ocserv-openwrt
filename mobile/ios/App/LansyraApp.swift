@@ -58,7 +58,6 @@ final class VPNModel: ObservableObject {
             if attemptStarted, let connection = manager?.connection {
                 attemptStarted = false
                 let request = epoch
-                if #available(iOS 16.0, *) {
                     connection.fetchLastDisconnectError { [weak self] error in
                         Task { @MainActor in
                             guard let self, self.epoch == request,
@@ -68,10 +67,6 @@ final class VPNModel: ObservableObject {
                             self.status = self.lastError
                         }
                     }
-                } else {
-                    lastError = "连接已结束，请检查服务器地址、证书指纹和账号密码。"
-                    status = lastError
-                }
             }
         }
     }

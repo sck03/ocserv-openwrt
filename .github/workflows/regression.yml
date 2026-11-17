@@ -1,0 +1,75 @@
+name: Automatic regression checks
+on:
+  pull_request:
+  push:
+    branches: [main, 'codex/**']
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: regression-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  portable:
+    runs-on: ubuntu-26.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v7.1.0
+        with:
+          python-version: '3.14'
+      - uses: actions/setup-node@v7.1.0
+        with:
+          node-version: '26'
+      - run: python -m pip install lupa playwright pyyaml
+      - run: python -m playwright install --with-deps chrome
+      - name: Source, policy and backend regressions
+        run: |
+          python tests/build_config_tests.py
+          python tests/client_build_tests.py
+          python tests/mobile_build_tests.py
+          python tests/server_integration.py
+          python tests/guard_integration.py
+          python tests/process_tests.py
+          python tests/occtl_runtime_tests.py
+          python tests/proxy_runtime_tests.py
+          python tests/server_config_tests.py
+          g++ -std=c++17 -Wall -Wextra -Werror -Iclient client/route_coverage.cpp client/tests/route_coverage_tests.cpp -o /tmp/route-tests
+          /tmp/route-tests
+          for file in server/openwrt/luci-app-ocserv-easy/htdocs/luci-static/resources/ocserv-easy/*.js; do node --check "$file"; done
+      - name: Real browser UI, polling and 4096-session regressions
+        run: |
+          python tests/server_preview.py --port 22981 &
+          preview=$!
+          trap 'kill "$preview"' EXIT
+          for attempt in {1..30}; do curl -fsS http://127.0.0.1:22981/ >/dev/null && break || sleep 1; done
+          python tests/server_ui_tests.py
+          python tests/server_table_tests.py
+          python tests/server_polling_tests.py
+      - uses: actions/upload-artifact@v7.0.2
+        if: always()
+        with:
+          name: regression-results
+          path: test-results/
+          retention-days: 7
+  linux:
+    runs-on: ubuntu-26.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+      - run: sudo apt-get update && sudo apt-get install -y cmake ninja-build pkg-config libgtk-3-dev libnm-dev libsecret-1-dev dbus-x11
+      - run: cmake -S desktop/linux -B build/linux -G Ninja -DCMAKE_BUILD_TYPE=Debug && cmake --build build/linux && ctest --test-dir build/linux --output-on-failure
+  apple-storage:
+    runs-on: macos-15
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+      - run: |
+          swiftc -import-objc-header client/apple/ServerAddress.h -framework Foundation -framework Security desktop/macos/App/ProfilePersistence.swift tests/apple_storage_tests.swift -o /tmp/apple-storage-tests
+          /tmp/apple-storage-tests

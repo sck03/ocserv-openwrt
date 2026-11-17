@@ -1,4 +1,5 @@
 #include "agent.h"
+#include "preferences.h"
 #include "protocol.h"
 #include <gtk/gtk.h>
 #include <glib/gstdio.h>
@@ -53,6 +54,8 @@ public:
     NMActiveConnection *active = nullptr;
     Generation request;
     uint64_t stateGeneration = 0;
+    unsigned storagePending = 0;
+    PreferencesRepository preferences{g_get_user_config_dir()};
     unsigned pending = 0, attempt = 1, retrySeconds = 0;
     guint retryTimer = 0;
     bool closing = false, startup, smoke, refreshing = false, deactivating = false;
@@ -73,12 +76,6 @@ public:
             g_signal_handlers_disconnect_by_data(client, this);
         g_clear_object(&agent);
         g_clear_object(&client);
-    }
-    std::string settingsPath() const {
-        return std::string(g_get_user_config_dir()) + "/lansyra/settings.ini";
-    }
-    std::string startupPath() const {
-        return std::string(g_get_user_config_dir()) + "/autostart/io.github.sck03.lansyra.desktop";
     }
     void transition(const char *phase, const char *label, const char *description = "") {
         state = phase;
@@ -101,19 +98,19 @@ public:
         bool available =
             client && nm_client_get_nm_running(client) && agent && nm_secret_agent_old_get_registered(agent);
         gtk_button_set_label(GTK_BUTTON(connectButton), busy ? "断开 / 取消" : "连接");
-        gtk_widget_set_sensitive(connectButton, !closing && (busy || (available && hasProfile)));
+        gtk_widget_set_sensitive(connectButton, !closing && (busy || (!storagePending && available && hasProfile)));
         for (auto *widget : {servers, newButton, editButton, deleteButton, login, retryCheck})
-            gtk_widget_set_sensitive(widget, !busy && !closing && (available || smoke));
-        gtk_widget_set_sensitive(editButton, !busy && !closing && hasProfile);
-        gtk_widget_set_sensitive(deleteButton, !busy && !closing && hasProfile);
-        gtk_widget_set_sensitive(login, !busy && !closing && (hasProfile || !autoID.empty()));
+            gtk_widget_set_sensitive(widget, !busy && !storagePending && !closing && (available || smoke));
+        gtk_widget_set_sensitive(editButton, !busy && !storagePending && !closing && hasProfile);
+        gtk_widget_set_sensitive(deleteButton, !busy && !storagePending && !closing && hasProfile);
+        gtk_widget_set_sensitive(login, !busy && !storagePending && !closing && (hasProfile || !autoID.empty()));
         std::string loginLabel = "登录后自动连接所选服务器";
         if (client && !autoID.empty()) {
             if (auto *profile = nm_client_get_connection_by_uuid(client, autoID.c_str()))
                 loginLabel = std::string("登录后自动连接：") + nm_connection_get_id(NM_CONNECTION(profile));
         }
         gtk_button_set_label(GTK_BUTTON(login), loginLabel.c_str());
-        if (startup && available && !busy && !closing) {
+        if (startup && available && !busy && !storagePending && !closing) {
             startup = false;
             if (!autoID.empty() && gtk_combo_box_set_active_id(GTK_COMBO_BOX(servers), autoID.c_str()))
                 connect();
@@ -126,71 +123,37 @@ public:
         return id ? nm_client_get_connection_by_uuid(client, id) : nullptr;
     }
     void loadPreferences() {
-        GKeyFile *settings = g_key_file_new();
-        GError *failure = nullptr;
-        if (g_key_file_load_from_file(settings, settingsPath().c_str(), G_KEY_FILE_NONE, &failure)) {
-            auto read = [&](const char *key) {
-                char *value = g_key_file_get_string(settings, "client", key, nullptr);
-                std::string result = value ? value : "";
-                g_free(value);
-                return result;
-            };
-            selectedID = read("selected");
-            autoID = read("auto_connect");
-            retryFailed = g_key_file_get_boolean(settings, "client", "retry_failed", nullptr);
-        }
-        if (failure && !g_error_matches(failure, G_FILE_ERROR, G_FILE_ERROR_NOENT))
+        Preferences value;
+        if (!preferences.load(value))
             gtk_label_set_text(GTK_LABEL(detail), "设置文件无效，请检查配置目录。不会自动连接。");
-        g_clear_error(&failure);
-        g_key_file_unref(settings);
+        selectedID = value.selected;
+        autoID = value.automatic;
+        retryFailed = value.retry;
     }
-    bool savePreferences() {
-        std::string directory = std::string(g_get_user_config_dir()) + "/lansyra";
-        if (g_mkdir_with_parents(directory.c_str(), 0700)) {
-            gtk_label_set_text(GTK_LABEL(detail), "无法保存偏好，请检查配置目录权限和剩余空间。");
-            return false;
-        }
-        GKeyFile *settings = g_key_file_new();
-        g_key_file_set_string(settings, "client", "selected", selectedID.c_str());
-        g_key_file_set_string(settings, "client", "auto_connect", autoID.c_str());
-        g_key_file_set_boolean(settings, "client", "retry_failed", retryFailed);
-        gsize size = 0;
-        char *text = g_key_file_to_data(settings, &size, nullptr);
-        GError *failure = nullptr;
-        bool ok = g_file_set_contents_full(settingsPath().c_str(), text, static_cast<gssize>(size),
-                                           G_FILE_SET_CONTENTS_CONSISTENT, 0600, &failure);
-        g_free(text);
-        g_key_file_unref(settings);
-        if (!ok)
-            gtk_label_set_text(GTK_LABEL(detail), "无法保存偏好，请检查配置目录权限和剩余空间。");
-        g_clear_error(&failure);
-        return ok;
+    void savePreferences(std::function<void(bool)> completed = {}) {
+        ++storagePending;
+        preferences.save({selectedID, autoID, retryFailed}, [this, completed = std::move(completed)](bool ok) {
+            --storagePending;
+            if (!ok && !closing)
+                gtk_label_set_text(GTK_LABEL(detail), "无法保存偏好，请检查配置目录权限和剩余空间。");
+            if (completed) completed(ok);
+            update();
+            maybeClose();
+        });
+        update();
     }
     void setLogin() {
-        if (refreshing)
-            return;
-        bool enabled = gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(login));
+        if (refreshing) return;
         const auto previous = autoID;
         auto *profile = selected();
-        autoID = enabled && profile ? nm_connection_get_uuid(NM_CONNECTION(profile)) : "";
-        bool ok = savePreferences();
-        if (ok && enabled) {
-            std::string directory = std::string(g_get_user_config_dir()) + "/autostart";
-            constexpr char entry[] = "[Desktop Entry]\nType=Application\nName=岚序 Lansyra\n"
-                                     "Exec=/usr/bin/lansyra --autoconnect\nTerminal=false\n";
-            ok = g_mkdir_with_parents(directory.c_str(), 0700) == 0 &&
-                 g_file_set_contents_full(startupPath().c_str(), entry, -1, G_FILE_SET_CONTENTS_CONSISTENT,
-                                          0600, nullptr);
-        } else if (ok)
-            ok = g_unlink(startupPath().c_str()) == 0 || errno == ENOENT;
-        if (!ok) {
-            autoID = previous;
-            savePreferences();
-            gtk_label_set_text(GTK_LABEL(detail), "无法保存登录后自动连接设置，请检查目录权限。");
-        }
-        refreshing = true;
-        gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(login), !autoID.empty());
-        refreshing = false;
+        autoID = gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(login)) && profile ?
+            nm_connection_get_uuid(NM_CONNECTION(profile)) : "";
+        savePreferences([this, previous](bool ok) {
+            if (!ok) autoID = previous;
+            refreshing = true;
+            gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(login), !autoID.empty());
+            refreshing = false;
+        });
     }
     void reload() {
         if (!client)
@@ -401,7 +364,7 @@ public:
         maybeClose();
     }
     void maybeClose() {
-        if (closing && !pending && !active) {
+        if (closing && !pending && !storagePending && !active) {
             gtk_widget_destroy(window);
             window = nullptr;
             g_application_quit(G_APPLICATION(app));
@@ -530,8 +493,9 @@ public:
             reload();
             if (!ok)
                 gtk_label_set_text(GTK_LABEL(detail), "无法保存配置，请检查系统授权。");
-            else if (savePreferences())
-                gtk_label_set_text(GTK_LABEL(detail), "配置已保存");
+            else savePreferences([this](bool saved) {
+                if (saved && !closing) gtk_label_set_text(GTK_LABEL(detail), "配置已保存");
+            });
         }
         maybeClose();
     }
@@ -560,7 +524,6 @@ public:
                 if (ok && self->autoID == operation->id) {
                     self->autoID.clear();
                     self->savePreferences();
-                    g_unlink(self->startupPath().c_str());
                     self->refreshing = true;
                     gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(self->login), FALSE);
                     self->refreshing = false;
@@ -661,12 +624,14 @@ public:
                               if (self->refreshing) return;
                               const bool previous = self->retryFailed;
                               self->retryFailed = gtk_toggle_button_get_active(button);
-                              if (!self->savePreferences()) {
-                                  self->retryFailed = previous;
-                                  self->refreshing = true;
-                                  gtk_toggle_button_set_active(button, previous);
-                                  self->refreshing = false;
-                              }
+                              self->savePreferences([self, previous](bool ok) {
+                                  if (!ok) {
+                                      self->retryFailed = previous;
+                                      self->refreshing = true;
+                                      gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(self->retryCheck), previous);
+                                      self->refreshing = false;
+                                  }
+                              });
                          })),
                          this);
         g_signal_connect(servers, "changed", G_CALLBACK((+[](GtkComboBox *box, gpointer data) {

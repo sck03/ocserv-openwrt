@@ -8,6 +8,11 @@ import java.util.UUID
 /** Shared by import, persistence and delayed certificate updates. */
 internal object ProfilePolicy {
     const val MAX_BYTES = 1024 * 1024
+    fun <T> reorder(current: List<T>, ids: List<String>, id: (T) -> String): List<T> {
+        require(ids.size <= 128 && ids.distinct().size == ids.size) { "Invalid profile order" }
+        val remaining = current.associateBy(id).toMutableMap()
+        return ids.mapNotNull { remaining.remove(it) } + current.filter { id(it) in remaining }
+    }
     fun origin(server: String): String = if (server.isBlank()) "" else URI(ConnectionPolicy.serverUrl(server)).let {
         "${it.host.lowercase()}:${if (it.port < 0) 443 else it.port}"
     }

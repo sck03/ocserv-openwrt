@@ -108,11 +108,12 @@ public:
 private:
     bool read(std::vector<Profile> &profiles, Preferences &preferences, std::wstring &error,
               bool decrypt) const;
+    bool read_profiles(std::vector<Profile> &profiles, std::wstring &error, bool decrypt) const;
+    bool read_preferences(Preferences &preferences, std::wstring &error) const;
     void prune_certificates(const std::vector<Profile> &profiles) const;
-    bool update(const std::function<bool(std::vector<Profile> &, Preferences &, std::wstring &)> &change,
+    bool update(const std::function<bool(std::vector<Profile> &, std::wstring &)> &change,
                 std::wstring &error, bool prune = false);
-    bool write(const std::vector<Profile> &profiles, const Preferences &preferences,
-               std::wstring &error) const;
+    bool write(const std::vector<Profile> &profiles, std::wstring &error) const;
     std::filesystem::path directory_;
     std::wstring mutex_name_;
 };

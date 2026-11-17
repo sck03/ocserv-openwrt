@@ -1,8 +1,7 @@
 """Small, fail-closed adaptations to the checksum-pinned Android upstream."""
 import shutil
 import tomllib
-from source_edits import once, section
-from android_maintenance import maintain
+from source_edits import once
 
 
 def prepare(app, root):
@@ -54,180 +53,12 @@ def prepare(app, root):
     value = once(value, 'LDFLAGS="-L$PREFIX/lib -Wl,--gc-sections"',
                  'LDFLAGS="-L$PREFIX/lib -Wl,--gc-sections -Wl,-z,max-page-size=16384"')
     native.write_text(value, encoding="utf-8")
-    runner = app / "app/src/main/java/dev/opentunnel/vpn/core/TunnelRunner.kt"
-    value = runner.read_text(encoding="utf-8")
-    value = section(value, '        val rawUrl = normaliseServer(profile.server)',
-                    '        VpnBus.setStage(ConnectionStage.AUTHENTICATING)', '''        val url = normaliseServer(profile.server)
-        VpnBus.info("Connecting to $url")
-        if (lib.parseURL(url) != 0) return "Could not parse the HTTPS server address."
-
-''')
-    value = section(value, '        var cookieResult = lib.obtainCookie()',
-                    '        if (disconnectRequested.get()) return null',
-                    '        val cookieResult = lib.obtainCookie()\n\n')
-    # A configured pin takes precedence over both system roots and a custom CA.
-    value = section(value, '        if (profile.caCertPath.isNotBlank()) {',
-                    '        if (profile.userCertPath.isNotBlank()) {', '''        if (profile.trustedCertificate.isBlank()) {
-            if (profile.caCertPath.isNotBlank()) lib.setCAFile(profile.caCertPath)
-            else host.caBundlePath()?.let { lib.setCAFile(it) }
-        }
-        lib.setSystemTrust(profile.trustedCertificate.isBlank())
-
-''')
-    value = once(value, 'profile.allowInsecureCrypto || profile.wifiCompatMode || (serverHost.isNotEmpty() && compatHosts.contains(serverHost))',
-                 'profile.allowInsecureCrypto || profile.wifiCompatMode')
-    value = once(value, '            runCatching { lib.setSystemTrust(true) }',
-                 '            lib.setSystemTrust(profile.trustedCertificate.isBlank())')
-    # Let the core resolve every A/AAAA candidate and re-resolve DDNS on reconnect.
-    # The upstream pre-resolver discarded all but one address, the query string,
-    # and cached an IPv4-only DoH result independently of the network's DNS TTL.
-    value = section(value, '    private fun normaliseServer(raw: String): String {',
-                    '    private fun establishTun(',
-                    '    private fun normaliseServer(raw: String) = ConnectionPolicy.serverUrl(raw)\n\n')
-    value = section(value, '        private data class DnsCacheEntry(', '    }\n}', '')
-    value = section(value, '        if (profile.enableIpv6) {', '        if (!haveAddress) {', '''        val ipv6 = ConnectionPolicy.ipv6Address(profile.enableIpv6, ip.addr6, ip.netmask6)
-        if (ipv6 != null) {
-            builder.addAddress(ipv6.address, ipv6.prefixLength)
-            haveAddress = true
-        }
-
-''')
-    value = section(value, '        val mtu = when {', '        builder.setMtu(mtu)',
-                    '        val mtu = ConnectionPolicy.tunnelMtu(ip.MTU, profile.mtu, ipv6 != null)\n')
-    value = once(value, '        mtu = if (profile.mtu > 0) profile.mtu else ip.MTU,',
-                 '        mtu = ConnectionPolicy.tunnelMtu(ip.MTU, profile.mtu,\n'
-                 '            ConnectionPolicy.ipv6Address(profile.enableIpv6, ip.addr6, ip.netmask6) != null),')
-    value = once(value, '        const val MIN_MTU                   = 1280\n', '')
-    value = once(value, '        const val DEFAULT_MTU               = 1350\n', '')
-    value = section(value, '    private fun addRoute(', '    private fun applyDns(', '')
-    for name in ('applyRoutes', 'applyDns'):
-        value = once(value, f'        {name}(builder, ip)', f'        {name}(builder, ip, ipv6 != null)')
-        value = once(value, f'    private fun {name}(builder: VpnService.Builder, ip: LibOpenConnect.IPInfo)',
-                     f'    private fun {name}(builder: VpnService.Builder, ip: LibOpenConnect.IPInfo, ipv6: Boolean)')
-    value = once(value, 'import dev.opentunnel.vpn.util.Net',
-                 'import dev.opentunnel.vpn.util.Net\nimport dev.opentunnel.vpn.util.NetworkRoutes')
-    value = section(value, '    private fun applyRoutes(', '    private fun applyDns(', '''    private fun applyRoutes(builder: VpnService.Builder, ip: LibOpenConnect.IPInfo, ipv6: Boolean) {
-        val rules = NetworkRoutes.Rules(settings.splitTunnelNetworksEnabled,
-            settings.splitTunnelNetworksMode == SplitTunnelMode.INCLUDE_SELECTED, settings.splitTunnelNetworks)
-        val routes = NetworkRoutes.routes(ip.splitIncludes.orEmpty().toList(), ip.splitExcludes.orEmpty().toList(),
-            rules, settings.bypassLocalNetworks, ipv6)
-        routes.forEach { builder.addRoute(it.address, it.prefixLength) }
-        VpnBus.info("Installed ${routes.size} tunnel route(s)")
-    }
-
-''')
-    value = section(value, '        // Collect search domains from three sources:', '        val domains = buildList', '')
-    value = once(value, '            addAll(wildcardDomains)\n', '')
-    value = once(value, '        var domainCount = 0\n', '')
-    value = once(value, '            runCatching { builder.addSearchDomain(domain) }.onSuccess { domainCount++ }',
-                 '            runCatching { builder.addSearchDomain(domain) }')
-    value = section(value, '        if (wildcardDomains.isNotEmpty()) {', '    private fun applySplitTunnel(', '    }\n\n')
-    value = section(value, '    /**\n     * Returns true for entries that represent a wildcard domain suffix',
-                    '    // ── libopenconnect callbacks', '')
-    value = section(value, '/**\n * Drives one libopenconnect session', 'class TunnelRunner(',
-                    '/** Drives one native session; routing and ownership policies are independently tested. */\n')
-    value = once(value, 'import dev.opentunnel.vpn.util.Cidr\n', '')
-    # A DNS server also enables its address family in VpnService.Builder.
-    # Only configure families negotiated for the tunnel, regardless of the uplink.
-    for loop in ('            for (server in customDnsList) {',
-                 '            for (server in ip.DNS.orEmpty()) {'):
-        value = once(value, loop + '\n                if (Net.isValidIp(server)) {',
-                     loop + "\n                if (Net.isValidIp(server) && (ipv6 || ':' !in server)) {")
-    value = once(value, '    private var passwordConsumed = false',
-                 '    private var connectionFailure: String? = null\n    private var passwordConsumed = false')
-    value = section(value, '        val ipInfo = lib.getIPInfo()', '        if (profile.enableDtls)',
-                    '        val ipInfo = installTun(lib)\n\n')
-    value = once(value, '        return null\n    }\n\n    private fun applyPreferences',
-                 '        return connectionFailure\n    }\n\n    private fun applyPreferences')
-    value = once(value, '    private fun closeTun() {', '''    private fun installTun(lib: Session): LibOpenConnect.IPInfo {
-        val ip = lib.getIPInfo() ?: error("The gateway did not send an IP configuration")
-        val descriptor = establishTun(ip) ?: error("Android refused to create the tunnel interface")
-        try {
-            check(lib.setupTunFD(descriptor.fd) == 0) { "Could not attach the tunnel interface" }
-        } catch (error: Exception) {
-            descriptor.close()
-            throw error
-        }
-        val previous = tunFd
-        tunFd = descriptor
-        previous?.close()
-        return ip
-    }
-
-    private fun closeTun() {''')
-    value = section(value, '        override fun onReconnected() {',
-                    '        override fun onValidatePeerCert(', '''        override fun onReconnected() = refreshTunnel()
-
-        override fun onSetupTun() = refreshTunnel()
-
-        private fun refreshTunnel() {
-            val lib = session ?: return
-            if (disconnectRequested.get()) return
-            try {
-                val ip = installTun(lib)
-                if (disconnectRequested.get()) return
-                val since = VpnBus.status.value.connectedAtElapsed.takeIf { it > 0L } ?: SystemClock.elapsedRealtime()
-                VpnBus.setConnected(since, describe(lib, ip))
-                VpnBus.info("Tunnel settings refreshed")
-            } catch (error: Exception) {
-                connectionFailure = "Could not refresh tunnel settings: ${error.message}"
-                VpnBus.error(connectionFailure!!)
-                lib.cancel()
-            }
-        }
-
-''')
-    value = once(value, '    private inner class Callbacks : SessionCallbacks {', '''    private inner class Callbacks : SessionCallbacks {
-        private var acceptedPin = ""
-
-        private fun certificateMatches(): Boolean {
-            val expected = profile.trustedCertificate.trim().ifEmpty { acceptedPin }
-            if (expected.isEmpty()) return true // A valid system/custom CA chain.
-            val actual = runCatching { session?.getPeerCertHash() }.getOrNull().orEmpty()
-            return CertificatePolicy.matches(expected, actual)
-        }
-''')
-    value = section(value, '            val pinned = profile.trustedCertificate',
-                    '            val prompt = UserPrompt.CertTrust(', '''            val pinned = profile.trustedCertificate.trim().ifEmpty { acceptedPin }
-            if (pinned.isNotEmpty()) {
-                if (CertificatePolicy.matches(pinned, fingerprint)) return 0
-                userCancelled.set(true)
-                VpnBus.error("Server public key changed or the saved pin is incomplete; verify it with your administrator.")
-                return -1
-            }
-            if (!CertificatePolicy.isFullPin(fingerprint)) return -1
-
-''')
-    value = once(value, '                if (fingerprint.isNotBlank()) host.persistCertificatePin(fingerprint)',
-                 '                acceptedPin = fingerprint\n                host.persistCertificatePin(fingerprint)')
-    value = once(value, '            form ?: return LibOpenConnect.OC_FORM_RESULT_ERR', '''            form ?: return LibOpenConnect.OC_FORM_RESULT_ERR
-            if (!certificateMatches()) {
-                userCancelled.set(true)
-                return LibOpenConnect.OC_FORM_RESULT_CANCELLED
-            }''')
-    runner.write_text(value, encoding="utf-8")
-    net = app / "app/src/main/java/dev/opentunnel/vpn/util/Net.kt"
-    value = net.read_text(encoding="utf-8")
-    for name in ("Inet4Address", "Inet6Address", "InetAddress"):
-        value = once(value, f"import java.net.{name}\n", "")
-    value = once(value, '            if (host.isEmpty()) return null',
-                 '            if (!isValidIp(host)) return null')
-    value = once(value, "        val ipv6 = value.contains(':')", "        if (!isValidIp(value)) return null\n        val ipv6 = value.contains(':')")
-    value = once(value, '            else -> maskToPrefix(netmask) ?: if (ipv6) 128 else 32',
-                 '            else -> maskToPrefix(netmask) ?: return null')
-    # The old IPv4 complement implementation and conversion helpers have no callers.
-    value = section(value, '    /**\n     * Subtracts [excluded]', '\n}', '')
-    net.write_text(value, encoding="utf-8")
     net_test = app / "app/src/test/java/dev/opentunnel/vpn/NetTest.kt"
     value = once(net_test.read_text(encoding="utf-8"), 'import dev.opentunnel.vpn.util.Net',
                  'import dev.opentunnel.vpn.util.Net\nimport dev.opentunnel.vpn.util.RoutePolicy')
     value = once(value, 'Net.ipv4DefaultMinus(excluded)',
                  'RoutePolicy.routes(listOf(Net.parseCidr("0.0.0.0/0")!!), excluded)')
     net_test.write_text(value, encoding="utf-8")
-    service = app / "app/src/main/java/dev/opentunnel/vpn/service/OpenTunnelVpnService.kt"
-    value = once(service.read_text(encoding="utf-8"), '            override fun onLost(network: Network) {',
-                 '            override fun onLost(network: Network) {\n                if (network.networkHandle != lastNetworkId) return')
-    service.write_text(value, encoding="utf-8")
     for source, directory in (("CertificatePolicy.kt", "main"), ("CertificatePolicyTest.kt", "test"),
                               ("ConnectionPolicy.kt", "main"), ("ConnectionPolicyTest.kt", "test"),
                               ("RoutePolicy.kt", "main"), ("RoutePolicyTest.kt", "test"),
@@ -236,4 +67,17 @@ def prepare(app, root):
         target = app / f"app/src/{directory}/java/dev/opentunnel/vpn/{package}" / source
         target.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(root / "mobile/android" / source, target)
-    maintain(app, root)
+
+    for name in ("SessionOwner", "SessionControl", "PromptWait", "DiagnosticLog", "ProfilePolicy", "ProfileCodec"):
+        package = "data" if name.startswith("Profile") else "core"
+        for suffix, directory in (("", "main"), ("Test", "test")):
+            target = app / f"app/src/{directory}/java/dev/opentunnel/vpn/{package}/{name}{suffix}.kt"
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(root / "mobile/android" / f"{name}{suffix}.kt", target)
+    owned = root / "mobile/android/owned"
+    for path in sorted(owned.rglob("*.kt")):
+        target = app / "app/src/main/java/dev/opentunnel/vpn" / path.relative_to(owned)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(path, target)
+    home = app / "app/src/main/java/dev/opentunnel/vpn/ui/screens/HomeScreen.kt"
+    home.write_text(home.read_text(encoding="utf-8").replace("network(s)/domain(s)", "IP network(s)"), encoding="utf-8")

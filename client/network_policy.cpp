@@ -13,15 +13,6 @@ constexpr GUID AppId{0xd78e1e87,0x8644,0x4ea5,{0x94,0x37,0xd8,0x09,0xec,0xef,0xc
 constexpr GUID Flags{0x632ce23b,0x5167,0x435c,{0x86,0xd7,0xe9,0x03,0x68,0x4a,0xa8,0x0c}};
 constexpr DWORD DynamicSession = 1;
 }
-bool ipv4_full_tunnel(const std::vector<std::string> &routes) {
-    return routes.empty() || std::any_of(routes.begin(), routes.end(), [](const auto &route) {
-        return route == "0.0.0.0/0" || route == "0.0.0.0/0.0.0.0";
-    }) || (std::any_of(routes.begin(), routes.end(), [](const auto &route) {
-        return route == "0.0.0.0/1" || route == "0.0.0.0/128.0.0.0";
-    }) && std::any_of(routes.begin(), routes.end(), [](const auto &route) {
-        return route == "128.0.0.0/1" || route == "128.0.0.0/128.0.0.0";
-    }));
-}
 Ipv6Guard::~Ipv6Guard() { reset(); }
 void Ipv6Guard::reset() {
     if (engine_) {

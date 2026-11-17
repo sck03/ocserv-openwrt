@@ -1,4 +1,4 @@
-add_library(client_model STATIC platform.cpp profile.cpp preferences_writer.cpp diagnostics.cpp network_policy.cpp)
+add_library(client_model STATIC platform.cpp profile.cpp preferences.cpp preferences_writer.cpp diagnostics.cpp network_policy.cpp route_coverage.cpp)
 target_include_directories(client_model PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}" "${VPN_GENERATED_DIR}")
 target_compile_definitions(client_model PUBLIC
     UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX WINVER=0x0A00 _WIN32_WINNT=0x0A00
@@ -11,7 +11,7 @@ target_link_options(client_model INTERFACE -static -static-libgcc -static-libstd
     -Wl,--major-os-version,10 -Wl,--minor-os-version,0
     -Wl,--major-subsystem-version,6 -Wl,--minor-subsystem-version,2)
 target_link_libraries(client_model PUBLIC ws2_32 winhttp crypt32 bcrypt advapi32 user32 shell32 ole32 gdi32 comctl32 comdlg32 normaliz fwpuclnt)
-add_library(client_session STATIC session.cpp certificates.cpp)
+add_library(client_session STATIC session.cpp session_auth.cpp certificates.cpp)
 target_include_directories(client_session PUBLIC "${VPN_DEPS}/include")
 target_link_libraries(client_session PUBLIC
     -Wl,--start-group client_model
@@ -37,6 +37,9 @@ configure_file("${PROJECT_SOURCE_DIR}/.deps/sources/wintun/bin/${WINTUN_ARCH}/wi
                "${CMAKE_BINARY_DIR}/wintun.dll" COPYONLY)
 configure_file(vendor/vpnc-script-win.js "${CMAKE_BINARY_DIR}/vpnc-script-win.js" COPYONLY)
 if(BUILD_TESTING)
+    add_executable(route_coverage_tests tests/route_coverage_tests.cpp route_coverage.cpp)
+    target_include_directories(route_coverage_tests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
+    add_test(NAME route_coverage COMMAND route_coverage_tests)
     add_executable(native_crypto_tests tests/crypto_tests.cpp)
     target_compile_definitions(native_crypto_tests PRIVATE STOKEN_STATIC)
     target_link_libraries(native_crypto_tests PRIVATE client_session)

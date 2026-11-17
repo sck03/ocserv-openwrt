@@ -1,9 +1,8 @@
 #pragma once
 #include "platform.h"
+#include "route_coverage.h"
 
 namespace vpn {
-bool ipv4_full_tunnel(const std::vector<std::string> &included_routes);
-
 // Dynamic WFP policy belongs to the worker's session. Closing the engine (also
 // on process termination) removes it without changing persistent firewall rules.
 class Ipv6Guard {

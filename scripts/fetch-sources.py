@@ -40,17 +40,7 @@ def main():
                     package.extractall(temporary)
             else:
                 with tarfile.open(archive) as package:
-                    if hasattr(tarfile, "data_filter"):
-                        package.extractall(temporary, filter="data")
-                    else:
-                        # Older Python 3.11 builds have no extraction filters. These
-                        # source releases contain only directories and regular files.
-                        # Refuse links/devices rather than relaxing the path boundary.
-                        for member in package.getmembers():
-                            target = (Path(temporary) / member.name).resolve()
-                            if not target.is_relative_to(Path(temporary).resolve()) or not (member.isdir() or member.isfile()):
-                                raise RuntimeError("Unsafe source archive member")
-                        package.extractall(temporary)
+                    package.extractall(temporary, filter="data")
             extracted = Path(temporary) / entry.get("archive_directory", folder)
             if not extracted.resolve().is_relative_to(Path(temporary).resolve()):
                 raise RuntimeError(f"Unsafe source directory: {name}")

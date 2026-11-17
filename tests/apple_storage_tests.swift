@@ -20,17 +20,38 @@ struct StorageTests {
         catch ClientError.invalidStore { }
         let retained = try ProfileFile.readData(path, limit: ProfileFile.maxBytes)
         precondition(retained == data)
-        var secret = "original", changes = 0
+        var secrets = ["old": "original"]
         enum Failure: Error { case disk }
+        let create: (String, String) throws -> Void = { password, id in
+            precondition(secrets[id] == nil)
+            secrets[id] = password
+        }
+        let remove: (String) throws -> Void = { secrets.removeValue(forKey: $0) }
         do {
-            try CredentialTransaction.perform(password: "new", read: { secret }, write: { secret = $0; changes += 1 }, commit: { throw Failure.disk })
+            try CredentialTransaction.perform(previous: "old", next: "new", password: "replacement",
+                create: create, remove: remove, commit: {
+                    // A process exit here leaves the old file and credential valid.
+                    precondition(secrets["old"] == "original" && secrets["new"] == "replacement")
+                    throw Failure.disk
+                })
             preconditionFailure("file failure was hidden")
         } catch Failure.disk { }
-        precondition(secret == "original" && changes == 2)
-        try CredentialTransaction.perform(password: "", read: { secret }, write: { secret = $0 }, commit: {})
-        precondition(secret.isEmpty)
+        precondition(secrets == ["old": "original"])
+        try CredentialTransaction.perform(previous: "old", next: "new", password: "replacement",
+            create: create, remove: remove, commit: { precondition(secrets["old"] == "original") })
+        precondition(secrets == ["new": "replacement"])
+        try CredentialTransaction.perform(previous: "new", next: "", password: "",
+            create: create, remove: remove, commit: {})
+        precondition(secrets.isEmpty)
+        var referenced = valid
+        referenced.credentialReference = UUID().uuidString
+        var changedOrigin = referenced
+        changedOrigin.server = "https://other.example.com"
+        precondition(referenced.credentialKey != changedOrigin.credentialKey)
+        let decoded = try JSONDecoder().decode(ProfileFile.self, from: data)
+        precondition(decoded.schema == 2)
         let attributes = try FileManager.default.attributesOfItem(atPath: path.path)
         precondition((attributes[.posixPermissions] as? NSNumber)?.intValue == 0o600)
-        print("Apple aggregate profile budget, atomic replacement and credential recovery passed")
+        print("Apple aggregate profile budget, atomic replacement and immutable credential transactions passed")
     }
 }

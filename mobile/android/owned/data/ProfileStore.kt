@@ -9,120 +9,94 @@ import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import dev.opentunnel.vpn.util.SecretBox
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import java.util.UUID
 
-private val Context.profileDataStore: DataStore<Preferences> by
-    preferencesDataStore(name = "opentunnel_profiles")
+private val Context.profileDataStore: DataStore<Preferences> by preferencesDataStore(name = "opentunnel_profiles")
 
-/**
- * Persists the ordered list of [VpnProfile] objects as a JSON array.
- * Passwords are individually encrypted with [SecretBox] before storage.
- */
+/** Each mutation reads the latest metadata and preserves all unchanged ciphertext. */
 class ProfileStore(context: Context) {
-
     private val store = context.applicationContext.profileDataStore
-
-    private object Keys {
-        val profilesJson = stringPreferencesKey("profiles.json")
-    }
-
+    private val key = stringPreferencesKey("profiles.json")
+    private val codec = ProfileCodec(SecretBox::encrypt, SecretBox::decrypt)
+    private val json = Json { encodeDefaults = true }
     private val _storageError = kotlinx.coroutines.flow.MutableStateFlow<String?>(null)
     val storageError: kotlinx.coroutines.flow.StateFlow<String?> = _storageError
-    private val json = Json { ignoreUnknownKeys = true; encodeDefaults = true }
 
+    val profiles: Flow<List<VpnProfile>> = store.data.map { prefs ->
+        codec.decode(prefs[key].orEmpty()).map { it.profile }.also { _storageError.value = null }
+    }.catch { error ->
+        if (error is CancellationException) throw error
+        _storageError.value = "Profile storage is unavailable or invalid; connection is blocked."
+        emit(emptyList())
+    }.flowOn(Dispatchers.IO)
 
-    val profiles: Flow<List<VpnProfile>> = store.data
-        .map { prefs ->
-            try {
-                decode(prefs[Keys.profilesJson].orEmpty()).also { _storageError.value = null }
-            } catch (error: CancellationException) {
-                throw error
-            } catch (error: Exception) {
-                _storageError.value = "Profiles could not be read; the original data was preserved."
-                emptyList()
-            }
-        }
-        .catch { error ->
-            if (error is CancellationException) throw error
-            _storageError.value = "Profile storage is unavailable; the original data was preserved."
-            emit(emptyList())
-        }
+    suspend fun allProfiles(): List<VpnProfile> = codec.decode(store.data.first()[key].orEmpty()).map { it.profile }
 
-    suspend fun allProfiles(): List<VpnProfile> = decode(store.data.first()[Keys.profilesJson].orEmpty())
+    suspend fun connectionProfile(id: String): VpnProfile {
+        val current = codec.decode(store.data.first()[key].orEmpty())
+        val selected = if (id.isEmpty()) current.firstOrNull() else current.firstOrNull { it.profile.id == id }
+        return codec.unlock(checkNotNull(selected) { "Selected profile is unavailable" })
+    }
 
-    /** Upsert a profile. If [profile.id] is blank a new UUID is assigned. */
     suspend fun save(profile: VpnProfile): VpnProfile {
-        val toSave = if (profile.id.isBlank()) profile.copy(id = UUID.randomUUID().toString()) else profile
-        store.edit { prefs ->
-            val current = decode(prefs[Keys.profilesJson].orEmpty()).toMutableList()
-            val idx = current.indexOfFirst { it.id == toSave.id }
-            if (idx >= 0) current[idx] = ProfilePolicy.updated(current[idx], toSave) else current.add(toSave)
-            prefs[Keys.profilesJson] = encode(current)
+        val candidate = if (profile.id.isBlank()) profile.copy(id = UUID.randomUUID().toString()) else profile
+        var saved = candidate
+        mutate { current ->
+            val index = current.indexOfFirst { it.profile.id == candidate.id }
+            val updated = codec.update(candidate, current.getOrNull(index))
+            saved = updated.profile
+            current.toMutableList().apply { if (index < 0) add(updated) else set(index, updated) }
         }
-        return toSave
+        return saved
     }
 
-    suspend fun saveAll(profiles: List<VpnProfile>) {
-        store.edit { prefs ->
-            prefs[Keys.profilesJson] = encode(profiles)
+    suspend fun reorder(ids: List<String>) = mutate { current ->
+        ProfilePolicy.reorder(current, ids) { it.profile.id }
+    }
+
+    suspend fun exportJson(): String = json.encodeToString(allProfiles())
+
+    suspend fun pinCertificate(id: String, server: String, fingerprint: String) = mutate { current ->
+        val updated = ProfilePolicy.pin(current.map { it.profile }, id, server, fingerprint)
+        current.zip(updated) { stored, profile -> stored.copy(profile = profile) }
+    }
+
+    suspend fun importJson(raw: String): Int {
+        require(raw.toByteArray(Charsets.UTF_8).size <= ProfilePolicy.MAX_BYTES) { "Profile import is too large" }
+        val imported = json.decodeFromString<List<VpnProfile>>(raw).map {
+            if (it.id.isBlank()) it.copy(id = UUID.randomUUID().toString()) else it
         }
-    }
-
-    suspend fun exportJson(): String {
-        return json.encodeToString(allProfiles().map { it.copy(password = "", tokenString = "") })
-    }
-
-    suspend fun pinCertificate(id: String, server: String, fingerprint: String) {
-        store.edit { prefs ->
-            val current = decode(prefs[Keys.profilesJson].orEmpty())
-            val updated = ProfilePolicy.pin(current, id, server, fingerprint)
-            if (updated != current) prefs[Keys.profilesJson] = encode(updated)
+        ProfilePolicy.validate(imported)
+        mutate { current ->
+            val merged = current.associateBy { it.profile.id }.toMutableMap()
+            imported.forEach { merged[it.id] = codec.update(it, merged[it.id]) }
+            merged.values.toList()
         }
+        return imported.size
     }
 
-    suspend fun importJson(jsonStr: String): Int {
-        require(jsonStr.toByteArray(Charsets.UTF_8).size <= ProfilePolicy.MAX_BYTES) { "Profile import is too large" }
-        return run {
-            val imported = json.decodeFromString<List<VpnProfile>>(jsonStr)
-            if (imported.isEmpty()) return 0
-            var count = 0
-            store.edit { prefs ->
-                val current = decode(prefs[Keys.profilesJson].orEmpty()).toMutableList()
-                imported.forEach { item ->
-                    val p = if (item.id.isBlank()) item.copy(id = UUID.randomUUID().toString()) else item
-                    val idx = current.indexOfFirst { it.id == p.id }
-                    if (idx >= 0) current[idx] = ProfilePolicy.updated(current[idx], p) else current.add(p)
-                    count++
-                }
-                prefs[Keys.profilesJson] = encode(current)
-            }
-            count
+    suspend fun delete(id: String) = mutate { it.filter { stored -> stored.profile.id != id } }
+
+    private suspend fun mutate(transform: (List<StoredProfile>) -> List<StoredProfile>) {
+        withContext(Dispatchers.IO) {
+            store.edit { prefs -> prefs[key] = codec.encode(transform(codec.decode(prefs[key].orEmpty()))) }
         }
+        _storageError.value = null
     }
-
-    suspend fun delete(profileId: String) {
-        store.edit { prefs ->
-            val current = decode(prefs[Keys.profilesJson].orEmpty())
-            prefs[Keys.profilesJson] = encode(current.filter { it.id != profileId })
-        }
-    }
-
-
-    private val codec = ProfileCodec(SecretBox::encrypt, SecretBox::decrypt)
-    private fun encode(profiles: List<VpnProfile>) = codec.encode(profiles)
-    private fun decode(raw: String) = codec.decode(raw)
 
     companion object {
         @Volatile private var instance: ProfileStore? = null
-        fun get(context: Context): ProfileStore =
-            instance ?: synchronized(this) {
-                instance ?: ProfileStore(context.applicationContext).also { instance = it }
-            }
+        fun get(context: Context): ProfileStore = instance ?: synchronized(this) {
+            instance ?: ProfileStore(context.applicationContext).also { instance = it }
+        }
     }
 }

@@ -1,38 +1,67 @@
 package dev.opentunnel.vpn.data
 
+import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 
-/** Storage format and crypto failure handling are independent of Android/DataStore. */
-internal class ProfileCodec(private val encrypt: (String) -> String, private val decrypt: (String) -> String) {
-    private val json = Json { ignoreUnknownKeys = true; encodeDefaults = true }
+@Serializable
+internal data class StoredProfile(val profile: VpnProfile, val password: String = "", val token: String = "")
+@Serializable
+private data class ProfileFile(val schema: Int, val profiles: List<StoredProfile>)
 
-    fun encode(profiles: List<VpnProfile>): String {
-        ProfilePolicy.validate(profiles)
-        fun protected(value: String): String = if (value.isEmpty()) "" else encrypt(value).also {
-            check(it.isNotEmpty()) { "Credential encryption failed; original data was preserved" }
-        }
-        val encrypted = profiles.map { it.copy(
-            password = if (it.savePassword) protected(it.password) else "",
-            tokenString = protected(it.tokenString)
-        ) }
-        return json.encodeToString(encrypted).also {
-            require(it.toByteArray(Charsets.UTF_8).size <= ProfilePolicy.MAX_BYTES) { "Profiles exceed the storage limit; original data was preserved" }
-        }
+/** Metadata is readable without Keystore access. Only a connection unlocks credentials. */
+internal class ProfileCodec(
+    private val encrypt: (String, String) -> String,
+    private val decrypt: (String, String) -> String,
+) {
+    private val json = Json { encodeDefaults = true }
+    private fun context(p: VpnProfile, kind: String) = "Lansyra/2/${p.id}/${ProfilePolicy.origin(p.server)}/$kind"
+    private fun checked(value: String): String = value.also {
+        check(it.isNotEmpty()) { "Credential operation failed; original data was preserved" }
     }
 
-    fun decode(raw: String): List<VpnProfile> {
-        if (raw.isBlank()) return emptyList()
-        require(raw.toByteArray(Charsets.UTF_8).size <= ProfilePolicy.MAX_BYTES) { "Profiles exceed the storage limit" }
-        fun unprotected(value: String): String = if (value.isEmpty()) "" else decrypt(value).also {
-            check(it.isNotEmpty()) { "Credential decryption failed; original data was preserved" }
-        }
-        return try {
-            json.decodeFromString<List<VpnProfile>>(raw).map {
-                it.copy(password = unprotected(it.password), tokenString = unprotected(it.tokenString))
-            }.also { ProfilePolicy.validate(it) }
-        } catch (error: Exception) {
-            throw IllegalStateException("Profiles could not be decoded; original data was preserved", error)
+    fun update(candidate: VpnProfile, previous: StoredProfile?): StoredProfile {
+        val p = ProfilePolicy.updated(previous?.profile, candidate)
+        ProfilePolicy.validate(listOf(p))
+        val sameOrigin = previous != null && ProfilePolicy.origin(previous.profile.server) == ProfilePolicy.origin(p.server)
+        fun protect(value: String, old: String, kind: String): String =
+            if (value.isNotEmpty()) checked(encrypt(value, context(p, kind))) else if (sameOrigin) old else ""
+        return StoredProfile(p.copy(password = "", tokenString = ""),
+            if (p.savePassword) protect(p.password, previous?.password.orEmpty(), "password") else "",
+            if (p.softwareTokenMode != 0) protect(p.tokenString, previous?.token.orEmpty(), "token") else "")
+    }
+
+    fun unlock(stored: StoredProfile): VpnProfile {
+        fun unprotect(value: String, kind: String) =
+            if (value.isEmpty()) "" else checked(decrypt(value, context(stored.profile, kind)))
+        return stored.profile.copy(password = unprotect(stored.password, "password"),
+            tokenString = unprotect(stored.token, "token")).also { ProfilePolicy.validate(listOf(it)) }
+    }
+
+    fun encode(profiles: List<StoredProfile>): String {
+        validate(profiles)
+        return json.encodeToString(ProfileFile(2, profiles)).also(::size)
+    }
+
+    fun decode(raw: String): List<StoredProfile> {
+        if (raw.isEmpty()) return emptyList()
+        size(raw)
+        val file = json.decodeFromString<ProfileFile>(raw)
+        require(file.schema == 2) { "Unsupported profile storage schema" }
+        return file.profiles.also(::validate)
+    }
+
+    private fun size(raw: String) {
+        require(raw.toByteArray(Charsets.UTF_8).size <= ProfilePolicy.MAX_BYTES) { "Profile storage is too large" }
+    }
+
+    private fun validate(profiles: List<StoredProfile>) {
+        ProfilePolicy.validate(profiles.map { it.profile })
+        profiles.forEach {
+            require(it.profile.password.isEmpty() && it.profile.tokenString.isEmpty()) { "Plaintext credentials in metadata" }
+            require(it.password.length <= 16384 && it.token.length <= 16384) { "Encrypted credential is too large" }
+            require(it.profile.savePassword || it.password.isEmpty())
+            require(it.profile.softwareTokenMode != 0 || it.token.isEmpty())
         }
     }
 }

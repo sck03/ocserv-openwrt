@@ -1,4 +1,5 @@
 #include "profile.h"
+#include "store_lease.h"
 #include "vendor/json.hpp"
 #include <algorithm>
 #include <cctype>
@@ -9,22 +10,6 @@
 namespace vpn {
 using Json = nlohmann::json;
 namespace {
-class StoreLease {
-public:
-    StoreLease(const std::wstring &name, std::wstring &error)
-        : mutex_(CreateMutexW(nullptr, FALSE, name.c_str())) {
-        if (!mutex_) { error = system_error(GetLastError()); return; }
-        const DWORD wait = WaitForSingleObject(mutex_.get(), 5000);
-        locked_ = wait == WAIT_OBJECT_0 || wait == WAIT_ABANDONED;
-        if (!locked_)
-            error = L"另一个实例正在保存配置。 / Another instance is saving profiles.";
-    }
-    ~StoreLease() { if (locked_) ReleaseMutex(mutex_.get()); }
-    explicit operator bool() const { return locked_; }
-private:
-    Handle mutex_;
-    bool locked_ = false;
-};
 bool identifier(const std::string &value) {
     return value.size() == 32 && std::all_of(value.begin(), value.end(), [](char c) {
                return (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f');
@@ -204,8 +189,19 @@ void ProfileStore::unlock(Profile &profile) {
 }
 bool ProfileStore::read(std::vector<Profile> &profiles, Preferences &preferences, std::wstring &error,
                         bool decrypt) const {
+    if (!read_profiles(profiles, error, decrypt) || !read_preferences(preferences, error))
+        return false;
+    auto exists = [&](const std::string &id) {
+        return std::any_of(profiles.begin(), profiles.end(), [&](const auto &p) { return p.id == id; });
+    };
+    if (!exists(preferences.selected))
+        preferences.selected = profiles.empty() ? "" : profiles.front().id;
+    if (!exists(preferences.auto_connect))
+        preferences.auto_connect.clear();
+    return true;
+}
+bool ProfileStore::read_profiles(std::vector<Profile> &profiles, std::wstring &error, bool decrypt) const {
     profiles.clear();
-    preferences = {};
     auto path = directory_ / L"profiles.json";
     if (GetFileAttributesW(path.c_str()) == INVALID_FILE_ATTRIBUTES && GetLastError() == ERROR_FILE_NOT_FOUND)
         return true;
@@ -216,24 +212,9 @@ bool ProfileStore::read(std::vector<Profile> &profiles, Preferences &preferences
         return false;
     try {
         Json data = Json::parse(raw);
-        if (!data.is_object() || data.value("schema", 0) != 2 || !data.contains("profiles") ||
+        if (!data.is_object() || data.value("schema", 0) != 3 || !data.contains("profiles") ||
             !data["profiles"].is_array() || data["profiles"].size() > 512)
             throw std::runtime_error("Unsupported configuration");
-        const Json &options = data.value("settings", Json::object());
-        preferences.language =
-            options.value("language", std::string("zh-CN")) == "en" ? Language::English : Language::Chinese;
-        preferences.minimize_to_tray = options.value("minimize_to_tray", true);
-        preferences.minimize_instead_of_close = options.value("minimize_instead_of_close", false);
-        preferences.start_minimized = options.value("start_minimized", false);
-        preferences.single_instance = options.value("single_instance", true);
-        preferences.retry_failed = options.value("retry_failed", false);
-        preferences.auto_connect = utf8(text(options, "auto_connect", 32));
-        preferences.log_level = options.value("log_level", 1);
-        preferences.selected = options.value("selected", std::string());
-        if (preferences.log_level < 0 || preferences.log_level > 3)
-            throw std::runtime_error("Invalid log level");
-        if (!preferences.auto_connect.empty() && !identifier(preferences.auto_connect))
-            throw std::runtime_error("Invalid automatic connection profile");
         std::set<std::wstring, decltype(&less_name)> names(&less_name);
         std::unordered_set<std::string> ids;
         profiles.reserve(data["profiles"].size());
@@ -250,20 +231,8 @@ bool ProfileStore::read(std::vector<Profile> &profiles, Preferences &preferences
         return false;
     }
 }
-bool ProfileStore::write(const std::vector<Profile> &profiles, const Preferences &preferences,
-                         std::wstring &error) const {
-    Json data{{"schema", 2},
-              {"settings",
-               {{"language", preferences.language == Language::Chinese ? "zh-CN" : "en"},
-                {"minimize_to_tray", preferences.minimize_to_tray},
-                {"minimize_instead_of_close", preferences.minimize_instead_of_close},
-                {"start_minimized", preferences.start_minimized},
-                {"single_instance", preferences.single_instance},
-                {"retry_failed", preferences.retry_failed},
-                {"auto_connect", preferences.auto_connect},
-                {"log_level", preferences.log_level},
-                {"selected", preferences.selected}}},
-              {"profiles", Json::array()}};
+bool ProfileStore::write(const std::vector<Profile> &profiles, std::wstring &error) const {
+    Json data{{"schema", 3}, {"profiles", Json::array()}};
     for (const auto &profile : profiles) {
         Profile portable = profile;
         for (auto *field :
@@ -319,16 +288,15 @@ void ProfileStore::prune_certificates(const std::vector<Profile> &profiles) cons
     }
 }
 bool ProfileStore::update(
-    const std::function<bool(std::vector<Profile> &, Preferences &, std::wstring &)> &change,
+    const std::function<bool(std::vector<Profile> &, std::wstring &)> &change,
     std::wstring &error, bool prune) {
     StoreLease lease(mutex_name_, error);
     if (!lease)
         return false;
     std::vector<Profile> profiles;
-    Preferences preferences;
-    if (!read(profiles, preferences, error, false) || !change(profiles, preferences, error))
+    if (!read_profiles(profiles, error, false) || !change(profiles, error))
         return false;
-    if (!write(profiles, preferences, error))
+    if (!write(profiles, error))
         return false;
     if (prune)
         prune_certificates(profiles);
@@ -344,7 +312,7 @@ bool ProfileStore::save(Profile &profile, std::wstring &error) {
         return false;
     }
     return update(
-        [&](auto &profiles, auto &preferences, auto &message) {
+        [&](auto &profiles, auto &message) {
             for (auto &existing : profiles) {
                 if (existing.id != profile.id && same_name(existing.name, profile.name)) {
                     message = L"配置名称已存在。 / Profile name already exists.";
@@ -368,7 +336,6 @@ bool ProfileStore::save(Profile &profile, std::wstring &error) {
                         profile.secret_unavailable = false;
                     }
                     existing = profile;
-                    preferences.selected = profile.id;
                     return true;
                 }
             if (profiles.size() >= 512) {
@@ -376,14 +343,13 @@ bool ProfileStore::save(Profile &profile, std::wstring &error) {
                 return false;
             }
             profiles.push_back(profile);
-            preferences.selected = profile.id;
             return true;
         },
         error, true);
 }
 bool ProfileStore::remove(const std::string &id, std::wstring &error) {
     return update(
-        [&](auto &profiles, auto &preferences, auto &message) {
+        [&](auto &profiles, auto &message) {
             auto it =
                 std::find_if(profiles.begin(), profiles.end(), [&](const auto &p) { return p.id == id; });
             if (it == profiles.end()) {
@@ -391,34 +357,14 @@ bool ProfileStore::remove(const std::string &id, std::wstring &error) {
                 return false;
             }
             profiles.erase(it);
-            if (preferences.selected == id)
-                preferences.selected = profiles.empty() ? "" : profiles.front().id;
-            if (preferences.auto_connect == id)
-                preferences.auto_connect.clear();
             return true;
         },
         error, true);
 }
-bool ProfileStore::save_preferences(const Preferences &preferences, std::wstring &error) {
-    return update(
-        [&](auto &profiles, auto &current, auto &message) {
-            if (preferences.log_level < 0 || preferences.log_level > 3 ||
-                (!preferences.auto_connect.empty() &&
-                 std::none_of(profiles.begin(), profiles.end(),
-                              [&](const auto &profile) { return profile.id == preferences.auto_connect; }))) {
-                message =
-                    L"自动连接配置或日志级别无效。 / Invalid automatic connection profile or log level.";
-                return false;
-            }
-            current = preferences;
-            return true;
-        },
-        error);
-}
 bool ProfileStore::update_secrets(const std::string &id, const std::wstring &gateway,
                                   const std::function<void(Profile &)> &change, std::wstring &error) {
     return update(
-        [&](auto &profiles, auto &, auto &message) {
+        [&](auto &profiles, auto &message) {
             std::wstring expected, unused;
             normalize_gateway(gateway, unused, &expected);
             for (auto &p : profiles)

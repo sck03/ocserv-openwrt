@@ -117,8 +117,7 @@ final class DesktopVPN: NSObject, ObservableObject, OSSystemExtensionRequestDele
     }
     private func write(_ values: [VPNProfile], credentialID: String, credential: String) async throws {
         guard storageReady else { throw ClientError.invalidStore }
-        try await repository.write(values, credentialID: credentialID, credential: credential)
-        profiles = values
+        profiles = try await repository.write(values, credentialID: credentialID, credential: credential)
     }
     func save() {
         guard !busy, !storageBusy else { return }
@@ -138,13 +137,13 @@ final class DesktopVPN: NSObject, ObservableObject, OSSystemExtensionRequestDele
             var credential = ""
             if profile.rememberPassword {
                 if !password.isEmpty { credential = password }
-                else if sameOrigin { credential = try await repository.credential(profile.id) }
+                else if sameOrigin { credential = try await repository.credential(previous ?? profile) }
             }
             guard credential.isEmpty || VPNCredentialValid(credential) else { throw ClientError.missingPassword }
             var values = profiles.filter { $0.id != profile.id }
             values.append(profile)
             try await write(values, credentialID: profile.id, credential: credential)
-            draft = profile
+            draft = profiles.first { $0.id == profile.id } ?? profile
             UserDefaults.standard.set(profile.id, forKey: "selected")
             detail = "配置已保存"
             return true
@@ -182,7 +181,7 @@ final class DesktopVPN: NSObject, ObservableObject, OSSystemExtensionRequestDele
         do {
             if enabled {
                 guard await saveDraft(), draft.rememberPassword,
-                      !(try await repository.credential(draft.id)).isEmpty else { throw ClientError.login }
+                      !(try await repository.credential(draft)).isEmpty else { throw ClientError.login }
                 try SMAppService.mainApp.register()
             } else { try await SMAppService.mainApp.unregister() }
             loginEnabled = enabled
@@ -262,7 +261,9 @@ final class DesktopVPN: NSObject, ObservableObject, OSSystemExtensionRequestDele
                 manager = active
                 if sessionPassword.isEmpty {
                     if profile.rememberPassword {
-                        sessionPassword = try Credentials.read(profile.id)
+                        let restored = try await repository.credential(profile)
+                        guard wanted, request == epoch else { return }
+                        sessionPassword = restored
                     } else {
                         let alert = NSAlert()
                         alert.messageText = "恢复连接需要重新认证"

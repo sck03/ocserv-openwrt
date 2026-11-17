@@ -31,8 +31,8 @@ def smoke_test(executable, directory, environment, language):
     """Inspect only the process created here; never send input to another application's windows."""
     directory.mkdir()
     if language == "en":
-        (directory / "profiles.json").write_text(json.dumps({
-            "schema": 2, "settings": {"language": "en"}, "profiles": [],
+        (directory / "preferences.json").write_text(json.dumps({
+            "schema": 1, "language": "en",
         }), encoding="utf-8")
     user32 = ctypes.WinDLL("user32", use_last_error=True)
     callback_type = ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)

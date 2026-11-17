@@ -5,16 +5,17 @@
 | 模块 | 负责内容 | 边界 |
 |---|---|---|
 | Windows `application`、`ui`、`dialogs` | 界面、交互、托盘、事件消费；偏好保存后台合并；网络通知去重 | 不从 UI 线程访问活动的 OpenConnect 对象；偏好保存结果通过窗口消息回传 |
-| Windows `session`、`certificates` | 工作线程、认证、证书、命令管道和资源回收 | 会话 ID、状态代次及取消控制隔离晚回调；核心只由工作线程释放 |
+| Windows `session`、`session_auth`、`certificates` | 工作线程、独立认证回调、证书、命令管道和资源回收 | 会话 ID、状态代次及取消控制隔离晚回调；核心只由工作线程释放 |
 | Windows `profile`、`platform` | 数据格式、加密、大小限制、原子写入、受管 CA 清理 | 保存前检查与读取相同的整体上限；非凭据更新保留不透明密文 |
-| Windows `preferences_writer` | 有界单槽的偏好保存、去抖和退出刷新 | 后台串行写入最新状态；完成结果留在模块内部，窗口消息只负责唤醒 |
+| Windows `preferences`、`preferences_writer` | 独立小文件、有界单槽的偏好保存、去抖和退出刷新 | 不扫描配置列表、不解密凭据；后台串行写入最新状态，窗口消息只负责唤醒 |
 | Windows `storage_operation` | 用户发起的配置读写与退出刷新 | 每次只执行一个后台操作；模态窗口继续处理消息，不允许重入提交；关闭前收回工作线程，不使用 detached 线程 |
-| Windows `network_policy` | 全隧道识别和动态 IPv6 防绕行策略 | 策略随会话或进程结束移除；不写永久防火墙规则 |
+| Windows `route_coverage`、`network_policy` | 归并数字 IPv4 区间识别完整覆盖；动态 IPv6 防绕行策略 | 支持多段及重叠的等价全隧道；策略随会话或进程结束移除 |
 | Linux `main`、`agent`、`protocol` | GTK 交互、认证助手 IPC、纯校验和代次 | 系统权限、隧道、DNS 和路由归 NetworkManager 管理 |
 | Linux `helper_process` | 认证助手异步收尾、超时终止与进程回收 | 收尾命令、管道关闭和等待退出均不阻塞主循环；所有异步操作结束后释放请求归属 |
+| Linux `preferences` | 偏好与自动启动文件的后台串行持久化 | GTask 执行磁盘操作；合并排队快照，所有完成回调在主循环执行；退出等待完成 |
 | Apple 应用与 `client/apple` | 应用配置/钥匙串、扩展生命周期、数据包通道 | 密码仅随启动选项传递；核心回调绑定代次，停止屏障等待网络设置实际完成 |
 | Apple `NetworkSettingsOperation` | 网络设置完成状态、错误与异步屏障 | 调用超时或停止不提前释放屏障；新连接须等待旧系统设置回调 |
-| macOS `ProfilePersistence` | JSON 大小预算、原子替换和凭据更新恢复 | 编码预算先于钥匙串修改；文件替换失败恢复旧凭据 |
+| macOS `ProfilePersistence` | JSON 大小预算、原子替换和不可变凭据版本 | 新建钥匙串项、提交配置引用、回收旧项；中断只留下未引用项，不修改旧文件引用的密码 |
 | macOS `ProfileRepository` actor | 文件、导入与 Keychain 串行访问 | 接受值快照，不访问界面或隧道；主线程只更新结果，异步恢复和连接按代次拒绝过期完成 |
 | Android `SessionOwner` | 进程内唯一的启动/工作线程归属 | 超时通知不释放仍在执行的工作线程；完成回调校验身份与代次 |
 | Android `SessionControl`、`PromptWait` | 原生会话发布、异步命令、释放及可取消的认证等待 | 取消早于会话或弹窗发布仍有效；异步调用不能使用已释放核心 |
@@ -35,13 +36,14 @@
 | 管理页 `api.js`、`messages.js`、`dom.js` | 请求生命周期、文案与 DOM 工厂 | API 通过参数接收入口/token；`readSlot` 统一去重、取消及完成归属；文案和 DOM 模块不持有页面状态 |
 | 管理页 `table.js` | 搜索、分页、计数与可见行更新 | 按页面注入的唯一键复用行，仅保留最多 50 个当前页节点及逐行比较数据；没有请求、定时器或后端状态依赖，行渲染和文案由页面传入；外部视图状态仅保存搜索文字与页码 |
 | 管理页 `maintenance.js` | 卸载步骤和剪贴板交互 | 无请求、定时器或后台权限；DOM 工厂和翻译由页面注入，SSH 执行卸载 |
+| 管理页 `accounts.js`、`settings.js`、`guard.js`、`export.js` | 账号表单、服务设置、隔离诊断和配置导出 | 显式注入交互能力；渲染接收状态快照和目标容器，不持有全局页面状态 |
 | 服务端 `lansyra-uninstall` | 停服、备份、规则清理、包删除和中断恢复 | 套装与安装后命令共用一份源码；共享 `with-lock` 租约，独立执行副本和恢复资料不随 APK 删除 |
 
 ## 生成代码与上游更新
 
 原生依赖的下载校验与编译选择共用锁定清单：Windows 使用 `scripts/sources.json`，Android / Apple 使用 `mobile/sources.json`。`build_common.source_directory` 与 `source-directory.py` 统一解析目录及版本，移动端同时核对归档名与目录名；Android 参数、Apple 配置及头文件复制不再维护独立的版本常量。解析工具随对应源码包提供。共享的 OpenConnect、libxml2 归档由回归检查跨平台 SHA-256 一致性。
 
-Android 上游保持 `mobile/sources.json` 中的固定提交和 SHA-256，不直接修改下载缓存。`prepare-mobile-android.py` 处理构建、标识和网络适配，`android_maintenance.py` 处理生命周期接线；两者通过 `source_edits.py` 对固定源进行精确编辑。每个匹配必须唯一，输入发生变化即停止构建。配置存储和日志总线在 `mobile/android/owned/` 中直接维护为 Kotlin 源码，移除原来的字符串替换业务实现；纯策略和 JUnit 仍位于 `mobile/android/`。DataStore 读取错误明确发布 storageError，不再发射伪造的空 Preferences；协程取消保持取消语义。
+Android 上游保持 `mobile/sources.json` 中的固定提交和 SHA-256，不直接修改下载缓存。连接、服务、仓库、模型、交互总线、界面适配与加密逻辑直接维护在 `mobile/android/owned/`；纯策略与 JUnit 位于 `mobile/android/`。`prepare-mobile-android.py` 仅负责构建/标识适配和源码复制，已删除 `android_maintenance.py` 及业务字符串替换。设置展示允许错误占位，但连接从严格的 DataStore 读取一次设置快照，并按该快照选择、解密配置；读错、坏枚举或失效选择均不能回退后连接。
 
 Windows 协议修改保持为独立 OpenConnect 补丁。下载源码不变，补丁只作用于构建目录，零模糊应用。新增脚本取消补丁仍允许断开清理脚本执行，不能为了响应取消而跳过路由回收。
 
@@ -49,10 +51,11 @@ Windows 协议修改保持为独立 OpenConnect 补丁。下载源码不变，�
 
 ## 数据和恢复契约
 
-- Windows：schema 2，整体不超过 8 MiB；DPAPI 绑定配置 ID、当前用户和服务器来源。保存失败保留原文件。
+- Windows：`profiles.json` schema 3，整体不超过 8 MiB；`preferences.json` schema 1，上限 16 KiB。偏好写入不读取配置；组合读取时校正已删除的选择/自动连接引用。DPAPI 绑定配置 ID、当前用户和服务器来源。失败保留对应原文件。
 - Windows 界面只加载不透明凭据；连接工作线程解密当前配置。CA 安装、配置保存与孤立证书清理共用一个租约。
-- macOS：schema 1，最多 128 项且序列化整体不超过 1 MiB；数据与钥匙串保持失败恢复关系。
-- Android：最多 128 个配置，持久化 JSON 不超过 1 MiB；加解密或解析失败不转为空存储。延迟的指纹更新同时检查配置 ID 与来源。
+- macOS：schema 2，最多 128 项且整体不超过 1 MiB；钥匙串账户绑定配置 ID、来源和随机版本引用。替换失败清理新项，提交成功后才清理旧项；进程中断可能留下孤立钥匙串项，避免不安全的全局扫描清理。
+- Android：schema 2，最多 128 个配置，持久化 JSON 不超过 1 MiB；元数据与密文分开，列表不解密，未变项不重新加密。AES-GCM AAD 绑定 ID、来源与凭据种类；排序只提交 ID 并在事务内重排最新对象。编辑时空密码/令牌保留原值，关闭保存密码/软件令牌可清除；来源变化清除凭据与信任。延迟指纹写入同时检查 ID 和来源。
+- 本轮不迁移旧客户端 schema；全新创建配置或导入公共连接信息。固定证书指纹仍必须通过证书有效期检查，不能以公钥相同绕过过期/尚未生效检查。
 - 同一来源的认证路径变化可以保留绑定；服务器主机或端口变化需要清除原凭据与信任。其他产品的历史数据不隐式迁移。
 - 普通服务设置同时提交 ocserv 与受管防火墙。项目拥有四个命名段的完整定义，其他管理员规则不属于该模块。
 - `backend.snapshot` 在创建 UCI 游标前读取原始 ocserv / firewall 文件，全部字段读取后再次按内容核对；并发变更返回 `stale_revision`，I/O 错误保持原错误，不带着不一致数据继续查询或修改。读取不新增锁、临时文件或自动重试；与配置写入共用原有快照入口。`logic.revision` 依次消费原始文件与分隔符，避免拼接最多约 1 MiB 的中间字符串。校验后发生的写入仍由提交时的修订和事务检查处理。
@@ -85,6 +88,8 @@ Windows 协议修改保持为独立 OpenConnect 补丁。下载源码不变，�
 先运行与修改相关的纯逻辑和边界回归，再运行目标平台编译、原生认证/脚本/窗口回归及包审计。服务端安装恢复测试包含提交后和收尾前的进程中断；浏览器测试包含挂起、重复请求和无变化轮询。`tests/lua_json.py` 为 JSON 边界用例提供实际文本编码/解码，并模拟 jsonc 的 null→nil 转换；其他 OpenWrt 接口仍由隔离测试夹具模拟。
 
 Apple unsigned 构建、Android JUnit、NetworkManager IPC 和模拟 UCI 均不能替代真实设备的签名授权、转发、睡眠、网络切换及长期测试。构建证据和设备证据分别记录在 `VALIDATION.md`，不把编译成功写成连接成功。
+
+`regression.yml` 在 PR 和 main/codex 分支推送时执行轻量逻辑、真实浏览器、Linux 编译及 Apple 存储回归。完整构建仍由各平台工作流执行，不在自动回归中发布发行版。Android 图表仅在被订阅时生成历史快照，删除无效的固定公网/客户端隧道地址延迟探测；WakeLock 保留到真机睡眠和耗电测试提供依据后再调整。
 
 使用 `scripts/clean-workspace.ps1` 先预览再清理生成物。默认保留发行包、安装前备份、验证证据、锁定源码归档及许可证；`-DeepClean` 还会删除工具链、依赖和旧验证缓存，下次构建需重新下载。私有配置和发行包始终保留，仍需保存的验证摘要先归档到清理范围之外。自动导入 CA 的清理只在配置保存/删除成功后执行，不删除外部或手动命名的证书。
 

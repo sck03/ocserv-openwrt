@@ -1,8 +1,8 @@
 # 岚序（Lansyra）
 
-岚序（Lansyra）提供 Windows 10/11 原生客户端 0.7.5、macOS 13+ Universal 客户端 0.1.5 和 Linux amd64/arm64 桌面客户端 0.1.5，以及 Android 0.2.5 / iOS 0.2.5 移动客户端。配套 ocserv 1.6.0-r1 服务端和中文管理页 0.6.22-r1。Windows 提供 x86/x64 便携包；Linux 支持 Debian 13 / Ubuntu 26.04，macOS 实际连接需要有效的 Apple 系统扩展签名。桌面安装方式见[桌面客户端说明](docs/DESKTOP.md)。服务端支持 **OpenWrt 25.12 / APK** 的六个目标，具体架构见 [OpenWrt 多架构说明](docs/OPENWRT.md)。
+岚序（Lansyra）提供 Windows 10/11 原生客户端 0.7.5、macOS 13+ Universal 客户端 0.1.5 和 Linux amd64/arm64 桌面客户端 0.1.5，以及 Android 0.2.6 / iOS 0.2.5 移动客户端。配套 ocserv 1.6.0-r1 服务端和中文管理页 0.7.0-r1。Windows 提供 x86/x64 便携包；Linux 支持 Debian 13 / Ubuntu 26.04，macOS 实际连接需要有效的 Apple 系统扩展签名。桌面安装方式见[桌面客户端说明](docs/DESKTOP.md)。服务端支持 **OpenWrt 25.12 / APK** 的六个目标，具体架构见 [OpenWrt 多架构说明](docs/OPENWRT.md)。
 
-客户端界面名称统一为 **岚序 Lansyra**，Windows 程序为 `Lansyra.exe`，Linux 包和命令为 `lansyra`，Android / iOS 默认安装 ID 为 `io.github.sck03.lansyra`，macOS 为 `io.github.sck03.lansyra.macos`。首次安装需填写服务器、账号、证书指纹并设置启动项；Apple 签名描述文件须匹配应用标识。本次维护沿用同名 Lansyra 的数据格式：升级前退出客户端并备份配置，同一用户、相同安装标识和签名下可保留现有配置。其他旧产品的数据、加密凭据和系统连接不自动迁移。
+客户端界面名称统一为 **岚序 Lansyra**，Windows 程序为 `Lansyra.exe`，Linux 包和命令为 `lansyra`，Android / iOS 默认安装 ID 为 `io.github.sck03.lansyra`，macOS 为 `io.github.sck03.lansyra.macos`。本轮按未部署项目重构，不迁移旧客户端数据：Windows 使用 schema 3 与独立偏好文件，Android/macOS 使用 schema 2。请创建新配置或导入公共连接信息后重新填写凭据；Apple 签名描述文件须匹配应用标识。模块和存储契约见[架构说明](docs/ARCHITECTURE.md)。
 
 重新部署服务端可先运行 `lansyra-uninstall --yes`，自动备份并清理软件包、账号、证书和本项目网络规则，再执行新套装的 `sh install.sh`。旧安装尚无卸载命令时，可直接运行新套装中的 `sh uninstall.sh --yes`，无需先覆盖安装。不迁移旧数据；范围和故障重试见[卸载与重装](docs/UNINSTALL.md)。同名包仍可原地更新，但必须先关闭 VPN 专用上网并完成恢复。
 

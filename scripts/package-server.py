@@ -95,7 +95,7 @@ def main():
                 raise RuntimeError("Stale management entry point: " + relative)
         dynamic = subprocess.check_output(["readelf", "-d", str(executables[0])], text=True)
         ui_hashes = {}
-        for filename in ("app.js", "table.js", "maintenance.js", "dom.js", "messages.js", "api.js", "style.css"):
+        for filename in ("app.js", "accounts.js", "settings.js", "guard.js", "export.js", "table.js", "maintenance.js", "dom.js", "messages.js", "api.js", "style.css"):
             assets = list((sdk / "build_dir").glob(
                 "target-*/luci-app-ocserv-easy/.pkgdir/luci-app-ocserv-easy/www/luci-static/resources/ocserv-easy/" + filename))
             if len(assets) != 1:

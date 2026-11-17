@@ -9,6 +9,8 @@ struct VPNProfile: Codable, Identifiable, Equatable, Sendable {
     var username = ""
     var pin = ""
     var rememberPassword = false
+    var credentialReference = ""
+    var credentialKey: String { credentialReference.isEmpty ? "" : id + "/" + origin + "/" + credentialReference }
     var origin: String {
         guard let url = VPNServerURL(server) else { return "" }
         return (url.host?.lowercased() ?? "") + ":" + String(url.port ?? 443)
@@ -16,7 +18,7 @@ struct VPNProfile: Codable, Identifiable, Equatable, Sendable {
 
     func validated() throws -> VPNProfile {
         guard let url = VPNServerURL(server), !name.trimmingCharacters(in: .whitespaces).isEmpty,
-              name.count <= 128, VPNCredentialValid(username), VPNServerPinValid(pin), UUID(uuidString: id) != nil else {
+              name.count <= 128, (credentialReference.isEmpty || UUID(uuidString: credentialReference) != nil), VPNCredentialValid(username), VPNServerPinValid(pin), UUID(uuidString: id) != nil else {
             throw ClientError.invalidProfile
         }
         var result = self
@@ -36,20 +38,30 @@ actor ProfileRepository {
         guard FileManager.default.fileExists(atPath: url.path) else { return [] }
         let data = try ProfileFile.readData(url, limit: ProfileFile.maxBytes)
         let file = try JSONDecoder().decode(ProfileFile.self, from: data)
-        guard file.schema == 1, file.profiles.count <= 128,
+        guard file.schema == 2, file.profiles.count <= 128,
               Set(file.profiles.map(\.id)).count == file.profiles.count else { throw ClientError.invalidStore }
         return try file.profiles.map { try $0.validated() }
     }
 
-    func credential(_ id: String) throws -> String { try Credentials.read(id) }
+    func credential(_ profile: VPNProfile) throws -> String {
+        guard profile.rememberPassword, !profile.credentialKey.isEmpty else { return "" }
+        return try Credentials.read(profile.credentialKey)
+    }
 
-    func write(_ values: [VPNProfile], credentialID: String, credential: String) throws {
-        let data = try ProfileFile.encoded(values)
+    func write(_ values: [VPNProfile], credentialID: String, credential: String) throws -> [VPNProfile] {
+        let previous = try load().first { $0.id == credentialID }
+        var updated = values
+        if let index = updated.firstIndex(where: { $0.id == credentialID }) {
+            updated[index].credentialReference = credential.isEmpty ? "" : UUID().uuidString
+            guard credential.isEmpty || updated[index].rememberPassword else { throw ClientError.invalidProfile }
+        }
+        let next = updated.first { $0.id == credentialID }
+        let data = try ProfileFile.encoded(updated)
         let destination = directory.appendingPathComponent("profiles.json")
-        try CredentialTransaction.perform(password: credential, read: { try Credentials.read(credentialID) }, write: {
-            if $0.isEmpty { try Credentials.remove(credentialID) }
-            else { try Credentials.save($0, for: credentialID) }
-        }, commit: { try ProfileFile.replace(data, at: destination) })
+        try CredentialTransaction.perform(previous: previous?.credentialKey ?? "", next: next?.credentialKey ?? "",
+            password: credential, create: Credentials.save, remove: Credentials.remove,
+            commit: { try ProfileFile.replace(data, at: destination) })
+        return updated
     }
 
     func importProfile(_ url: URL) throws -> VPNProfile {
@@ -68,14 +80,13 @@ actor ProfileRepository {
     }
 }
 enum ClientError: LocalizedError {
-    case invalidProfile, missingPassword, invalidStore, keychain, keychainRecovery, login, extensionPending, extensionRestart
+    case invalidProfile, missingPassword, invalidStore, keychain, login, extensionPending, extensionRestart
     var errorDescription: String? {
         switch self {
         case .invalidProfile: return "请填写名称、HTTPS 服务器、用户名和管理员核实的完整 pin-sha256 指纹。"
         case .missingPassword: return "请输入密码，或先将密码保存到钥匙串。"
         case .invalidStore: return "配置文件无效，原文件已保留。"
         case .keychain: return "无法访问钥匙串，请检查系统授权。"
-        case .keychainRecovery: return "配置保存失败，钥匙串恢复未完成，请重新保存密码。"
         case .login: return "请先保存有效配置与钥匙串密码，再启用登录后自动连接。"
         case .extensionPending: return "系统扩展授权尚未结束，请先完成系统提示。"
         case .extensionRestart: return "系统扩展将在重启后启用，请重启后连接。"
@@ -84,7 +95,7 @@ enum ClientError: LocalizedError {
 }
 struct ProfileFile: Codable {
     static let maxBytes = 1_048_576
-    var schema = 1
+    var schema = 2
     var profiles: [VPNProfile]
 
     static func encoded(_ profiles: [VPNProfile]) throws -> Data {
@@ -135,15 +146,10 @@ enum Credentials {
         return password
     }
     static func save(_ password: String, for id: String) throws {
-        let request = query(id)
-        let data = Data(password.utf8)
-        let status = SecItemUpdate(request as CFDictionary, [kSecValueData as String: data] as CFDictionary)
-        if status == errSecItemNotFound {
-            var item = request
-            item[kSecValueData as String] = data
-            item[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
-            guard SecItemAdd(item as CFDictionary, nil) == errSecSuccess else { throw ClientError.keychain }
-        } else if status != errSecSuccess { throw ClientError.keychain }
+        var item = query(id)
+        item[kSecValueData as String] = Data(password.utf8)
+        item[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
+        guard SecItemAdd(item as CFDictionary, nil) == errSecSuccess else { throw ClientError.keychain }
     }
     static func remove(_ id: String) throws {
         let status = SecItemDelete(query(id) as CFDictionary)
@@ -151,18 +157,18 @@ enum Credentials {
     }
 }
 
-// A failed file replacement restores the original credential, including deletion.
-// The closures also let regression tests exercise failures without a real keychain.
+// Immutable versions keep the old file valid even if the process exits before commit.
+// Cleanup failures leave an unreferenced key; they cannot redirect a saved credential.
 enum CredentialTransaction {
-    static func perform(password: String, read: () throws -> String,
-                        write: (String) throws -> Void, commit: () throws -> Void) throws {
-        let previous = try read()
-        guard password != previous else { try commit(); return }
-        try write(password)
+    static func perform(previous: String, next: String, password: String,
+                        create: (String, String) throws -> Void,
+                        remove: (String) throws -> Void, commit: () throws -> Void) throws {
+        guard next.isEmpty || next != previous else { throw ClientError.invalidStore }
+        if !next.isEmpty { try create(password, next) }
         do { try commit() } catch {
-            let failure = error
-            do { try write(previous) } catch { throw ClientError.keychainRecovery }
-            throw failure
+            if !next.isEmpty { try? remove(next) }
+            throw error
         }
+        if !previous.isEmpty { try? remove(previous) }
     }
 }
