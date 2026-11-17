@@ -33,7 +33,9 @@ fi
 export CFLAGS="-arch $arch -isysroot $sdk $deployment -Os"
 export LDFLAGS="$CFLAGS"
 export CPP="$CC -E $CFLAGS"
-mkdir -p "$build/openssl-build"
+# OpenSSL 4 configures the apps header even with no-apps, but does not
+# create this output directory in an out-of-tree library-only build.
+mkdir -p "$build/openssl-build/apps/include"
 cd "$build/openssl-build"
 "$openssl_source/Configure" "$target" no-shared no-tests no-apps no-module no-async \
   --prefix="$prefix" --libdir=lib

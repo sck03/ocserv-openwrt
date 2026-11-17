@@ -39,7 +39,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y autoconf automake libtool pkg-config cmake ninja-build
-          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" 'ndk;30.0.16248370' 'platforms;android-37' 'build-tools;37.0.0'
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" 'ndk;30.0.16248370' 'platforms;android-37.2' 'build-tools;37.0.0'
           echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/30.0.16248370" >> "$GITHUB_ENV"
       - uses: actions/cache@v6.1.0
         with:

@@ -6,7 +6,7 @@ plugins {
 
 android {
     namespace = "dev.opentunnel.vpn"
-    compileSdk = 37
+    compileSdk { version = release(37) { minorApiLevel = 2 } }
     buildToolsVersion = "37.0.0"
     defaultConfig {
         applicationId = "io.github.sck03.lansyra"
