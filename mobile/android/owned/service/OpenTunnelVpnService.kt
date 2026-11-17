@@ -149,8 +149,10 @@ class OpenTunnelVpnService : VpnService(), TunnelHost {
         goForeground()
         acquireWakeLock()
         startupJob = scope.launch {
+            var certificates: dev.opentunnel.vpn.data.CertificateFiles.Lease? = null
             try {
-                val (profile, settings) = kotlinx.coroutines.withContext(Dispatchers.IO) { repository.connectionSnapshot() }
+                val (profile, settings, lease) = repository.connectionSnapshot()
+                certificates = lease
                 if (!isActive) return@launch
                 check(profile.isComplete) { "Add a server address and username before connecting." }
                 check(NativeLibrary.isAvailable) { NativeLibrary.MISSING_MESSAGE }
@@ -158,12 +160,13 @@ class OpenTunnelVpnService : VpnService(), TunnelHost {
                 showStatsInNotification = settings.showStatsInNotification
                 enableGeoIpLookup = settings.enableGeoIpLookup
                 appLanguage = settings.appLanguage
-                val tunnel = TunnelRunner(this@OpenTunnelVpnService, profile, settings)
+                val tunnel = TunnelRunner(this@OpenTunnelVpnService, profile, settings, lease)
                 if (!sessions.attach(ticket, tunnel)) return@launch
                 try {
                     startNetworkMonitoring()
                     startStatsPolling()
                     tunnel.start()
+                    certificates = null // The worker now owns the files until native teardown completes.
                 } catch (error: Exception) {
                     val completion = sessions.finish(tunnel)
                     if (completion != null && sessions.idle(completion)) {
@@ -178,6 +181,11 @@ class OpenTunnelVpnService : VpnService(), TunnelHost {
                 if (sessions.cancelStart(ticket)) {
                     VpnBus.setError("Cannot start VPN. Check the profile, storage and native core.")
                     stopSelfSafely()
+                }
+            } finally {
+                val unused = certificates
+                if (unused != null) kotlinx.coroutines.withContext(kotlinx.coroutines.NonCancellable + Dispatchers.IO) {
+                    unused.close()
                 }
             }
         }

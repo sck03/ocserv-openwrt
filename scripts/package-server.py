@@ -77,7 +77,8 @@ def main():
         if len(ui_roots) != 1:
             raise RuntimeError("Cannot locate the staged management package")
         for relative in ("etc/init.d/ocserv-easy-guard", "usr/libexec/ocserv-easy-guard", "usr/share/ocserv-easy/guard.nft.in",
-                         "usr/sbin/lansyra-uninstall", "usr/share/ocserv-easy/with-lock.lua"):
+                         "usr/sbin/lansyra-uninstall", "usr/share/ocserv-easy/with-lock.lua",
+                         "usr/share/ocserv-easy/run.lua", "usr/share/ocserv-easy/network.lua"):
             if sha256(ui_roots[0] / relative) != sha256(ROOT / "server/openwrt/luci-app-ocserv-easy/root" / relative):
                 raise RuntimeError("Stale guard runtime file: " + relative)
         for relative in ("etc/init.d/ocserv-easy-guard", "usr/libexec/ocserv-easy-guard", "usr/sbin/lansyra-uninstall"):
@@ -119,8 +120,11 @@ def main():
             shutil.copyfile(ROOT / "server/tools" / filename, output / filename)
         runtime = ROOT / "server/openwrt/luci-app-ocserv-easy/root"
         shutil.copyfile(runtime / "usr/sbin/lansyra-uninstall", output / "uninstall.sh")
-        shutil.copyfile(runtime / "usr/share/ocserv-easy/with-lock.lua", output / "with-lock.lua")
+        for filename in ("with-lock.lua", "run.lua", "network.lua"):
+            shutil.copyfile(runtime / "usr/share/ocserv-easy" / filename, output / filename)
         shutil.copyfile(ROOT / "server/openwrt/luci-app-ocserv-easy/luasrc/model/ocserv_easy/lease.lua", output / "lease.lua")
+        shutil.copyfile(ROOT / "server/openwrt/luci-app-ocserv-easy/luasrc/model/ocserv_easy/firewall.lua", output / "firewall.lua")
+        shutil.copyfile(ROOT / "server/openwrt/ocserv/files/lua/process.lua", output / "process.lua")
         for filename in ("OPENWRT-N1.md", "OPENWRT.md", "SERVER-UI.md", "UNINSTALL.md", "VPN-ONLY-PROXY.md", "WAN.md"):
             shutil.copyfile(ROOT / "docs" / filename, output / filename)
         source = output / "source"

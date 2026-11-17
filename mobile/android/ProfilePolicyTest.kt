@@ -34,4 +34,24 @@ class ProfilePolicyTest {
         assertEquals("", changed.trustedCertificate)
         assertEquals(stored, ProfilePolicy.updated(stored.copy(server = a.server + "/group"), stored))
     }
+
+    @Test fun forgettingACertificateUsesTheEditedProfileAndSource() {
+        val profiles = listOf(a.copy(trustedCertificate = pin), b.copy(trustedCertificate = pin))
+        val changed = ProfilePolicy.pin(profiles, b.id, b.server, "")
+        assertEquals(pin, changed[0].trustedCertificate)
+        assertEquals("", changed[1].trustedCertificate)
+        assertEquals(profiles, ProfilePolicy.pin(profiles, b.id, a.server, ""))
+    }
+
+    @Test fun disabledDpdDiscardsTheOldOverrideAndPortableProfilesContainNoDeviceSecrets() {
+        val previous = a.copy(overrideDpdTimeout = true, dpdSeconds = 90)
+        val updated = ProfilePolicy.updated(previous, previous.copy(overrideDpdTimeout = false))
+        assertEquals(0, updated.dpdSeconds)
+        assertThrows(IllegalArgumentException::class.java) {
+            ProfilePolicy.validate(listOf(previous.copy(dpdSeconds = 0)))
+        }
+        val portable = ProfilePolicy.portable(a.copy(username = "user", password = "secret", tokenString = "token",
+            caCertPath = "private-ca", userCertPath = "private-cert", privateKeyPath = "private-key"))
+        assertEquals(a, portable)
+    }
 }

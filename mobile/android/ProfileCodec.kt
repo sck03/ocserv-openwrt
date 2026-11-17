@@ -15,7 +15,7 @@ internal class ProfileCodec(
     private val decrypt: (String, String) -> String,
 ) {
     private val json = Json { encodeDefaults = true }
-    private fun context(p: VpnProfile, kind: String) = "Lansyra/2/${p.id}/${ProfilePolicy.origin(p.server)}/$kind"
+    private fun context(p: VpnProfile, kind: String) = "Lansyra/3/${p.id}/${ProfilePolicy.origin(p.server)}/$kind"
     private fun checked(value: String): String = value.also {
         check(it.isNotEmpty()) { "Credential operation failed; original data was preserved" }
     }
@@ -40,14 +40,14 @@ internal class ProfileCodec(
 
     fun encode(profiles: List<StoredProfile>): String {
         validate(profiles)
-        return json.encodeToString(ProfileFile(2, profiles)).also(::size)
+        return json.encodeToString(ProfileFile(3, profiles)).also(::size)
     }
 
     fun decode(raw: String): List<StoredProfile> {
         if (raw.isEmpty()) return emptyList()
         size(raw)
         val file = json.decodeFromString<ProfileFile>(raw)
-        require(file.schema == 2) { "Unsupported profile storage schema" }
+        require(file.schema == 3) { "Unsupported profile storage schema" }
         return file.profiles.also(::validate)
     }
 

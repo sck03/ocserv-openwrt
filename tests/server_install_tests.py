@@ -27,6 +27,11 @@ if name=='lua':
         sys.exit(1 if os.environ.get('INSTALL_MISSING_LOCK_RUNTIME') and not (root/'lock-runtime').exists() else 0)
     from lupa.lua51 import LuaRuntime
     runtime=LuaRuntime(unpack_returned_tuples=True)
+    if pathlib.Path(args[0]).name=='network.lua':
+        runtime.globals().arg=runtime.table_from(args[1:]);runtime.globals().arg[0]=args[0]
+        runtime.execute('local path=...; package.preload["ocserv.logic"]=function() return assert(loadfile(path))() end',str(root/'bundle/logic.lua'))
+        runtime.execute(pathlib.Path(args[0]).read_text())
+        sys.exit(0)
     def open_file(path,flags,mode):
         try:
             fd=os.open(path,os.O_WRONLY|os.O_CREAT,int(mode,8))
@@ -135,11 +140,9 @@ elif name=='uci':
         if os.environ.get('INSTALL_PENDING'): print('firewall.user.pending=1')
     elif args[0]=='get':
         if args[1].startswith('ocserv.'):
-            if os.environ.get('INSTALL_MANUAL'):
-                defaults={'zone':'ocvpn','ipaddr':'10.77.0.0','netmask':'255.255.255.0','port':'4443','proxy_arp':'0'}
-                print(defaults.get(args[1].split('.')[-1],''))
-                sys.exit(0)
-            sys.exit(1)
+            defaults={'zone':'ocvpn','ipaddr':'10.77.0.0','netmask':'255.255.255.0','port':'4443','proxy_arp':'0'}
+            print(defaults.get(args[1].split('.')[-1],''))
+            sys.exit(0)
         key=args[1].removeprefix('firewall.')
         value=json.loads(firewall.read_text()).get(key)
         if value is None: sys.exit(1)
@@ -225,6 +228,11 @@ with tempfile.TemporaryDirectory(prefix='lansyra-install-test-') as temporary:
         script = re.sub(r'/(etc|root|tmp|usr|var)/', lambda match: str(root / match[1]) + '/', script)
         (root / 'bundle/install.sh').write_text(script, encoding='utf-8')
         (root / 'bundle/with-lock.lua').write_text((ROOT / 'server/openwrt/luci-app-ocserv-easy/root/usr/share/ocserv-easy/with-lock.lua').read_text(encoding='utf-8'), encoding='utf-8')
+        for name,source in {
+            'network.lua':'server/openwrt/luci-app-ocserv-easy/root/usr/share/ocserv-easy/network.lua',
+            'firewall.lua':'server/openwrt/luci-app-ocserv-easy/luasrc/model/ocserv_easy/firewall.lua',
+            'logic.lua':'server/openwrt/ocserv/files/lua/logic.lua',
+        }.items(): (root/'bundle'/name).write_text((ROOT/source).read_text(),encoding='utf-8')
         lease=(ROOT / 'server/openwrt/luci-app-ocserv-easy/luasrc/model/ocserv_easy/lease.lua').read_text(encoding='utf-8')
         (root / 'bundle/lease.lua').write_text(lease.replace('/var/run/',str(root/'var/run')+'/'),encoding='utf-8')
         preflight=(ROOT/'server/tools/preflight.sh').read_text(encoding='utf-8')

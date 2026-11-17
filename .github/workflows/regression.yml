@@ -36,6 +36,10 @@ jobs:
           python tests/occtl_runtime_tests.py
           python tests/proxy_runtime_tests.py
           python tests/server_config_tests.py
+          python tests/server_maintenance_tests.py
+          python tests/server_install_tests.py
+          python tests/server_uninstall_tests.py
+          python tests/server_package_tests.py
           g++ -std=c++17 -Wall -Wextra -Werror -Iclient client/route_coverage.cpp client/tests/route_coverage_tests.cpp -o /tmp/route-tests
           /tmp/route-tests
           for file in server/openwrt/luci-app-ocserv-easy/htdocs/luci-static/resources/ocserv-easy/*.js; do node --check "$file"; done

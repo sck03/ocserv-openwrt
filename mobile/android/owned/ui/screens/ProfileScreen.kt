@@ -1,6 +1,7 @@
 package dev.opentunnel.vpn.ui.screens
 
 import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.compose.BackHandler
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.ui.graphics.Color
@@ -49,6 +50,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -65,6 +67,8 @@ import dev.opentunnel.vpn.ui.components.SectionCard
 import dev.opentunnel.vpn.util.HapticHelper
 import dev.opentunnel.vpn.util.RememberScrollHaptic
 import dev.opentunnel.vpn.util.Strings
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.launch
 
 private val REPORTED_OS = listOf(
     "android" to "Android",
@@ -92,25 +96,24 @@ private val SOFTWARE_TOKENS = listOf(
     "3" to "HOTP (Counter-based)",
 )
 
-private val BATCH_MODES = listOf(
-    "disabled" to "Disabled",
-    "enabled" to "Enabled",
-)
-
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ProfileScreen(
     profile: VpnProfile,
     appLanguage: AppLanguage = AppLanguage.SYSTEM,
     hapticFeedbackEnabled: Boolean = true,
-    onSave: (VpnProfile) -> Unit,
-    onDelete: ((String) -> Unit)? = null,
-    onForgetCertificate: () -> Unit,
+    onSave: suspend (VpnProfile) -> VpnProfile,
+    onDelete: (suspend (String) -> Unit)? = null,
+    onForgetCertificate: suspend (String, String) -> Unit,
     onBack: () -> Unit,
 ) {
     val lang = appLanguage
     val context = LocalContext.current
-    var draft by remember(profile) { mutableStateOf(profile) }
+    var draft by remember(profile.id) { mutableStateOf(profile) }
+    var baseline by remember(profile.id) { mutableStateOf(profile) }
+    var busy by remember(profile.id) { mutableStateOf(false) }
+    var operationError by remember(profile.id) { mutableStateOf<String?>(null) }
+    val scope = rememberCoroutineScope()
     var showPassword by remember { mutableStateOf(false) }
     var showAdvanced by remember { mutableStateOf(false) }
     var showDeleteConfirm by remember { mutableStateOf(false) }
@@ -124,29 +127,47 @@ fun ProfileScreen(
     val nameError = draft.name.trim().isBlank()
     val serverError = draft.server.trim().isBlank()
     val mtuError = draft.mtu > 0 && draft.mtu !in 576..1500
-    val dpdError = draft.overrideDpdTimeout && draft.dpdSeconds <= 0
+    val dpdError = draft.overrideDpdTimeout && draft.dpdSeconds !in 1..86400
 
     val isFormValid = !nameError && !serverError && !mtuError && !dpdError
 
     val handleSaveAndExit = {
         triedSaving = true
-        if (isFormValid) {
+        if (isFormValid && !busy) {
             HapticHelper.performClick(context, hapticFeedbackEnabled)
-            onSave(draft.copy(name = draft.name.trim(), server = draft.server.trim()))
-            onBack()
+            val submitted = draft
+            busy = true
+            operationError = null
+            scope.launch {
+                try {
+                    val saved = onSave(submitted.copy(name = submitted.name.trim(), server = submitted.server.trim()))
+                    val unchanged = draft == submitted
+                    baseline = saved
+                    draft = if (unchanged) saved else draft.copy(id = saved.id,
+                        caCertPath = if (draft.caCertPath == submitted.caCertPath) saved.caCertPath else draft.caCertPath,
+                        userCertPath = if (draft.userCertPath == submitted.userCertPath) saved.userCertPath else draft.userCertPath,
+                        privateKeyPath = if (draft.privateKeyPath == submitted.privateKeyPath) saved.privateKeyPath else draft.privateKeyPath)
+                    if (unchanged) onBack()
+                } catch (error: CancellationException) { throw error }
+                catch (error: Exception) { operationError = "Could not save. Check the fields, selected files and storage. Your edits are still here." }
+                finally { busy = false }
+            }
         }
     }
 
     val handleBackNavigation = {
-        if (draft == profile) {
+        if (busy) {
+            Unit
+        } else if (draft == baseline) {
             onBack()
         } else if (isFormValid) {
-            onSave(draft.copy(name = draft.name.trim(), server = draft.server.trim()))
-            onBack()
+            handleSaveAndExit()
         } else {
             showDiscardConfirm = true
         }
     }
+
+    BackHandler(onBack = handleBackNavigation)
 
     val caCertLauncher = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
         uri?.let { draft = draft.copy(caCertPath = it.toString()) }
@@ -164,7 +185,7 @@ fun ProfileScreen(
             TopAppBar(
                 title = { Text(Strings.editProfileTitle(lang, draft.name)) },
                 navigationIcon = {
-                    IconButton(onClick = handleBackNavigation) {
+                    IconButton(onClick = handleBackNavigation, enabled = !busy) {
                         Icon(Icons.Rounded.ArrowBack, contentDescription = "Back")
                     }
                 },
@@ -173,7 +194,7 @@ fun ProfileScreen(
                 ),
                 actions = {
                     if (draft.id.isNotBlank() && onDelete != null) {
-                        IconButton(onClick = { showDeleteConfirm = true }) {
+                        IconButton(onClick = { showDeleteConfirm = true }, enabled = !busy) {
                             Icon(
                                 Icons.Rounded.Delete,
                                 contentDescription = Strings.delete(lang),
@@ -183,7 +204,7 @@ fun ProfileScreen(
                     }
                     TextButton(
                         onClick = handleSaveAndExit,
-                        enabled = isFormValid || !triedSaving,
+                        enabled = !busy && (isFormValid || !triedSaving),
                     ) {
                         Icon(Icons.Rounded.Check, contentDescription = null, modifier = Modifier.size(18.dp))
                         Spacer(Modifier.size(6.dp))
@@ -201,6 +222,7 @@ fun ProfileScreen(
                 .padding(horizontal = 18.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
+            operationError?.let { Text(it, color = MaterialTheme.colorScheme.error) }
             // ── Section 1: Essential Connection Information ──────────────────
             SectionCard(title = if (Strings.isRtl(lang)) "مشخصات سرور و پروتکل" else "Essential Connection") {
                 Column(
@@ -209,6 +231,7 @@ fun ProfileScreen(
                 ) {
                     OutlinedTextField(
                         value = draft.name,
+                        enabled = !busy,
                         onValueChange = { draft = draft.copy(name = it) },
                         label = { Text(Strings.profileName(lang)) },
                         placeholder = { Text("e.g. Work VPN") },
@@ -223,6 +246,7 @@ fun ProfileScreen(
 
                     OutlinedTextField(
                         value = draft.server,
+                        enabled = !busy,
                         onValueChange = { draft = draft.copy(server = it) },
                         label = { Text(Strings.serverAddress(lang)) },
                         placeholder = { Text("vpn.example.com") },
@@ -241,6 +265,7 @@ fun ProfileScreen(
 
                     LabelledDropdown(
                         label = Strings.vpnProtocol(lang),
+                        enabled = !busy,
                         options = PROTOCOLS,
                         selected = draft.protocol,
                         onSelected = { draft = draft.copy(protocol = it) },
@@ -256,6 +281,7 @@ fun ProfileScreen(
                 ) {
                     OutlinedTextField(
                         value = draft.username,
+                        enabled = !busy,
                         onValueChange = { draft = draft.copy(username = it) },
                         label = { Text(Strings.username(lang)) },
                         singleLine = true,
@@ -266,6 +292,7 @@ fun ProfileScreen(
 
                     OutlinedTextField(
                         value = draft.password,
+                        enabled = !busy,
                         onValueChange = { draft = draft.copy(password = it) },
                         label = { Text(Strings.password(lang)) },
                         supportingText = { Text("Leave blank to keep the saved password. Turn off Save password to remove it.") },
@@ -278,7 +305,7 @@ fun ProfileScreen(
                         trailingIcon = {
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 if (draft.password.isNotEmpty()) {
-                                    IconButton(onClick = { draft = draft.copy(password = "") }) {
+                                    IconButton(onClick = { draft = draft.copy(password = "") }, enabled = !busy) {
                                         Icon(
                                             imageVector = Icons.Rounded.Clear,
                                             contentDescription = "Clear password",
@@ -299,6 +326,7 @@ fun ProfileScreen(
 
                     LabelledDropdown(
                         label = Strings.softwareToken(lang),
+                        enabled = !busy,
                         options = SOFTWARE_TOKENS,
                         selected = draft.softwareTokenMode.toString(),
                         onSelected = { draft = draft.copy(softwareTokenMode = it.toIntOrNull() ?: 0) },
@@ -307,6 +335,7 @@ fun ProfileScreen(
                     if (draft.softwareTokenMode > 0) {
                         OutlinedTextField(
                             value = draft.tokenString,
+                            enabled = !busy,
                             onValueChange = { draft = draft.copy(tokenString = it) },
                             label = { Text(Strings.tokenString(lang)) },
                             supportingText = { Text("Leave blank to keep the saved token. Disable software token to remove it.") },
@@ -316,69 +345,20 @@ fun ProfileScreen(
                         )
                     }
 
-                    OutlinedTextField(
-                        value = draft.caCertPath,
-                        onValueChange = { draft = draft.copy(caCertPath = it) },
-                        label = { Text(Strings.caCertificate(lang)) },
-                        placeholder = { Text("Select CA certificate file") },
-                        singleLine = true,
-                        trailingIcon = {
-                            IconButton(onClick = { caCertLauncher.launch("*/*") }) {
-                                Icon(
-                                    Icons.Rounded.FolderOpen,
-                                    contentDescription = Strings.selectFile(lang),
-                                    tint = MaterialTheme.colorScheme.primary,
-                                )
-                            }
-                        },
-                        shape = MaterialTheme.shapes.small,
-                        modifier = Modifier.fillMaxWidth(),
-                    )
-
-                    OutlinedTextField(
-                        value = draft.userCertPath,
-                        onValueChange = { draft = draft.copy(userCertPath = it) },
-                        label = { Text(Strings.userCertificate(lang)) },
-                        placeholder = { Text("Select user client certificate") },
-                        singleLine = true,
-                        trailingIcon = {
-                            IconButton(onClick = { userCertLauncher.launch("*/*") }) {
-                                Icon(
-                                    Icons.Rounded.FolderOpen,
-                                    contentDescription = Strings.selectFile(lang),
-                                    tint = MaterialTheme.colorScheme.primary,
-                                )
-                            }
-                        },
-                        shape = MaterialTheme.shapes.small,
-                        modifier = Modifier.fillMaxWidth(),
-                    )
-
-                    OutlinedTextField(
-                        value = draft.privateKeyPath,
-                        onValueChange = { draft = draft.copy(privateKeyPath = it) },
-                        label = { Text(Strings.privateKey(lang)) },
-                        placeholder = { Text("Select private key file") },
-                        singleLine = true,
-                        trailingIcon = {
-                            IconButton(onClick = { privateKeyLauncher.launch("*/*") }) {
-                                Icon(
-                                    Icons.Rounded.FolderOpen,
-                                    contentDescription = Strings.selectFile(lang),
-                                    tint = MaterialTheme.colorScheme.primary,
-                                )
-                            }
-                        },
-                        shape = MaterialTheme.shapes.small,
-                        modifier = Modifier.fillMaxWidth(),
-                    )
+                    CertificateField(Strings.caCertificate(lang), draft.caCertPath.isNotEmpty(), !busy,
+                        onSelect = { caCertLauncher.launch("*/*") }, onClear = { draft = draft.copy(caCertPath = "") })
+                    CertificateField(Strings.userCertificate(lang), draft.userCertPath.isNotEmpty(), !busy,
+                        onSelect = { userCertLauncher.launch("*/*") }, onClear = { draft = draft.copy(userCertPath = "") })
+                    CertificateField(Strings.privateKey(lang), draft.privateKeyPath.isNotEmpty(), !busy,
+                        onSelect = { privateKeyLauncher.launch("*/*") }, onClear = { draft = draft.copy(privateKeyPath = "") })
 
                     CheckboxLine(
-                        title = Strings.disableCredentialCaching(lang),
-                        subtitle = Strings.disableCredentialCachingSub(lang),
-                        checked = draft.disableCredentialCaching,
+                        title = "Save password",
+                        enabled = !busy,
+                        subtitle = "Encrypt the password on this device. Turn off to remove the saved password.",
+                        checked = draft.savePassword,
                         hapticEnabled = hapticFeedbackEnabled,
-                        onCheckedChange = { draft = draft.copy(disableCredentialCaching = it) },
+                        onCheckedChange = { draft = draft.copy(savePassword = it) },
                     )
                 }
             }
@@ -406,24 +386,21 @@ fun ProfileScreen(
                         Column(Modifier.padding(vertical = 4.dp)) {
                             ToggleLine(
                                 title = "Use DTLS (UDP)",
+                                enabled = !busy,
                                 subtitle = "Fast UDP data channel when network allows",
                                 checked = draft.enableDtls,
                                 onCheckedChange = { draft = draft.copy(enableDtls = it) },
                             )
                             ToggleLine(
                                 title = "Enable IPv6",
+                                enabled = !busy,
                                 subtitle = "Turn off if your gateway advertises broken IPv6",
                                 checked = draft.enableIpv6,
                                 onCheckedChange = { draft = draft.copy(enableIpv6 = it) },
                             )
                             ToggleLine(
-                                title = "WiFi compatibility mode",
-                                subtitle = "Enable when connecting through mobile hotspot or captive portal",
-                                checked = draft.wifiCompatMode,
-                                onCheckedChange = { draft = draft.copy(wifiCompatMode = it) },
-                            )
-                            ToggleLine(
                                 title = "Allow legacy ciphers",
+                                enabled = !busy,
                                 subtitle = "Only for very old gateways with outdated crypto",
                                 checked = draft.allowInsecureCrypto,
                                 onCheckedChange = { draft = draft.copy(allowInsecureCrypto = it) },
@@ -435,6 +412,7 @@ fun ProfileScreen(
                             ) {
                                 NumberField(
                                     label = "MTU override (576 - 1500)",
+                                    enabled = !busy,
                                     value = draft.mtu,
                                     placeholder = "Automatic",
                                     isError = mtuError,
@@ -451,30 +429,16 @@ fun ProfileScreen(
                             verticalArrangement = Arrangement.spacedBy(14.dp),
                         ) {
                             LabelledDropdown(
-                                label = Strings.batchMode(lang),
-                                options = BATCH_MODES,
-                                selected = if (draft.batchMode) "enabled" else "disabled",
-                                onSelected = { draft = draft.copy(batchMode = (it == "enabled")) },
-                            )
-
-                            LabelledDropdown(
                                 label = Strings.reportedOs(lang),
+                                enabled = !busy,
                                 options = REPORTED_OS,
                                 selected = draft.reportedOs,
                                 onSelected = { draft = draft.copy(reportedOs = it) },
                             )
 
-                            OutlinedTextField(
-                                value = draft.csdWrapper,
-                                onValueChange = { draft = draft.copy(csdWrapper = it) },
-                                label = { Text(Strings.csdWrapper(lang)) },
-                                singleLine = true,
-                                shape = MaterialTheme.shapes.small,
-                                modifier = Modifier.fillMaxWidth(),
-                            )
-
                             CheckboxLine(
                                 title = Strings.disableXmlPost(lang),
+                                enabled = !busy,
                                 subtitle = Strings.disableXmlPostSub(lang),
                                 checked = draft.disableXmlPost,
                                 hapticEnabled = hapticFeedbackEnabled,
@@ -483,6 +447,7 @@ fun ProfileScreen(
 
                             CheckboxLine(
                                 title = Strings.requirePfs(lang),
+                                enabled = !busy,
                                 subtitle = Strings.requirePfsSub(lang),
                                 checked = draft.requirePfs,
                                 hapticEnabled = hapticFeedbackEnabled,
@@ -491,6 +456,7 @@ fun ProfileScreen(
 
                             CheckboxLine(
                                 title = Strings.overrideDpdTimeout(lang),
+                                enabled = !busy,
                                 subtitle = Strings.overrideDpdTimeoutSub(lang),
                                 checked = draft.overrideDpdTimeout,
                                 hapticEnabled = hapticFeedbackEnabled,
@@ -500,16 +466,18 @@ fun ProfileScreen(
                             if (draft.overrideDpdTimeout) {
                                 NumberField(
                                     label = Strings.dpdSeconds(lang),
+                                    enabled = !busy,
                                     value = draft.dpdSeconds,
                                     placeholder = "30",
                                     isError = dpdError,
-                                    supportingText = if (dpdError) "Must be greater than 0" else null,
+                                    supportingText = if (dpdError) "Use 1 to 86400 seconds" else null,
                                     onValueChange = { draft = draft.copy(dpdSeconds = it) },
                                 )
                             }
 
                             OutlinedTextField(
                                 value = draft.userAgent,
+                                enabled = !busy,
                                 onValueChange = { draft = draft.copy(userAgent = it) },
                                 label = { Text("User agent override (optional)") },
                                 singleLine = true,
@@ -530,9 +498,21 @@ fun ProfileScreen(
                                 Spacer(Modifier.height(10.dp))
                                 Button(
                                     onClick = {
-                                        draft = draft.copy(trustedCertificate = "")
-                                        onForgetCertificate()
+                                        busy = true
+                                        operationError = null
+                                        val id = profile.id
+                                        val server = profile.server
+                                        scope.launch {
+                                            try {
+                                                onForgetCertificate(id, server)
+                                                draft = draft.copy(trustedCertificate = "")
+                                                baseline = baseline.copy(trustedCertificate = "")
+                                            } catch (error: CancellationException) { throw error }
+                                            catch (error: Exception) { operationError = "Could not forget the certificate. The saved trust was preserved." }
+                                            finally { busy = false }
+                                        }
                                     },
+                                    enabled = !busy,
                                     shape = MaterialTheme.shapes.small,
                                 ) {
                                     Text("Forget this certificate")
@@ -554,9 +534,15 @@ fun ProfileScreen(
             text = { Text(Strings.deleteProfileConfirm(lang, draft.displayName)) },
             confirmButton = {
                 TextButton(onClick = {
-                    onDelete(draft.id)
+                    busy = true
+                    operationError = null
                     showDeleteConfirm = false
-                    onBack()
+                    scope.launch {
+                        try { onDelete(draft.id); onBack() }
+                        catch (error: CancellationException) { throw error }
+                        catch (error: Exception) { operationError = "Could not delete this profile. Your edits are still here." }
+                        finally { busy = false }
+                    }
                 }) {
                     Text(Strings.delete(lang), color = MaterialTheme.colorScheme.error, fontWeight = FontWeight.Bold)
                 }
@@ -601,10 +587,36 @@ fun ProfileScreen(
 }
 
 @Composable
+private fun CertificateField(label: String, selected: Boolean, enabled: Boolean, onSelect: () -> Unit, onClear: () -> Unit) {
+    OutlinedTextField(
+        value = if (selected) "Selected file" else "",
+        onValueChange = {},
+        readOnly = true,
+        enabled = enabled,
+        label = { Text(label) },
+        placeholder = { Text("Choose a file") },
+        trailingIcon = {
+            Row {
+                if (selected) IconButton(onClick = onClear, enabled = enabled) {
+                    Icon(Icons.Rounded.Clear, contentDescription = "Remove $label")
+                }
+                IconButton(onClick = onSelect, enabled = enabled) {
+                    Icon(Icons.Rounded.FolderOpen, contentDescription = "Select $label")
+                }
+            }
+        },
+        singleLine = true,
+        shape = MaterialTheme.shapes.small,
+        modifier = Modifier.fillMaxWidth(),
+    )
+}
+
+@Composable
 private fun CheckboxLine(
     title: String,
     subtitle: String,
     checked: Boolean,
+    enabled: Boolean = true,
     hapticEnabled: Boolean = true,
     onCheckedChange: (Boolean) -> Unit,
 ) {
@@ -612,7 +624,7 @@ private fun CheckboxLine(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable {
+            .clickable(enabled = enabled) {
                 HapticHelper.performClick(context, hapticEnabled)
                 onCheckedChange(!checked)
             }
@@ -621,6 +633,7 @@ private fun CheckboxLine(
     ) {
         Checkbox(
             checked = checked,
+            enabled = enabled,
             onCheckedChange = {
                 HapticHelper.performClick(context, hapticEnabled)
                 onCheckedChange(it)
@@ -639,13 +652,14 @@ private fun ToggleLine(
     title: String,
     subtitle: String,
     checked: Boolean,
+    enabled: Boolean = true,
     onCheckedChange: (Boolean) -> Unit,
 ) {
     val context = LocalContext.current
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable {
+            .clickable(enabled = enabled) {
                 HapticHelper.performClick(context, true)
                 onCheckedChange(!checked)
             }
@@ -659,6 +673,7 @@ private fun ToggleLine(
         Spacer(Modifier.width(12.dp))
         Switch(
             checked = checked,
+            enabled = enabled,
             onCheckedChange = {
                 HapticHelper.performClick(context, true)
                 onCheckedChange(it)
@@ -673,6 +688,7 @@ private fun LabelledDropdown(
     label: String,
     options: List<Pair<String, String>>,
     selected: String,
+    enabled: Boolean = true,
     onSelected: (String) -> Unit,
 ) {
     var expanded by remember { mutableStateOf(false) }
@@ -680,11 +696,12 @@ private fun LabelledDropdown(
 
     ExposedDropdownMenuBox(
         expanded = expanded,
-        onExpandedChange = { expanded = it },
+        onExpandedChange = { if (enabled) expanded = it },
         modifier = Modifier.fillMaxWidth(),
     ) {
         OutlinedTextField(
             value = display,
+            enabled = enabled,
             onValueChange = {},
             readOnly = true,
             label = { Text(label) },
@@ -701,6 +718,7 @@ private fun LabelledDropdown(
             options.forEach { (value, name) ->
                 DropdownMenuItem(
                     text = { Text(name) },
+                    enabled = enabled,
                     onClick = {
                         onSelected(value)
                         expanded = false
@@ -716,12 +734,14 @@ private fun NumberField(
     label: String,
     value: Int,
     placeholder: String,
+    enabled: Boolean = true,
     isError: Boolean = false,
     supportingText: String? = null,
     onValueChange: (Int) -> Unit,
 ) {
     OutlinedTextField(
         value = if (value > 0) value.toString() else "",
+        enabled = enabled,
         onValueChange = { input ->
             val digits = input.filter { it.isDigit() }.take(5)
             onValueChange(digits.toIntOrNull() ?: 0)

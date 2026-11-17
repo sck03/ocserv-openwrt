@@ -2,7 +2,6 @@
 -- Managed baseline firewall sections shared by installation and LuCI updates.
 -- Keep this module free of UCI side effects so it can be tested with Lua 5.1.
 local M = {}
-local logic = require "ocserv.logic"
 
 M.names = {
     zone = "ocserv_vpn",
@@ -23,6 +22,7 @@ local function unique_ports(settings)
 end
 
 function M.sections(settings)
+    local logic = require "ocserv.logic"
     return {
         [M.names.zone] = {
             [".type"] = "zone",
@@ -66,6 +66,7 @@ local function compatible(actual, expected)
 end
 
 function M.matches(cursor, settings)
+    local logic = require "ocserv.logic"
     for id, expected in pairs(M.sections(settings)) do
         local actual = cursor:get_all("firewall", id)
         if not actual or not compatible(actual, expected) then return false end

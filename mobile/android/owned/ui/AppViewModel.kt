@@ -1,7 +1,6 @@
 package dev.opentunnel.vpn.ui
 
 import android.app.Application
-import android.content.pm.PackageManager
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import dev.opentunnel.vpn.core.Interaction
@@ -19,6 +18,11 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.filterNotNull
+import kotlinx.coroutines.flow.flowOn
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 
 class AppViewModel(application: Application) : AndroidViewModel(application) {
@@ -43,6 +47,8 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
 
     private val _installedApps = MutableStateFlow<List<InstalledApp>?>(null)
     val installedApps: StateFlow<List<InstalledApp>?> = _installedApps.asStateFlow()
+    private var appsJob: Job? = null
+    private val trafficVisible = MutableStateFlow(false)
 
     private val rxRingBuffer = LongRingBuffer(18000)
     private val txRingBuffer = LongRingBuffer(18000)
@@ -59,12 +65,13 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     // ── app traffic monitor properties ───────────────────────────────────────
 
     private val trafficCollector = dev.opentunnel.vpn.core.AppTrafficCollector(
-        context = application,
-        dispatcher = kotlinx.coroutines.Dispatchers.Default,
+        statsProvider = dev.opentunnel.vpn.core.AndroidTrafficStatsProvider(application),
+        dispatcher = Dispatchers.IO,
         sampleIntervalMs = 1000L,
     )
 
     val appTrafficSummary: StateFlow<dev.opentunnel.vpn.data.AppTrafficSummary> = trafficCollector.summary
+    val appTrafficPaused = trafficCollector.paused.stateIn(viewModelScope, SharingStarted.Eagerly, false)
 
     private val _trafficSortBy = MutableStateFlow(dev.opentunnel.vpn.data.TrafficSortBy.TOTAL_TRAFFIC)
     val trafficSortBy: StateFlow<dev.opentunnel.vpn.data.TrafficSortBy> = _trafficSortBy.asStateFlow()
@@ -161,7 +168,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         }
 
         filtered.sortedWith(comparator)
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+    }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     fun clearSpeedHistory() {
         rxRingBuffer.clear()
@@ -171,37 +178,25 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     init {
-        // Load installed apps immediately on startup
-        loadInstalledApps()
-
         viewModelScope.launch {
             repository.storageError.collect { error -> if (error != null) reportStorageError(error) }
         }
 
         viewModelScope.launch {
-            installedApps.collect { list ->
-                if (!list.isNullOrEmpty()) {
-                    val pm = application.packageManager
-                    val metaList = list.mapNotNull { app ->
-                        val uid = runCatching {
-                            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
-                                pm.getPackageUid(app.packageName, PackageManager.PackageInfoFlags.of(0))
-                            } else {
-                                @Suppress("DEPRECATION")
-                                pm.getPackageUid(app.packageName, 0)
-                            }
-                        }.getOrDefault(0)
-                        if (uid > 0) {
-                            dev.opentunnel.vpn.core.AppMetadata(
-                                packageName = app.packageName,
-                                uid = uid,
-                                label = app.label,
-                                isSystem = app.isSystem,
-                            )
-                        } else null
-                    }
-                    if (metaList.isNotEmpty()) {
-                        trafficCollector.loadApps(metaList)
+            trafficVisible.collectLatest { visible ->
+                if (visible) {
+                    loadInstalledApps()
+                    try {
+                        installedApps.filterNotNull().collectLatest { list ->
+                            trafficCollector.loadApps(list.map { app ->
+                                dev.opentunnel.vpn.core.AppMetadata(app.packageName, app.uid, app.label, app.isSystem)
+                            })
+                            trafficCollector.start()
+                        }
+                    } catch (error: kotlinx.coroutines.CancellationException) { throw error }
+                    catch (error: Exception) { VpnBus.error("Application traffic counters are unavailable.") }
+                    finally {
+                        trafficCollector.stop()
                     }
                 }
             }
@@ -242,7 +237,6 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             }
         }
 
-        trafficCollector.start()
     }
 
     private val _editingProfileId = MutableStateFlow<String?>(null)
@@ -271,9 +265,9 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun saveProfile(profile: VpnProfile) {
-        profileOperation { repository.saveProfile(profile) }
-    }
+    suspend fun saveProfile(profile: VpnProfile): VpnProfile = repository.saveProfile(profile)
+
+    suspend fun deleteEditingProfile(profileId: String) { repository.deleteProfile(profileId) }
 
     fun reorderProfiles(profiles: List<VpnProfile>) {
         profileOperation { repository.reorderProfiles(profiles.map { it.id }) }
@@ -295,8 +289,8 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         profileOperation { onResult(repository.importProfilesJson(jsonStr)) }
     }
 
-    fun forgetPinnedCertificate() {
-        profileOperation { repository.pinCertificate("") }
+    suspend fun forgetPinnedCertificate(profileId: String, server: String) {
+        repository.pinCertificate(profileId, server, "")
     }
 
     // ── settings ─────────────────────────────────────────────────────────────
@@ -347,16 +341,14 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
 
     // ── split tunnelling ──────────────────────────────────────────────────────
 
-    fun loadInstalledApps() {
-        if (_installedApps.value != null) return
-        viewModelScope.launch {
-            _installedApps.value = InstalledApps.load(getApplication())
-        }
-    }
+    fun loadInstalledApps() = loadApps(false)
 
-    fun refreshInstalledApps() {
-        viewModelScope.launch {
-            _installedApps.value = InstalledApps.load(getApplication())
+    fun refreshInstalledApps() = loadApps(true)
+
+    private fun loadApps(forceRefresh: Boolean) {
+        if (appsJob?.isActive == true) return
+        appsJob = viewModelScope.launch(Dispatchers.IO) {
+            _installedApps.value = InstalledApps.load(getApplication(), forceRefresh)
         }
     }
 
@@ -409,6 +401,8 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     // ── app traffic monitor ──────────────────────────────────────────────────
+
+    fun setTrafficVisible(visible: Boolean) { trafficVisible.value = visible }
 
     fun setTrafficSortBy(sortBy: dev.opentunnel.vpn.data.TrafficSortBy) {
         _trafficSortBy.value = sortBy

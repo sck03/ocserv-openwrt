@@ -32,7 +32,6 @@ def prepare(app, root):
     source = app / "app/src/main/java/dev/opentunnel/vpn"
     for file, replacements in {
         "util/Strings.kt": [('"OpenTunnel"', '"岚序 Lansyra"')],
-        "ui/screens/HomeScreen.kt": [('text = "OpenTunnel"', 'text = "岚序 Lansyra"')],
         "ui/screens/SettingsScreen.kt": [('append("OpenTunnel ', 'append("岚序 Lansyra ')],
         "ui/screens/LogScreen.kt": [('OpenTunnel log', '岚序 Lansyra log')],
     }.items():
@@ -68,8 +67,9 @@ def prepare(app, root):
         target.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(root / "mobile/android" / source, target)
 
-    for name in ("SessionOwner", "SessionControl", "PromptWait", "DiagnosticLog", "ProfilePolicy", "ProfileCodec"):
-        package = "data" if name.startswith("Profile") else "core"
+    for name in ("SessionOwner", "SessionControl", "PromptWait", "DiagnosticLog", "ProfilePolicy", "ProfileCodec",
+                 "CertificateFiles", "AppRoutingPolicy"):
+        package = "data" if name.startswith("Profile") or name == "CertificateFiles" else "core"
         for suffix, directory in (("", "main"), ("Test", "test")):
             target = app / f"app/src/{directory}/java/dev/opentunnel/vpn/{package}/{name}{suffix}.kt"
             target.parent.mkdir(parents=True, exist_ok=True)
@@ -79,5 +79,5 @@ def prepare(app, root):
         target = app / "app/src/main/java/dev/opentunnel/vpn" / path.relative_to(owned)
         target.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(path, target)
-    home = app / "app/src/main/java/dev/opentunnel/vpn/ui/screens/HomeScreen.kt"
-    home.write_text(home.read_text(encoding="utf-8").replace("network(s)/domain(s)", "IP network(s)"), encoding="utf-8")
+    shutil.copy2(root / "mobile/android/AppTrafficCollector.kt", app / "app/src/main/java/dev/opentunnel/vpn/core/AppTrafficCollector.kt")
+    shutil.copy2(root / "mobile/android/AppTrafficCollectorTest.kt", app / "app/src/test/java/dev/opentunnel/vpn/AppTrafficCollectorTest.kt")

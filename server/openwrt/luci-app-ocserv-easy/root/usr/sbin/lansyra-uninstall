@@ -12,8 +12,30 @@ case "$mode" in
     *) fail '未知参数。用法：lansyra-uninstall [--yes|--dry-run]' ;;
 esac
 [ "$(id -u)" = 0 ] || fail '请通过局域网 SSH 以 root 执行卸载。'
-for command in apk uci lua fw4 timeout; do command -v "$command" >/dev/null || fail "缺少命令：$command"; done
+command -v apk >/dev/null || fail '缺少命令：apk'
+runtime_package=.lansyra-uninstall-runtime
+# A completed removal may also have removed Lua. Final dependency cleanup and
+# repeated invocations must remain possible using only the base system.
+if ! apk info -e ocserv >/dev/null 2>&1 && ! apk info -e luci-app-ocserv-easy >/dev/null 2>&1 &&
+   [ ! -e /etc/config/ocserv ] && [ ! -e /etc/ocserv ] && [ ! -e /etc/lansyra-uninstall ]; then
+    if [ "$mode" != --dry-run ] && apk info -e "$runtime_package" >/dev/null 2>&1; then apk del "$runtime_package"; fi
+    echo 'Lansyra 已卸载。'
+    exit 0
+fi
+for command in uci lua fw4; do command -v "$command" >/dev/null || fail "缺少命令：$command"; done
 directory=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
+runtime=/usr/share/ocserv-easy
+[ ! -f "$directory/with-lock.lua" ] || runtime=$directory
+bounded() { lua "$runtime/run.lua" "$@"; }
+service_running() {
+    service_status=0
+    bounded 5 /etc/init.d/"$1" status >/dev/null 2>&1 || service_status=$?
+    case "$service_status" in
+        0) return 0 ;;
+        1|3) return 1 ;; # rc.common/procd: inactive service
+        *) fail "$1 状态检查失败（$service_status），已中止卸载。" ;;
+    esac
+}
 if [ "${OCSERV_EASY_LOCK_OWNER:-}" != "$$" ]; then
     echo '将卸载 ocserv 和 Lansyra 管理页，删除 VPN 账号、证书及本项目网络规则。'
     echo '卸载前备份到 /root/lansyra-before-uninstall-*；VPN 连接会断开，请使用局域网 SSH。'
@@ -22,33 +44,36 @@ if [ "${OCSERV_EASY_LOCK_OWNER:-}" != "$$" ]; then
         read -r answer || exit 1
         [ "$answer" = UNINSTALL ] || fail '已取消卸载。'
     fi
-    # Recovery uses the installed version's own transaction format. Never erase
-    # records that its runtime cannot restore, and never migrate old schemas.
+    # Complete current-format transactions before entering the removal lease.
     if [ "$mode" != --dry-run ]; then
         if [ -e /etc/ocserv/easy-transaction/state.json ]; then
             lua -e 'assert(require("luci.model.ocserv_easy.backend").recover(false))' || fail '服务设置恢复失败，尚未卸载。'
         fi
         if [ -e /etc/ocserv/easy-guard/state.json ]; then
-            timeout 30 /usr/libexec/ocserv-easy-guard disable || fail 'VPN 专用上网恢复失败，尚未卸载。'
+            bounded 60 /usr/libexec/ocserv-easy-guard disable || fail 'VPN 专用上网恢复失败，尚未卸载。'
             attempt=0
-            while [ -e /etc/ocserv/easy-guard/state.json ] && [ "$attempt" -lt 120 ]; do
+            while [ -e /etc/ocserv/easy-guard/state.json ] && [ "$attempt" -lt 240 ]; do
                 sleep 1; attempt=$((attempt + 1))
             done
             [ ! -e /etc/ocserv/easy-guard/state.json ] || fail '隔离恢复尚未完成，请检查管理页日志后重试。'
         fi
     fi
-    runtime=/usr/share/ocserv-easy
-    [ ! -f "$directory/with-lock.lua" ] || runtime=$directory
     lease=/usr/lib/lua/luci/model/ocserv_easy/lease.lua
     [ ! -f "$runtime/lease.lua" ] || lease=$runtime/lease.lua
+    process=/usr/lib/lua/ocserv/process.lua
+    [ ! -f "$runtime/process.lua" ] || process=$runtime/process.lua
+    firewall=/usr/lib/lua/luci/model/ocserv_easy/firewall.lua
+    [ ! -f "$runtime/firewall.lua" ] || firewall=$runtime/firewall.lua
     work=$(mktemp -d /tmp/lansyra-uninstall.XXXXXX)
     trap 'rm -rf -- "$work"' EXIT
     trap 'exit 129' HUP
     trap 'exit 130' INT
     trap 'exit 143' TERM
     cp "$0" "$work/uninstall.sh"
-    cp "$runtime/with-lock.lua" "$work/with-lock.lua"
+    cp "$runtime/with-lock.lua" "$runtime/run.lua" "$runtime/network.lua" "$work/"
     cp "$lease" "$work/lease.lua"
+    cp "$process" "$work/process.lua"
+    cp "$firewall" "$work/firewall.lua"
     lua "$work/with-lock.lua" /bin/sh "$work/uninstall.sh" "${mode:---yes}"
     exit $?
 fi
@@ -67,9 +92,9 @@ replace_file() {
     cp -p "$1" "$2.lansyra-new" && mv -f "$2.lansyra-new" "$2"
 }
 reload_network() {
-    timeout 30 fw4 check && timeout 30 /etc/init.d/firewall reload || return 1
+    bounded 30 fw4 check && bounded 30 /etc/init.d/firewall reload || return 1
     for proxy in nikki momo; do
-        if [ -f "$journal/restart-$proxy" ]; then timeout 100 /etc/init.d/"$proxy" restart || return 1; fi
+        if [ -f "$journal/restart-$proxy" ]; then bounded 100 /etc/init.d/"$proxy" restart || return 1; fi
     done
 }
 recover_network() {
@@ -116,7 +141,8 @@ done
 recover_network || exit 1
 backup=$(mktemp -d /root/lansyra-before-uninstall-XXXXXX)
 echo "卸载前备份：$backup"
-cp "$directory/uninstall.sh" "$directory/with-lock.lua" "$directory/lease.lua" "$backup/"
+cp "$directory/uninstall.sh" "$directory/with-lock.lua" "$directory/lease.lua" \
+    "$directory/run.lua" "$directory/process.lua" "$directory/network.lua" "$directory/firewall.lua" "$backup/"
 for package in ocserv firewall dhcp openclash nikki momo; do
     [ ! -f "/etc/config/$package" ] || cp -p "/etc/config/$package" "$backup/$package.uci"
 done
@@ -124,7 +150,9 @@ done
 cleanup() {
     result=$?
     if ! recover_network; then result=1; fi
-    if [ "$result" != 0 ]; then echo "卸载未完成；修正错误后可运行：sh $backup/uninstall.sh --yes" >&2; fi
+    if [ "$result" != 0 ]; then
+        echo "卸载未完成；已停止的 VPN 服务保持停用。修正错误后运行：sh $backup/uninstall.sh --yes" >&2
+    fi
     trap - EXIT HUP INT TERM
     exit "$result"
 }
@@ -133,13 +161,18 @@ trap 'exit 129' HUP
 trap 'exit 130' INT
 trap 'exit 143' TERM
 
+# Keep already installed Lua/nixio alive across APK auto-removal and interruption.
+# This virtual dependency is removed only after every cleanup has completed.
+apk add --no-network --virtual "$runtime_package" lua luci-lib-nixio
+firewall_sections=$(lua "$runtime/network.lua" names)
+
 # A failed stop must not be followed by deletion of credentials or packages.
 for service in ocserv-easy-guard ocserv; do
     [ -x "/etc/init.d/$service" ] || continue
-    timeout 15 /etc/init.d/"$service" disable
-    timeout 20 /etc/init.d/"$service" stop
+    bounded 15 /etc/init.d/"$service" disable
+    bounded 160 /etc/init.d/"$service" stop
     attempt=0
-    while /etc/init.d/"$service" status >/dev/null 2>&1; do
+    while service_running "$service"; do
         [ "$attempt" -lt 10 ] || fail "$service 未停止，已中止卸载。"
         sleep 1; attempt=$((attempt + 1))
     done
@@ -158,7 +191,7 @@ for package in firewall nikki momo; do
     [ -f "$journal/after/$package" ] || continue
     uci -c "$journal/after" -t "$journal/delta" export "$package" >/dev/null
     sections=lansyra_vpn
-    [ "$package" != firewall ] || sections='ocserv_vpn ocserv_vpn_to_lan ocserv_vpn_nat ocserv_vpn_entry'
+    [ "$package" != firewall ] || sections=$firewall_sections
     for section in $sections; do
         if uci -c "$journal/after" -t "$journal/delta" -q get "$package.$section" >/dev/null; then
             uci -c "$journal/after" -t "$journal/delta" delete "$package.$section"
@@ -176,7 +209,7 @@ for proxy in nikki momo; do
     fi
     if { [ -f "$journal/before/$proxy" ] && ! cmp -s "$journal/before/$proxy" "$journal/after/$proxy"; } ||
        { [ -f "$journal/before/$proxy-template" ] && ! cmp -s "$journal/before/$proxy-template" "$template"; }; then
-        if /etc/init.d/"$proxy" status >/dev/null 2>&1; then : > "$journal/restart-$proxy"; fi
+        if [ -x /etc/init.d/"$proxy" ] && service_running "$proxy"; then : > "$journal/restart-$proxy"; fi
     fi
 done
 : > "$journal/prepared"
@@ -196,8 +229,12 @@ rm -f /etc/config/ocserv /etc/config/ocserv.apk-new /etc/config/ocserv.apk-old
 rm -rf -- /etc/ocserv
 rm -f /var/etc/ocserv.conf /var/etc/ocpasswd /var/run/ocserv.pid
 # Keep the shared lock inode: an already waiting process must see the same lock.
-find /var/run/ocserv-easy -mindepth 1 -maxdepth 1 ! -name lock -exec rm -rf -- '{}' ';'
+if [ -d /var/run/ocserv-easy ]; then
+    find /var/run/ocserv-easy -mindepth 1 -maxdepth 1 ! -name lock -exec rm -rf -- '{}' ';'
+fi
 rm -f /tmp/luci-indexcache* /tmp/luci-modulecache/*
 : > "$journal/complete"
 sync
+recover_network
+apk del "$runtime_package"
 echo "卸载完成。备份：$backup。重新登录 LuCI 后可全新安装。"

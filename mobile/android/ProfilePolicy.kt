@@ -26,6 +26,8 @@ internal object ProfilePolicy {
             for (value in listOf(profile.username, profile.password, profile.tokenString, profile.authGroup))
                 require(value.toByteArray(Charsets.UTF_8).size <= 8192 && '\u0000' !in value) { "Invalid credential field" }
             require(profile.trustedCertificate.isEmpty() || CertificatePolicy.isFullPin(profile.trustedCertificate)) { "Invalid certificate pin" }
+            require(profile.mtu == 0 || profile.mtu in 576..1500) { "Invalid MTU" }
+            require(!profile.overrideDpdTimeout || profile.dpdSeconds in 1..86400) { "Invalid DPD interval" }
         }
     }
 
@@ -34,8 +36,13 @@ internal object ProfilePolicy {
         return profiles.map { if (it.id == id && origin(it.server) == origin(server)) it.copy(trustedCertificate = pin) else it }
     }
 
-    fun updated(previous: VpnProfile?, candidate: VpnProfile): VpnProfile =
-        if (previous != null && origin(previous.server) != origin(candidate.server))
-            candidate.copy(username = "", password = "", authGroup = "", tokenString = "", trustedCertificate = "")
-        else candidate
+    fun portable(profile: VpnProfile): VpnProfile = profile.copy(username = "", password = "", tokenString = "",
+        caCertPath = "", userCertPath = "", privateKeyPath = "")
+
+    fun updated(previous: VpnProfile?, candidate: VpnProfile): VpnProfile {
+        val normalized = if (candidate.overrideDpdTimeout) candidate else candidate.copy(dpdSeconds = 0)
+        return if (previous != null && origin(previous.server) != origin(candidate.server))
+            portable(normalized).copy(authGroup = "", trustedCertificate = "")
+        else normalized
+    }
 }

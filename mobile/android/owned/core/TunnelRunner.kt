@@ -1,6 +1,7 @@
 package dev.opentunnel.vpn.core
 
 import android.net.VpnService
+import android.content.pm.PackageManager
 import android.os.Build
 import android.os.ParcelFileDescriptor
 import android.os.SystemClock
@@ -12,6 +13,7 @@ import dev.opentunnel.vpn.util.Net
 import dev.opentunnel.vpn.util.NetworkRoutes
 import org.infradead.libopenconnect.LibOpenConnect
 import java.io.IOException
+import java.io.Closeable
 import java.util.concurrent.atomic.AtomicBoolean
 
 /** What the runner needs from the hosting VpnService. */
@@ -52,6 +54,7 @@ class TunnelRunner(
     private val host: TunnelHost,
     inputProfile: VpnProfile,
     private val settings: AppSettings,
+    private val certificates: Closeable,
 ) : Thread("openconnect-tunnel") {
     private val profile = inputProfile.copy(password = "")
 
@@ -105,6 +108,7 @@ class TunnelRunner(
         } finally {
             closeTun()
             control.close { runCatching { it.destroy() } }
+            runCatching { certificates.close() }
             password = ""
             host.onTunnelFinished(this, if (disconnectRequested.get()) null else failure)
         }
@@ -176,10 +180,7 @@ class TunnelRunner(
             if (settings.verboseLogging) LibOpenConnect.PRG_DEBUG else LibOpenConnect.PRG_INFO
         )
 
-        if (lib.setProtocol(profile.protocol) != 0) {
-            VpnBus.error("Protocol \u201c${profile.protocol}\u201d is not supported; falling back to anyconnect")
-            lib.setProtocol("anyconnect")
-        }
+        check(lib.setProtocol(profile.protocol) == 0) { "The selected VPN protocol is not supported" }
 
         if (profile.trustedCertificate.isBlank()) {
             if (profile.caCertPath.isNotBlank()) lib.setCAFile(profile.caCertPath)
@@ -188,17 +189,15 @@ class TunnelRunner(
         lib.setSystemTrust(profile.trustedCertificate.isBlank())
 
         if (profile.userCertPath.isNotBlank()) {
-            lib.setClientCert(profile.userCertPath, profile.privateKeyPath)
+            check(lib.setClientCert(profile.userCertPath, profile.privateKeyPath.ifBlank { null }) == 0) {
+                "Could not configure the client certificate and private key"
+            }
             VpnBus.log(LogLevel.DEBUG, "Client certificate enabled")
         }
 
         if (profile.softwareTokenMode > 0 && profile.tokenString.isNotBlank()) {
-            lib.setTokenMode(profile.softwareTokenMode, profile.tokenString)
+            check(lib.setTokenMode(profile.softwareTokenMode, profile.tokenString) == 0) { "Could not configure the software token" }
             VpnBus.log(LogLevel.DEBUG, "Software token configured (mode ${profile.softwareTokenMode})")
-        }
-
-        if (profile.csdWrapper.isNotBlank()) {
-            lib.setCSDWrapper(profile.csdWrapper, "", "")
         }
 
         lib.setReportedOS(profile.reportedOs)
@@ -210,16 +209,15 @@ class TunnelRunner(
         lib.setReqMTU(reqMtu)
         VpnBus.log(LogLevel.DEBUG, "Requested MTU $reqMtu")
 
-        val dpd = if (profile.dpdSeconds > 0) profile.dpdSeconds else 30
-        lib.setDPD(dpd)
-        VpnBus.log(LogLevel.DEBUG, "DPD interval set to ${dpd}s")
+        if (profile.overrideDpdTimeout) {
+            lib.setDPD(profile.dpdSeconds)
+            VpnBus.log(LogLevel.DEBUG, "DPD interval set to ${profile.dpdSeconds}s")
+        }
 
         if (!profile.enableDtls) lib.disableDTLS()
         if (!profile.enableIpv6) lib.disableIPv6()
         val serverHost = runCatching { java.net.URI(normaliseServer(profile.server)).host }.getOrNull().orEmpty()
-        val useInsecure = profile.allowInsecureCrypto || profile.wifiCompatMode
-
-        if (useInsecure) {
+        if (profile.allowInsecureCrypto) {
             lib.setAllowInsecureCrypto(true)
             lib.setSystemTrust(profile.trustedCertificate.isBlank())
             VpnBus.log(LogLevel.DEBUG, "TLS compatibility mode enabled for $serverHost")
@@ -316,25 +314,18 @@ class TunnelRunner(
     }
 
     private fun applySplitTunnel(builder: VpnService.Builder) {
-        val packages = settings.selectedPackages
-        if (!settings.splitTunnelEnabled || packages.isEmpty()) {
-            VpnBus.updateInfo { it.copy(excludedApps = 0) }
-            return
-        }
-
-        var applied = 0
-        val stale = mutableListOf<String>()
-        for (packageName in packages) {
+        val include = settings.splitTunnelMode == SplitTunnelMode.INCLUDE_SELECTED
+        val applied = AppRoutingPolicy.apply(settings.splitTunnelEnabled, include, settings.selectedPackages) { packageName ->
             try {
-                when (settings.splitTunnelMode) {
-                    SplitTunnelMode.EXCLUDE_SELECTED -> builder.addDisallowedApplication(packageName)
-                    SplitTunnelMode.INCLUDE_SELECTED -> builder.addAllowedApplication(packageName)
-                }
-                applied++
-            } catch (e: Exception) { stale += packageName }
+                if (include) builder.addAllowedApplication(packageName) else builder.addDisallowedApplication(packageName)
+                true
+            } catch (error: PackageManager.NameNotFoundException) {
+                VpnBus.log(LogLevel.DEBUG, "Ignored an uninstalled application")
+                false
+            }
         }
-        if (stale.isNotEmpty()) VpnBus.log(LogLevel.DEBUG, "Ignored uninstalled app(s): ${stale.joinToString()}")
         VpnBus.updateInfo { it.copy(excludedApps = applied) }
+        if (!settings.splitTunnelEnabled) return
         VpnBus.info(
             when (settings.splitTunnelMode) {
                 SplitTunnelMode.EXCLUDE_SELECTED -> "$applied app(s) bypass the VPN"

@@ -52,6 +52,41 @@ struct StorageTests {
         precondition(decoded.schema == 2)
         let attributes = try FileManager.default.attributesOfItem(atPath: path.path)
         precondition((attributes[.posixPermissions] as? NSNumber)?.intValue == 0o600)
-        print("Apple aggregate profile budget, atomic replacement and immutable credential transactions passed")
+        var saved: [VPNProfile] = []
+        var writes = 0
+        var creates = 0
+        var removes = 0
+        func save(_ candidate: VPNProfile, _ password: String, failCommit: Bool = false) throws {
+            saved = try ProfileFile.update([candidate], previous: saved, credentialID: candidate.id, credential: password,
+                readCredential: { secrets[$0] ?? "" },
+                createCredential: { password, id in creates += 1; try create(password, id) },
+                removeCredential: { id in removes += 1; try remove(id) },
+                commit: { _ in if failCommit { throw Failure.disk }; writes += 1 })
+        }
+        var candidate = valid
+        candidate.rememberPassword = true
+        try save(candidate, "original")
+        let firstKey = saved[0].credentialKey
+        for _ in 0..<100 { try save(saved[0], "original") }
+        precondition(writes == 1 && creates == 1 && removes == 0)
+        candidate = saved[0]
+        candidate.name = "Renamed"
+        try save(candidate, "original")
+        precondition(saved[0].credentialKey == firstKey && writes == 2 && creates == 1 && removes == 0)
+        do { try save(saved[0], "replacement", failCommit: true); preconditionFailure("commit failure hidden") }
+        catch Failure.disk { }
+        precondition(saved[0].credentialKey == firstKey && secrets == [firstKey: "original"])
+        try save(saved[0], "replacement")
+        precondition(saved[0].credentialKey != firstKey && secrets[saved[0].credentialKey] == "replacement")
+        let replacementKey = saved[0].credentialKey
+        candidate = saved[0]
+        candidate.server = "https://other.example.com"
+        try save(candidate, "replacement")
+        precondition(saved[0].credentialKey != replacementKey && secrets[replacementKey] == nil)
+        candidate = saved[0]
+        candidate.rememberPassword = false
+        try save(candidate, "")
+        precondition(saved[0].credentialReference.isEmpty && secrets.isEmpty)
+        print("Apple profile budgets, atomic credential changes and 100 unchanged saves without writes passed")
     }
 }

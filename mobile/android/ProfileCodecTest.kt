@@ -24,7 +24,7 @@ class ProfileCodecTest {
     }
 
     @Test fun corruptAndLegacyStoresFailClosed() {
-        for (invalid in listOf("{broken", " ", "[]", "{\"schema\":1,\"profiles\":[]}"))
+        for (invalid in listOf("{broken", " ", "[]", "{\"schema\":1,\"profiles\":[]}", "{\"schema\":2,\"profiles\":[]}"))
             assertTrue(runCatching { codec.decode(invalid) }.isFailure)
         assertTrue(ProfileCodec({ _, _ -> "" }, { _, _ -> "" }).runCatching { update(profile, null) }.isFailure)
         val stored = codec.update(profile, null)

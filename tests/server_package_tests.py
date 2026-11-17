@@ -116,6 +116,12 @@ class ServerPackageTests(unittest.TestCase):
                              (self.root / "server/openwrt/luci-app-ocserv-easy/luasrc/model/ocserv_easy/lease.lua").read_bytes())
             self.assertEqual(contents.read(prefix + "uninstall.sh"),
                              (self.ui_stage / "usr/sbin/lansyra-uninstall").read_bytes())
+            for name in ('run.lua', 'network.lua'):
+                self.assertEqual(contents.read(prefix + name), (self.ui_stage / 'usr/share/ocserv-easy' / name).read_bytes())
+            self.assertEqual(contents.read(prefix + 'process.lua'),
+                             (self.root / 'server/openwrt/ocserv/files/lua/process.lua').read_bytes())
+            self.assertEqual(contents.read(prefix + 'firewall.lua'),
+                             (self.ui_stage / 'usr/lib/lua/luci/model/ocserv_easy/firewall.lua').read_bytes())
             self.assertIn(prefix + "UNINSTALL.md", contents.namelist())
             self.assertFalse(any("/validation/" in name or name.endswith("ocserv-elf-dependencies.txt")
                                  for name in contents.namelist()))
@@ -183,6 +189,8 @@ class ServerPackageTests(unittest.TestCase):
         for relative, source in (
             ('usr/sbin/lansyra-uninstall', 'root/usr/sbin/lansyra-uninstall'),
             ('usr/share/ocserv-easy/with-lock.lua', 'root/usr/share/ocserv-easy/with-lock.lua'),
+            ('usr/share/ocserv-easy/run.lua', 'root/usr/share/ocserv-easy/run.lua'),
+            ('usr/share/ocserv-easy/network.lua', 'root/usr/share/ocserv-easy/network.lua'),
             ('www/luci-static/resources/ocserv-easy/maintenance.js',
              'htdocs/luci-static/resources/ocserv-easy/maintenance.js'),
         ):

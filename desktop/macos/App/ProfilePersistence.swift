@@ -49,19 +49,10 @@ actor ProfileRepository {
     }
 
     func write(_ values: [VPNProfile], credentialID: String, credential: String) throws -> [VPNProfile] {
-        let previous = try load().first { $0.id == credentialID }
-        var updated = values
-        if let index = updated.firstIndex(where: { $0.id == credentialID }) {
-            updated[index].credentialReference = credential.isEmpty ? "" : UUID().uuidString
-            guard credential.isEmpty || updated[index].rememberPassword else { throw ClientError.invalidProfile }
-        }
-        let next = updated.first { $0.id == credentialID }
-        let data = try ProfileFile.encoded(updated)
         let destination = directory.appendingPathComponent("profiles.json")
-        try CredentialTransaction.perform(previous: previous?.credentialKey ?? "", next: next?.credentialKey ?? "",
-            password: credential, create: Credentials.save, remove: Credentials.remove,
-            commit: { try ProfileFile.replace(data, at: destination) })
-        return updated
+        return try ProfileFile.update(values, previous: load(), credentialID: credentialID, credential: credential,
+            readCredential: Credentials.read, createCredential: Credentials.save, removeCredential: Credentials.remove,
+            commit: { try ProfileFile.replace($0, at: destination) })
     }
 
     func importProfile(_ url: URL) throws -> VPNProfile {
@@ -97,6 +88,36 @@ struct ProfileFile: Codable {
     static let maxBytes = 1_048_576
     var schema = 2
     var profiles: [VPNProfile]
+
+    static func update(_ values: [VPNProfile], previous: [VPNProfile], credentialID: String, credential: String,
+                       readCredential: (String) throws -> String,
+                       createCredential: (String, String) throws -> Void,
+                       removeCredential: (String) throws -> Void,
+                       commit: (Data) throws -> Void) throws -> [VPNProfile] {
+        var updated = try values.map { try $0.validated() }
+        let old = previous.first { $0.id == credentialID }
+        if let index = updated.firstIndex(where: { $0.id == credentialID }) {
+            guard credential.isEmpty || updated[index].rememberPassword else { throw ClientError.invalidProfile }
+            var reference = ""
+            if !credential.isEmpty {
+                if let old, old.rememberPassword, !old.credentialKey.isEmpty,
+                   old.origin == updated[index].origin, try readCredential(old.credentialKey) == credential {
+                    reference = old.credentialReference
+                } else {
+                    reference = UUID().uuidString
+                }
+            }
+            updated[index].credentialReference = reference
+        }
+        // Comparing normalized values avoids new file and Keychain versions on every connection.
+        if updated == previous { return updated }
+        let data = try encoded(updated)
+        let next = updated.first { $0.id == credentialID }
+        try CredentialTransaction.perform(previous: old?.credentialKey ?? "", next: next?.credentialKey ?? "",
+            password: credential, create: createCredential, remove: removeCredential,
+            commit: { try commit(data) })
+        return updated
+    }
 
     static func encoded(_ profiles: [VPNProfile]) throws -> Data {
         guard profiles.count <= 128, Set(profiles.map(\.id)).count == profiles.count else { throw ClientError.invalidStore }
@@ -163,7 +184,7 @@ enum CredentialTransaction {
     static func perform(previous: String, next: String, password: String,
                         create: (String, String) throws -> Void,
                         remove: (String) throws -> Void, commit: () throws -> Void) throws {
-        guard next.isEmpty || next != previous else { throw ClientError.invalidStore }
+        if next == previous { try commit(); return }
         if !next.isEmpty { try create(password, next) }
         do { try commit() } catch {
             if !next.isEmpty { try? remove(next) }

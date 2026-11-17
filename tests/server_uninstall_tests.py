@@ -3,6 +3,7 @@ import json
 import os
 from pathlib import Path
 import re
+import shutil
 import subprocess
 import tempfile
 
@@ -12,7 +13,7 @@ if os.name == 'nt':
 import fcntl
 
 MOCK = r'''#!/usr/bin/env python3
-import fcntl, json, os, pathlib, signal, sys
+import fcntl, json, os, pathlib, signal, subprocess, sys
 root=pathlib.Path(os.environ['UNINSTALL_ROOT'])
 name=pathlib.Path(sys.argv[0]).name
 args=sys.argv[1:]
@@ -22,9 +23,18 @@ def failure(key):
     if path.exists():path.unlink();sys.exit(1)
 if name=='id':print('0')
 elif name=='lua':
+    if (root/'runtime-removed').exists():sys.exit(127)
     if args[0]=='-e':
         failure('fail_recovery')
         (root/'etc/ocserv/easy-transaction/state.json').unlink(missing_ok=True)
+    elif pathlib.Path(args[0]).name=='run.lua':
+        try:sys.exit(subprocess.run(args[2:],timeout=float(args[1])).returncode)
+        except subprocess.TimeoutExpired:sys.exit(124)
+    elif pathlib.Path(args[0]).name=='network.lua':
+        from lupa.lua51 import LuaRuntime
+        runtime=LuaRuntime()
+        runtime.globals().arg=runtime.table_from(args[1:]);runtime.globals().arg[0]=args[0]
+        runtime.execute(pathlib.Path(args[0]).read_text())
     else:
         lock=root/'var/run/ocserv-easy/lock'
         lock.parent.mkdir(exist_ok=True)
@@ -37,14 +47,23 @@ elif name=='lua':
 elif name=='apk':
     path=root/'installed';installed=json.loads(path.read_text())
     if args[:2]==['info','-e']:sys.exit(0 if args[2] in installed else 1)
+    if args[0]=='add':
+        failure('fail_pin')
+        assert args==['add','--no-network','--virtual','.lansyra-uninstall-runtime','lua','luci-lib-nixio']
+        path.write_text(json.dumps(sorted(set(installed+['.lansyra-uninstall-runtime']))));sys.exit(0)
     assert args[0]=='del'
     if '--simulate' in args:failure('fail_plan');sys.exit(0)
+    if args[1:]==['.lansyra-uninstall-runtime']:
+        failure('fail_unpin')
+        (root/'runtime-removed').touch()
+        path.write_text(json.dumps([p for p in installed if p not in args[1:]]));sys.exit(0)
     failure('fail_apk')
+    assert '.lansyra-uninstall-runtime' in installed
     path.write_text(json.dumps([p for p in installed if p not in args[1:]]))
     # Package removal really removes the original command and support files.
     (root/'bundle/uninstall.sh').unlink(missing_ok=True)
-    (root/'bundle/with-lock.lua').unlink(missing_ok=True)
-    (root/'bundle/lease.lua').unlink(missing_ok=True)
+    for helper in (root/'bundle').glob('*.lua'):helper.unlink()
+    if os.environ.get('INTERRUPT_APK'):os.kill(int(os.environ['OCSERV_EASY_LOCK_OWNER']),signal.SIGKILL)
 elif name=='uci':
     directory=root/'etc/config';delta=root/'delta'
     while args and args[0].startswith('-'):
@@ -73,7 +92,9 @@ elif name=='ocserv-easy-guard' and args==['disable'] and 'libexec' in sys.argv[0
     (root/'etc/ocserv/easy-guard/state.json').unlink(missing_ok=True)
 elif name in ('ocserv','ocserv-easy-guard','nikki','momo'):
     running=root/(name+'-running');enabled=root/(name+'-enabled')
-    if args==['status']:sys.exit(0 if running.exists() else 1)
+    if args==['status']:
+        if (root/'fail_status').exists():(root/'fail_status').unlink();sys.exit(124)
+        sys.exit(0 if running.exists() else 1)
     if args==['stop']:failure('fail_stop');running.unlink(missing_ok=True)
     if args==['disable']:enabled.unlink(missing_ok=True)
     if args==['restart']:failure('fail_proxy');running.touch()
@@ -114,11 +135,18 @@ with tempfile.TemporaryDirectory(prefix='lansyra-uninstall-') as temporary:
         (root/'bundle/uninstall.sh').write_text(source)
         (root/'bundle/with-lock.lua').write_text((runtime/'usr/share/ocserv-easy/with-lock.lua').read_text())
         (root/'bundle/lease.lua').write_text('lease fixture')
+        for helper in ('run.lua','network.lua'):
+            (root/'bundle'/helper).write_text((runtime/'usr/share/ocserv-easy'/helper).read_text())
+        (root/'bundle/process.lua').write_text((ROOT/'server/openwrt/ocserv/files/lua/process.lua').read_text())
+        (root/'bundle/firewall.lua').write_text((ROOT/'server/openwrt/luci-app-ocserv-easy/luasrc/model/ocserv_easy/firewall.lua').read_text())
+        # Only base-system commands are visible; no external timeout is installed.
+        for command in ('sh','python3','dirname','mktemp','cp','rm','mkdir','cmp','mv','sleep','sed','cat','find','sync'):
+            (root/'bin'/command).symlink_to(shutil.which(command))
         return root
 
     def run(root, mode='--yes', script=None, **options):
-        env=dict(os.environ,UNINSTALL_ROOT=str(root),PATH=str(root/'bin')+os.pathsep+os.environ['PATH'],**options)
-        result=subprocess.run(['sh',str(script or root/'bundle/uninstall.sh'),mode],input='',env=env,
+        env=dict(os.environ,UNINSTALL_ROOT=str(root),PATH=str(root/'bin'),**options)
+        result=subprocess.run([shutil.which('sh'),str(script or root/'bundle/uninstall.sh'),mode],input='',env=env,
                               capture_output=True,text=True,timeout=40)
         assert (root/'etc/config/dhcp').read_text()=='unchanged DNS'
         assert (root/'etc/config/openclash').read_text()=='unchanged subscription'
@@ -127,7 +155,7 @@ with tempfile.TemporaryDirectory(prefix='lansyra-uninstall-') as temporary:
     root=fixture('success')
     result=run(root)
     assert result.returncode==0,result.stdout+result.stderr
-    assert json.loads((root/'installed').read_text())==['openclash','nikki']
+    assert sorted(json.loads((root/'installed').read_text()))==['nikki','openclash']
     assert json.loads((root/'etc/config/firewall').read_text())==dict(lan='zone',administrator='rule')
     assert json.loads((root/'etc/config/nikki').read_text())==dict(subscription='keep',lan='keep')
     assert (root/'etc/nikki/ucode/hijack.ut').read_text()=='before\nconst lan_inbound_device = [];\nafter\n'
@@ -152,7 +180,7 @@ with tempfile.TemporaryDirectory(prefix='lansyra-uninstall-') as temporary:
         assert (root/'etc/config/firewall').read_bytes()==before
     checks.append('preview, invalid arguments and unconfirmed stdin never stop services or delete data')
 
-    for fault in ('fail_plan','fail_stop','fail_uci','fail_fw4','fail_reload','fail_proxy','fail_apk'):
+    for fault in ('fail_plan','fail_pin','fail_stop','fail_status','fail_uci','fail_fw4','fail_reload','fail_proxy','fail_apk'):
         root=fixture(fault)
         before={name:(root/'etc/config'/name).read_bytes() for name in ('firewall','nikki','ocserv')}
         (root/fault).touch()
@@ -198,6 +226,19 @@ with tempfile.TemporaryDirectory(prefix='lansyra-uninstall-') as temporary:
             result=run(root)
             assert result.returncode==0,result.stdout+result.stderr
     checks.append('process termination recovers on retry without overwriting later administrator edits')
+
+    for interrupted in (False,True):
+        root=fixture('post-removal-'+str(interrupted))
+        if not interrupted:(root/'fail_unpin').touch()
+        result=run(root,**({'INTERRUPT_APK':'1'} if interrupted else {}))
+        assert result.returncode!=0
+        backup=next((root/'root').iterdir())
+        assert '.lansyra-uninstall-runtime' in json.loads((root/'installed').read_text())
+        result=run(root,script=backup/'uninstall.sh')
+        assert result.returncode==0,result.stdout+result.stderr
+        assert '.lansyra-uninstall-runtime' not in json.loads((root/'installed').read_text())
+        assert run(root,script=backup/'uninstall.sh').returncode==0
+    checks.append('interrupted APK removal and dependency cleanup retry from the backup, then work without Lua')
 
 output=ROOT/'test-results/server-uninstall.json';output.parent.mkdir(exist_ok=True)
 output.write_text(json.dumps({'passed':len(checks),'checks':checks,

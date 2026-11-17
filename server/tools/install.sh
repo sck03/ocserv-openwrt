@@ -84,6 +84,7 @@ recover_network() {
 # Recover a known interrupted first installation before deciding whether its
 # managed section names conflict. Unknown later edits are preserved for review.
 recover_network || exit 1
+firewall_sections=$(lua ./network.lua names)
 fresh=0
 if [ -f "$pending" ] || { ! apk info -e ocserv >/dev/null 2>&1 && [ ! -e /etc/config/ocserv ]; }; then fresh=1; fi
 service_was_running=0
@@ -99,7 +100,7 @@ else
 fi
 if [ "$fresh" = 1 ]; then
     [ -z "$(uci -q changes firewall)" ] || { echo '其他页面有未应用的防火墙修改，请先处理后重跑安装。'; exit 1; }
-    for id in ocserv_vpn ocserv_vpn_to_lan ocserv_vpn_nat ocserv_vpn_entry; do
+    for id in $firewall_sections; do
         [ -z "$(uci -q get "firewall.$id")" ] || { echo "已存在 firewall.$id，请在 LuCI 检查 VPN 网络配置。"; exit 1; }
     done
 fi
@@ -187,35 +188,11 @@ fi
 if [ "$fresh" = 1 ]; then
     # Baseline VPN networking only: no OpenClash or DNS service settings change.
     [ -z "$(uci -q changes firewall)" ] || { echo '其他页面有未应用的防火墙修改，请先处理后重跑安装。'; exit 1; }
-    prefix_octet() {
-        case "$1" in
-            0) printf '0' ;; 128) printf '1' ;; 192) printf '2' ;; 224) printf '3' ;;
-            240) printf '4' ;; 248) printf '5' ;; 252) printf '6' ;; 254) printf '7' ;;
-            255) printf '8' ;; *) return 1 ;;
-        esac
-    }
-    mask_to_prefix() {
-        local mask="$1" old_ifs="$IFS" part bits total=0 count=0
-        IFS=.
-        for part in $mask; do
-            bits=$(prefix_octet "$part") || { IFS="$old_ifs"; return 1; }
-            total=$((total + bits)); count=$((count + 1))
-        done
-        IFS="$old_ifs"
-        [ "$count" = 4 ] || return 1
-        printf '%s' "$total"
-    }
-    vpn_ip=$(uci -q get ocserv.config.ipaddr 2>/dev/null || true)
-    vpn_mask=$(uci -q get ocserv.config.netmask 2>/dev/null || true)
-    vpn_port=$(uci -q get ocserv.config.port 2>/dev/null || true)
+    vpn_ip=$(uci -q get ocserv.config.ipaddr)
+    vpn_mask=$(uci -q get ocserv.config.netmask)
+    vpn_port=$(uci -q get ocserv.config.port)
     vpn_udp=$(uci -q get ocserv.config.udp_port 2>/dev/null || true)
-    case "$vpn_ip" in ''|*[!0-9.]*) vpn_ip=10.77.0.0 ;; esac
-    case "$vpn_mask" in ''|*[!0-9.]*) vpn_mask=255.255.255.0 ;; esac
-    vpn_prefix=$(mask_to_prefix "$vpn_mask" 2>/dev/null || printf '24')
-    case "$vpn_port" in ''|*[!0-9]*) vpn_port=4443 ;; esac
-    case "$vpn_udp" in ''|*[!0-9]*) vpn_udp="$vpn_port" ;; esac
-    vpn_ports="$vpn_port"
-    [ "$vpn_udp" = "$vpn_port" ] || vpn_ports="$vpn_ports $vpn_udp"
+    vpn_udp=${vpn_udp:-$vpn_port}
     rollback_network() {
         if recover_network; then echo "VPN 防火墙设置失败，已恢复原文件。备份：$backup"
         else echo "VPN 防火墙恢复尚未完成，记录：$network_journal" >&2; fi
@@ -226,33 +203,8 @@ if [ "$fresh" = 1 ]; then
     cp -p /etc/config/firewall "$network_journal/firewall"
     # Render the candidate in an isolated UCI directory. Journal both versions
     # before replacement so process termination/power loss is recoverable.
-    if ! uci -c "$network_journal" -t "$network_journal/delta" batch <<UCI
-set firewall.ocserv_vpn=zone
-set firewall.ocserv_vpn.name='ocvpn'
-add_list firewall.ocserv_vpn.device='vpns+'
-set firewall.ocserv_vpn.input='ACCEPT'
-set firewall.ocserv_vpn.output='ACCEPT'
-set firewall.ocserv_vpn.forward='REJECT'
-set firewall.ocserv_vpn.mtu_fix='1'
-set firewall.ocserv_vpn_to_lan=forwarding
-set firewall.ocserv_vpn_to_lan.src='ocvpn'
-set firewall.ocserv_vpn_to_lan.dest='lan'
-set firewall.ocserv_vpn_nat=nat
-set firewall.ocserv_vpn_nat.name='ocserv VPN source NAT'
-set firewall.ocserv_vpn_nat.src='lan'
-set firewall.ocserv_vpn_nat.src_ip='$vpn_ip/$vpn_prefix'
-set firewall.ocserv_vpn_nat.proto='all'
-set firewall.ocserv_vpn_nat.family='ipv4'
-set firewall.ocserv_vpn_nat.target='MASQUERADE'
-set firewall.ocserv_vpn_entry=rule
-set firewall.ocserv_vpn_entry.name='Allow ocserv from LAN'
-set firewall.ocserv_vpn_entry.src='lan'
-set firewall.ocserv_vpn_entry.proto='tcp udp'
-set firewall.ocserv_vpn_entry.dest_port='$vpn_ports'
-set firewall.ocserv_vpn_entry.target='ACCEPT'
-commit firewall
-UCI
-    then
+    if ! lua ./network.lua create "$vpn_ip" "$vpn_mask" "$vpn_port" "$vpn_udp" > "$network_journal/commands" ||
+       ! uci -c "$network_journal" -t "$network_journal/delta" batch < "$network_journal/commands"; then
         rollback_network
         exit 1
     fi

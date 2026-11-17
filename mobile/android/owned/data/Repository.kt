@@ -21,11 +21,13 @@ import kotlinx.coroutines.flow.MutableStateFlow
 
 private val Context.dataStore: DataStore<Preferences> by preferencesDataStore(name = "opentunnel")
 
+data class ConnectionSnapshot(val profile: VpnProfile, val settings: AppSettings, val certificates: CertificateFiles.Lease)
+
 /**
  * Single access point for app settings and multi-profile management.
  * Profile data is delegated to [ProfileStore]; settings live in a separate DataStore.
  */
-class Repository(context: Context) {
+class Repository private constructor(context: Context) {
 
     private val store = context.applicationContext.dataStore
     private val profileStore = ProfileStore.get(context)
@@ -72,9 +74,10 @@ class Repository(context: Context) {
     suspend fun currentProfile(): VpnProfile =
         profileStore.connectionProfile(store.data.first()[Keys.activeProfileId].orEmpty())
 
-    suspend fun connectionSnapshot(): Pair<VpnProfile, AppSettings> {
+    suspend fun connectionSnapshot(): ConnectionSnapshot {
         val settings = decodeSettings(store.data.first())
-        return profileStore.connectionProfile(settings.activeProfileId) to settings
+        val (profile, certificates) = profileStore.openConnection(settings.activeProfileId)
+        return ConnectionSnapshot(profile, settings, certificates)
     }
 
     suspend fun getProfileById(id: String): VpnProfile? =
@@ -97,15 +100,6 @@ class Repository(context: Context) {
 
     suspend fun pinCertificate(profileID: String, server: String, fingerprint: String) =
         profileStore.pinCertificate(profileID, server, fingerprint)
-
-    suspend fun pinCertificate(fingerprint: String) {
-        val id = store.data.first()[Keys.activeProfileId].orEmpty()
-        val profiles = profileStore.allProfiles()
-        val active = (if (id.isEmpty()) profiles.firstOrNull() else profiles.firstOrNull { it.id == id }) ?: return
-        if (active.id.isNotBlank()) {
-            profileStore.pinCertificate(active.id, active.server, fingerprint)
-        }
-    }
 
     // ── settings ─────────────────────────────────────────────────────────────
 

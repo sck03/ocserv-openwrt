@@ -36,23 +36,6 @@ data class VpnProfile(
     val enableIpv6: Boolean = true,
     /** Re-enable 3DES/RC4-era ciphers for very old gateways. Off by default. */
     val allowInsecureCrypto: Boolean = false,
-    /**
-     * WiFi / hotspot compatibility mode.
-     *
-     * When enabled, the tunnel runner will:
-     *  1. Enable legacy (insecure) cipher suites so the TLS ClientHello
-     *     includes TLS 1.2 ciphers alongside TLS 1.3 — this makes the
-     *     handshake look like regular browser traffic to carrier DPI.
-     *  2. Use the Android system trust store instead of the exported PEM
-     *     bundle, which some middleboxes handle better.
-     *  3. Automatically retry the connection with insecure crypto if
-     *     the initial SSL handshake fails.
-     *
-     * Turn this on when connecting through a mobile hotspot or public
-     * WiFi that drops VPN connections ("SSL connection failure" /
-     * "unexpected eof while reading").
-     */
-    val wifiCompatMode: Boolean = false,
     /** Dead-peer-detection interval in seconds; 0 = gateway default. */
     val dpdSeconds: Int = 0,
     val disableXmlPost: Boolean = false,
@@ -66,31 +49,8 @@ data class VpnProfile(
     /** Software token mode: 0=Disabled, 1=STOKEN, 2=TOTP, 3=HOTP */
     val softwareTokenMode: Int = 0,
     val tokenString: String = "",
-    val disableCredentialCaching: Boolean = false,
-    val batchMode: Boolean = false,
-    val csdWrapper: String = "",
-    val profileSplitTunnelMode: String = "auto",
-    val splitTunnelNetworks: String = "",
     val requirePfs: Boolean = false,
     val overrideDpdTimeout: Boolean = false,
-
-    /**
-     * OpenSSL cipher string override for TLS negotiation.
-     *
-     * Useful when a Wi-Fi hotspot or carrier DPI middlebox drops the TLS
-     * handshake because it does not recognise the default TLS 1.3 cipher
-     * fingerprint. Setting this to a legacy-compatible string such as
-     * "DEFAULT:\@SECLEVEL=1" forces OpenSSL to include older cipher suites
-     * in ClientHello, which typically passes hotspot DPI filters.
-     *
-     * For most users, enabling [wifiCompatMode] is the simpler choice.
-     *
-     * Leave blank to use the library default (recommended for most users).
-     * Example values:
-     *   - "DEFAULT:\@SECLEVEL=1"   — adds TLS 1.2 ciphers, passes most hotspot DPI
-     *   - "HIGH:!aNULL:!eNULL"    — restrict to high-strength only
-     */
-    val openSSLCiphers: String = "",
     val customDnsServers: List<String> = emptyList(),
 ) {
     val isComplete: Boolean
