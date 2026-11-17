@@ -1,6 +1,5 @@
 /* SPDX-License-Identifier: GPL-3.0-or-later */
 window.OcservEasyGuard = function ({ t, element, array, errors, showReader, button, mutationButton, complete, notice, errorText, confirm, writable }) {
-  "use strict";
   function showGuardLog() {
     var steps = {
       proxy_connect: t("VPN 代理接入", "VPN proxy connection"),

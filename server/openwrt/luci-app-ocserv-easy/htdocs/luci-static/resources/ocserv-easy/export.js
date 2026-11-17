@@ -1,6 +1,5 @@
 /* SPDX-License-Identifier: GPL-3.0-or-later */
 window.OcservEasyExport = function ({ t, element, field, options, mutationButton, button, complete, notice, errorText }) {
-  "use strict";
   function download(kind, server) {
     var form = element(
       "form",
@@ -173,5 +172,12 @@ window.OcservEasyExport = function ({ t, element, field, options, mutationButton
         element("p", {
           className: "easy-muted",
           text: t(
-            "运营商内网无法仅靠域名实现外网直连；可使用可达的公网 IPv6、申请公网 IPv4，或部署公网中转。请用手机流量等独立网络验收。",  return renderExport;
+            "运营商内网无法仅靠域名实现外网直连；可使用可达的公网 IPv6、申请公网 IPv4，或部署公网中转。请用手机流量等独立网络验收。",
+            "A hostname alone cannot make a server behind carrier NAT reachable. Use public IPv6, request a public IPv4 address, or deploy a public relay. Test from a separate network, such as mobile data.",
+          ),
+        }),
+      ]),
+    );
+  }
+  return renderExport;
 };

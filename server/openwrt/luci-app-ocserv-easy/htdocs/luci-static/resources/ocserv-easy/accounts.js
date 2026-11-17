@@ -1,6 +1,5 @@
 /* SPDX-License-Identifier: GPL-3.0-or-later */
 window.OcservEasyAccounts = function ({ t, element, field, showModal, complete }) {
-  "use strict";
   function editUser(user) {
     var name = element("input", {
       value: user ? user.name : "",

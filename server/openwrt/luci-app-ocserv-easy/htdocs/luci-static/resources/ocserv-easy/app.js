@@ -524,12 +524,6 @@
   var renderSettings = window.OcservEasySettings({ t, element, field, array, writable, options, errors, confirm });
   var renderGuard = window.OcservEasyGuard({ t, element, array, errors, showReader, button, mutationButton, complete, notice, errorText, confirm, writable });
   var renderExport = window.OcservEasyExport({ t, element, field, options, mutationButton, button, complete, notice, errorText });
-            "A hostname alone cannot make a server behind carrier NAT reachable. Use public IPv6, request a public IPv4 address, or deploy a public relay. Test from a separate network, such as mobile data.",
-          ),
-        }),
-      ]),
-    );
-  }
   function renderStatus() {
     var label = state.running
       ? t("停止服务", "Stop service")
@@ -575,11 +569,11 @@
     onlineCounts = Object.create(null);
     content.replaceChildren();
     if (activeTab === "users") renderUsers();
-    else if (activeTab === "settings") renderSettings();
-    else if (activeTab === "guard") renderGuard();
+    else if (activeTab === "settings") renderSettings(state, content);
+    else if (activeTab === "guard") renderGuard(state, content);
     else if (activeTab === "maintenance")
       content.appendChild(window.LansyraMaintenance(element, button, t));
-    else renderExport();
+    else renderExport(state, content);
     root.querySelectorAll('[role="tab"]').forEach(function (b) {
       var selected = b.dataset.tab === activeTab;
       b.setAttribute("aria-selected", String(selected));

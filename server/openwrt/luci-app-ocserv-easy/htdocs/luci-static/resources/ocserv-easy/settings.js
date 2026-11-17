@@ -1,6 +1,5 @@
 /* SPDX-License-Identifier: GPL-3.0-or-later */
 window.OcservEasySettings = function ({ t, element, field, array, writable, options, errors, confirm }) {
-  "use strict";
   function renderSettings(state, content) {
     var s = state.settings,
       inputs = {};
