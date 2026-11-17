@@ -33,7 +33,7 @@ fi
 mkdir -p "$root/dist/android"
 cp app/build/outputs/apk/"$mode"/*.apk "$root/dist/android/Lansyra-android-$mode.apk"
 python3 "$root/scripts/audit-android.py" "$root/dist/android/Lansyra-android-$mode.apk" \
-  --aapt "${ANDROID_HOME:-${ANDROID_SDK_ROOT:?Android SDK required}}/build-tools/35.0.0/aapt"
+  --aapt "${ANDROID_HOME:-${ANDROID_SDK_ROOT:?Android SDK required}}/build-tools/37.0.0/aapt"
 cp ../BUILDINFO.json "$root/dist/android/BUILDINFO.json"
 cd "$root"
 python3 scripts/package-mobile.py android

@@ -1,5 +1,24 @@
 # 上游版本与 SDK 更新
 
+## 当前免费稳定依赖（2026-11-17 核对）
+
+本项目直接分发的依赖采用免费开源的正式稳定版，排除 RC、beta 和开发分支。源码版本与 SHA-256 固定在清单，构建时不使用漂移的 `latest`。OpenWrt 和 Linux 的系统库由所选稳定发行版维护，不替换设备系统库以追逐不同 ABI。
+
+| 组件 | 当前版本 | 官方依据 |
+|---|---|---|
+| OpenConnect / ocserv | 9.21 / 1.6.0 | [OpenConnect 下载](https://www.infradead.org/openconnect/download.html)、[ocserv 归档](https://www.infradead.org/ocserv/download/) |
+| OpenSSL | 4.1.0 | [正式发布](https://github.com/openssl/openssl/releases/tag/openssl-4.1.0)，Apache-2.0；取代此前的 3.5 LTS 选择 |
+| GnuTLS / GMP | 3.8.13 / 6.3.0 | [GnuTLS 归档](https://www.gnupg.org/ftp/gcrypt/gnutls/v3.8/)、[GMP 归档](https://ftp.gnu.org/gnu/gmp/) |
+| Nettle / stoken | 4.0 / 0.93 | [Nettle 正式归档](https://ftp.gnu.org/gnu/nettle/)、[stoken 正式标签](https://github.com/stoken-dev/stoken/tree/v0.93) |
+| libxml2 / zlib | 2.15.4 / 1.4 | [GNOME 归档](https://download.gnome.org/sources/libxml2/2.15/)、[zlib 发布](https://github.com/madler/zlib/releases/tag/v1.4) |
+| LZ4 / Wintun | 1.11.1 / 0.14.1 | [LZ4 发布](https://github.com/lz4/lz4/releases/tag/v1.11.1)、[Wintun 官网](https://www.wintun.net/) |
+
+Nettle 4 删除摘要长度参数并要求 Base64 解码显式传入目标容量，stoken 适配补丁直接使用新接口；GnuTLS 3.8.13 自带 Nettle 4 支持。stoken 0.93 的校验归档使用原始标签目录，下载器显式映射到构建目录；只在独立打补丁副本生成 configure，源码缓存保持不变。OpenSSL、LZ4 新归档与官方 Release 摘要一致，stoken 与 Debian 源码描述中的 SHA-256 一致，Nettle 从 GNU HTTPS 正式归档下载并锁定摘要。许可证随源码与发行包保留。
+
+Android 直接依赖以 Google Maven / Maven Central 的正式版本元数据核对：Core 1.19.1、Lifecycle 2.11.0、Activity 1.13.0、Compose BOM 2026.09.00、Navigation 2.10.2、DataStore 1.3.0、SplashScreen 1.2.0、Serialization 1.13.0、Coroutines 1.11.0；测试使用 JUnit 4.13.2 和 AndroidX Test 1.3.0。版本统一在 `mobile/android/libs.versions.toml`，Compose 内部组件遵循 BOM。构建使用 Kotlin 2.4.21、AGP 9.5.1、Gradle 9.9.1、SDK/Build Tools 37、NDK 30.0.16248370；Gradle 分发包也固定官方 SHA-256。应用构建配置直接维护，使用 AGP 内置 Kotlin 和公开 DSL，移除旧 variant 内部 API。
+
+下面 2026-11-10 的记录说明历史决策；当前清单以上表为准。构建与回归结果见 [验证记录](VALIDATION.md)，编译通过不代表实际设备的耗电、吞吐或长期重连已经测量。
+
 Windows 协议核心默认 OpenConnect 9.21，服务端默认且最低为 ocserv 1.6.0。手动 Actions 只需填写正式源码版本号：ocserv 自动读取官网对应 `.tar.xz.sha256sum`；OpenConnect 自动下载归档及分离签名，使用固定官方主密钥指纹 `BE07D9FD54809AB2C4B0FF5F63762CDA67E2F359` 校验后计算 SHA-256。默认版本复用仓库锁定值。解析只在验证任务中执行一次，构建与源码包共用结果，实际下载仍校验摘要。不存在、预发布、低于最低版本或签名不匹配的源码不会进入编译。
 
 本地可运行 `python3 scripts/prepare-build.py server --version 1.6.0` 或 `python3 scripts/prepare-build.py client --version 9.21`。脚本修改当前检出的配方/源码清单；切换其他 OpenConnect 版本需要 GnuPG。内部参数 `--resolved-sha256` 仅供同一工作流的后续任务复用已解析结果。

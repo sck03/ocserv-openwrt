@@ -102,13 +102,21 @@ LRESULT Window::message(UINT message, WPARAM wparam, LPARAM lparam) {
     }
     return DefWindowProcW(window_, message, wparam, lparam);
 }
+DisabledOwner::DisabledOwner(HWND owner) : owner_(owner), was_enabled_(owner && IsWindowEnabled(owner)) {
+    if (was_enabled_)
+        EnableWindow(owner_, FALSE);
+}
+DisabledOwner::~DisabledOwner() {
+    if (was_enabled_ && IsWindow(owner_)) {
+        EnableWindow(owner_, TRUE);
+        SetActiveWindow(owner_);
+    }
+}
 bool Dialog::run(HWND owner, const wchar_t *type, const std::wstring &title, int width, int height) {
     if (!create(owner, type, title, width, height, WS_CAPTION | WS_SYSMENU,
                 WS_EX_DLGMODALFRAME | WS_EX_CONTROLPARENT))
         return false;
-    const bool was_enabled = owner && IsWindowEnabled(owner);
-    if (was_enabled)
-        EnableWindow(owner, FALSE);
+    DisabledOwner disabled(owner);
     ShowWindow(window_, SW_SHOWNORMAL);
     UpdateWindow(window_);
     HWND first = initial_focus_ ? item(initial_focus_) : GetNextDlgTabItem(window_, nullptr, FALSE);
@@ -129,10 +137,6 @@ bool Dialog::run(HWND owner, const wchar_t *type, const std::wstring &title, int
     }
     if (window_)
         DestroyWindow(window_);
-    if (was_enabled && IsWindow(owner)) {
-        EnableWindow(owner, TRUE);
-        SetActiveWindow(owner);
-    }
     return accepted_;
 }
 void Dialog::finish(bool accepted) {

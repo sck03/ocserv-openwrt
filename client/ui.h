@@ -130,6 +130,18 @@ protected:
 private:
     static LRESULT CALLBACK procedure(HWND window, UINT message, WPARAM wparam, LPARAM lparam);
 };
+// Keep a parent disabled across a complete operation, including consecutive
+// dialogs. Nested scopes preserve the parent's original enabled state.
+class DisabledOwner {
+public:
+    explicit DisabledOwner(HWND owner);
+    ~DisabledOwner();
+    DisabledOwner(const DisabledOwner &) = delete;
+    DisabledOwner &operator=(const DisabledOwner &) = delete;
+private:
+    HWND owner_;
+    bool was_enabled_;
+};
 class Dialog : public Window {
 public:
     bool run(HWND owner, const wchar_t *type, const std::wstring &title, int width, int height);

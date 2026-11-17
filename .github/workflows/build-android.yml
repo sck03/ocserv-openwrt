@@ -39,8 +39,8 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y autoconf automake libtool pkg-config cmake ninja-build
-          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" 'ndk;27.2.12479018' 'platforms;android-35' 'build-tools;35.0.0'
-          echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/27.2.12479018" >> "$GITHUB_ENV"
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" 'ndk;30.0.16248370' 'platforms;android-37' 'build-tools;37.0.0'
+          echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/30.0.16248370" >> "$GITHUB_ENV"
       - uses: actions/cache@v6.1.0
         with:
           path: .tools/mobile-downloads
@@ -61,8 +61,8 @@ jobs:
             chmod 600 "$KEYSTORE_FILE"
           fi
           bash scripts/build-android.sh "$BUILD_TYPE"
-          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose dist/android/*.apk
-          "$ANDROID_HOME/build-tools/35.0.0/zipalign" -c -P 16 4 dist/android/*.apk
+          "$ANDROID_HOME/build-tools/37.0.0/apksigner" verify --verbose dist/android/*.apk
+          "$ANDROID_HOME/build-tools/37.0.0/zipalign" -c -P 16 4 dist/android/*.apk
       - uses: actions/upload-artifact@v7.0.1
         with:
           name: android-${{ inputs.build_type }}

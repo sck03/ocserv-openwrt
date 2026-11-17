@@ -23,12 +23,13 @@
     "url": "https://ftp.gnu.org/gnu/gmp/gmp-6.3.0.tar.xz",
     "sha256": "a3c2b80201b89e68616f4ad30bc66aee4927c3ce50e33929ca819d5c43538898"
   },
-  "nettle-3.10.2.tar.gz": {
-    "url": "https://ftp.gnu.org/gnu/nettle/nettle-3.10.2.tar.gz",
-    "sha256": "fe9ff51cb1f2abb5e65a6b8c10a92da0ab5ab6eaf26e7fc2b675c45f1fb519b5"
+  "nettle-4.0.tar.gz": {
+    "url": "https://ftp.gnu.org/gnu/nettle/nettle-4.0.tar.gz",
+    "sha256": "3addbc00da01846b232fb3bc453538ea5468da43033f21bb345cb1e9073f5094"
   },
-  "stoken-0.92.tar.gz": {
-    "url": "https://deb.debian.org/debian/pool/main/s/stoken/stoken_0.92.orig.tar.gz",
-    "sha256": "aa2b481b058e4caf068f7e747a2dcf5772bcbf278a4f89bc9efcbf82bcc9ef5a"
+  "stoken-0.93.tar.gz": {
+    "url": "https://deb.debian.org/debian/pool/main/s/stoken/stoken_0.93.orig.tar.gz",
+    "sha256": "6422d958dc95d73ee9d744f858b2cead3f572ab254689cf6971e9aba1d375f36",
+    "archive_directory": "stoken-dev-stoken-bc25aa4"
   }
 }

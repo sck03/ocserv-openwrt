@@ -51,7 +51,9 @@ def main():
                             if not target.is_relative_to(Path(temporary).resolve()) or not (member.isdir() or member.isfile()):
                                 raise RuntimeError("Unsafe source archive member")
                         package.extractall(temporary)
-            extracted = Path(temporary) / folder
+            extracted = Path(temporary) / entry.get("archive_directory", folder)
+            if not extracted.resolve().is_relative_to(Path(temporary).resolve()):
+                raise RuntimeError(f"Unsafe source directory: {name}")
             if not extracted.is_dir():
                 raise RuntimeError(f"Unexpected source archive layout: {name}")
             extracted.replace(destination)

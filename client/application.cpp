@@ -514,6 +514,7 @@ void Application::command(int id) {
         bool edit = id == EditProfile || id == EditSelected;
         if (edit && !profile)
             return;
+        DisabledOwner disabled(window_);
         Profile value = edit ? *profile : Profile{};
         if (edit_profile(window_, store_, value, preferences_.language, edit || id == NewAdvanced))
             reload(value.id);

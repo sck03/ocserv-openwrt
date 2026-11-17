@@ -12,10 +12,10 @@
     "sha256": "5b32369467db6e5f317aa1ed12cfcbb81ed00bdbc765450b6bfcbdc300944a58"
   },
   "openssl": {
-    "url": "https://github.com/openssl/openssl/releases/download/openssl-3.5.9/openssl-3.5.9.tar.gz",
-    "filename": "openssl-3.5.9.tar.gz",
-    "directory": "openssl-3.5.9",
-    "sha256": "603f5602e2eef00d77fbd429d34dcd5822bb301757a1bc9cdb24c670f1eb859a"
+    "url": "https://github.com/openssl/openssl/releases/download/openssl-4.1.0/openssl-4.1.0.tar.gz",
+    "filename": "openssl-4.1.0.tar.gz",
+    "directory": "openssl-4.1.0",
+    "sha256": "50c17baf54cb008f6ce42d50deb4b28050a1aad711636cabd4b241c7e90cc2fd"
   },
   "libxml2": {
     "url": "https://distfiles.macports.org/libxml2/libxml2-2.15.4.tar.xz",
@@ -24,9 +24,9 @@
     "sha256": "98087fd181d9070724f3fbc65c7377db03038eb92bd882374daff44940138821"
   },
   "lz4": {
-    "url": "https://github.com/lz4/lz4/releases/download/v1.10.0/lz4-1.10.0.tar.gz",
-    "filename": "lz4-1.10.0.tar.gz",
-    "directory": "lz4-1.10.0",
-    "sha256": "537512904744b35e232912055ccf8ec66d768639ff3abe5788d90d792ec5f48b"
+    "url": "https://github.com/lz4/lz4/releases/download/v1.11.1/lz4-1.11.1.tar.gz",
+    "filename": "lz4-1.11.1.tar.gz",
+    "directory": "lz4-1.11.1",
+    "sha256": "683fed08a844ad012196381e40badf80c0bbe4962959761416d41c9e67d77ec7"
   }
 }

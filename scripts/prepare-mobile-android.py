@@ -1,16 +1,24 @@
 """Small, fail-closed adaptations to the checksum-pinned Android upstream."""
 import shutil
+import tomllib
 from source_edits import once, section
 from android_maintenance import maintain
 
 
 def prepare(app, root):
     gradle = app / "app/build.gradle.kts"
-    value = once(gradle.read_text(encoding="utf-8"), 'applicationId = "dev.opentunnel.vpn"',
-                 'applicationId = "io.github.sck03.lansyra"')
-    value = once(value, '        versionCode = 16', '        versionCode = 24')
-    value = section(value, '        versionName =', '\n\n        ndk {', '        versionName = "0.2.5"')
-    gradle.write_text(value, encoding="utf-8")
+    shutil.copy2(root / "mobile/android/build.gradle.kts", gradle)
+    shutil.copy2(root / "mobile/android/libs.versions.toml", app / "gradle/libs.versions.toml")
+    root_gradle = app / "build.gradle.kts"
+    value = once(root_gradle.read_text(encoding="utf-8"),
+                 '    alias(libs.plugins.kotlin.android) apply false\n', '')
+    # AGP owns Kotlin compilation; select the current stable compiler explicitly.
+    kotlin_version = tomllib.loads((root / "mobile/android/libs.versions.toml").read_text(encoding="utf-8"))["versions"]["kotlin"]
+    root_gradle.write_text('buildscript { dependencies { classpath("org.jetbrains.kotlin:kotlin-gradle-plugin:' +
+                          kotlin_version + '") } }\n' + value, encoding="utf-8")
+    wrapper = app / "gradle/wrapper/gradle-wrapper.properties"
+    value = once(wrapper.read_text(encoding="utf-8"), 'gradle-8.9-bin.zip', 'gradle-9.9.1-bin.zip')
+    wrapper.write_text(value + '\ndistributionSha256Sum=d8a18a7a841dd5df825d35a685fad6f2d7f12ac0c280e57b67c27b4a520ba228\n', encoding="utf-8")
     resources = app / "app/src/main/res"
     for resource in resources.glob("values*/strings.xml"):
         value = resource.read_text(encoding="utf-8")

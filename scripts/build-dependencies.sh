@@ -36,7 +36,7 @@ case "$(uname -s)" in
         cmake=cmake
         ;;
 esac
-for command in "$CC" "$CXX" "$AR" "$RANLIB" "$WINDRES" "$cmake" ninja pkg-config make python3 patch; do
+for command in "$CC" "$CXX" "$AR" "$RANLIB" "$WINDRES" "$cmake" ninja pkg-config make python3 patch autoreconf; do
     command -v "$command" >/dev/null || { echo "Missing build tool: $command" >&2; exit 1; }
 done
 python3 "$root/scripts/fetch-sources.py"
@@ -96,6 +96,9 @@ patched_source_for() {
         for patchfile in "$root/client/patches/$name/"*.patch; do
             patch --batch --forward --fuzz=0 -d "$stage" -p1 < "$patchfile" >&2 || return
         done
+        if [[ "$name" == stoken ]]; then
+            (cd "$stage" && autoreconf --force --install) >&2 || return
+        fi
         mv "$stage" "$destination" || return
     fi
     printf '%s' "$destination"

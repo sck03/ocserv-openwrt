@@ -7,8 +7,8 @@ The application is GPL-3.0-or-later. Static linking does not remove third-party 
 | OpenConnect | 9.21 | LGPL-2.1; see source notices | Static official protocol library with documented Windows script error fixes |
 | GnuTLS | 3.8.13 | LGPL-2.1-or-later; accompanying source notices | Static TLS, certificate and Windows system-key support |
 | GMP | 6.3.0 | LGPL-3.0-or-later / GPL-2.0-or-later | Static arithmetic |
-| Nettle / Hogweed | 3.10.2 | LGPL-3.0-or-later / GPL-2.0-or-later | Static cryptography |
-| stoken | 0.92 | LGPL-2.1-or-later | Static RSA software-token support |
+| Nettle / Hogweed | 4.0 | LGPL-3.0-or-later / GPL-2.0-or-later | Static cryptography |
+| stoken | 0.93 | LGPL-2.1-or-later | Static RSA software-token support |
 | libxml2 | 2.15.4 | MIT and notices in Copyright | Static XML parser |
 | zlib | 1.4 | zlib license | Static compression |
 | nlohmann/json | 3.12.0 | MIT | Vendored single-header JSON parser |
@@ -21,11 +21,11 @@ The application is GPL-3.0-or-later. Static linking does not remove third-party 
 | ocserv | 1.6.0 | GPL-2.0-or-later | Server; source included in server artifacts |
 | LuCI reference source | SDK-selected feed revision in BUILDINFO.json | Upstream LuCI notices | Feed source bundled; the shipped page is luci-app-ocserv-easy |
 | OpenTunnel | 0535533dfb7d3a656bfdb880d51f731c109135c1 | LGPL-2.1; upstream LICENSE and individual notices | Android app and native build recipe; separate application ID and Chinese launcher name |
-| OpenSSL (Android / Apple) | 3.5.9 | Apache-2.0 | Static mobile and macOS TLS library |
+| OpenSSL (Android / Apple) | 4.1.0 | Apache-2.0 | Static mobile and macOS TLS library |
 | GTK 3 / GLib | Debian 13 / Ubuntu 26.04 system packages | LGPL-2.1-or-later and individual notices | Linux desktop system libraries; not bundled |
 | libnm / NetworkManager OpenConnect | Debian 13 / Ubuntu 26.04 system packages | LGPL-2.1-or-later / GPL-2.0-or-later and individual notices | Linux system VPN and authentication integration; not bundled |
 | libsecret | System package | LGPL-2.1-or-later | Linux keyring cleanup; not bundled |
-| LZ4 (Android) | 1.10.0 | BSD-2-Clause for library; accompanying source notices | Android OpenConnect compression |
+| LZ4 (Android) | 1.11.1 | BSD-2-Clause for library; accompanying source notices | Android OpenConnect compression |
 
 Mobile native inputs are pinned in `mobile/sources.json` and shipped in each mobile artifact's `corresponding-source.zip`, including upstream licenses and the local build recipes. Android's Jetpack/Kotlin libraries and bundled fonts retain their upstream notices. The new iOS application and packet-flow integration are GPL-3.0-or-later. iOS uses system zlib and iconv; mobile builds do not ship the Windows GnuTLS, Wintun or vpnc script. See [mobile documentation](docs/MOBILE.md) for the integration and signing limits.
 
