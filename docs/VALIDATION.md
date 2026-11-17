@@ -2,6 +2,31 @@
 
 本页记录岚序（Lansyra）全新安装版本的验证证据与实机边界。以前的打包和系统升级记录见[历史版本](https://github.com/sck03/ocserv-openwrt/blob/ba903fe/docs/VALIDATION.md)。
 
+## 2026-11-17 模块解耦、凭据事务与资源优化
+
+本轮应用提交为 [`f11ecfc`](https://github.com/sck03/ocserv-openwrt/commit/f11ecfc)。Windows 将配置和偏好分成独立存储，认证交互移至 `session_auth`，路由策略以区间归并识别完整 IPv4 覆盖，并正确处理 OpenConnect 的双栈路由列表、无效输入和数量预算。Android 业务源码迁入 `mobile/android/owned/`，移除大段字符串补丁脚本；列表不再解密全部凭据，连接只解密所选配置，重排在事务内按 ID 更新最新记录。Android 同时检查固定指纹证书的有效期，严格读取连接设置，移除无效周期探测，只在图表有订阅时生成历史快照。Linux 偏好及登录启动写入移至后台串行模块；macOS 使用不可变版本钥匙串项与原子文件引用，避免保存中断破坏旧凭据。管理页拆分账号、设置、隔离和导出模块，以显式依赖注入连接界面与状态。
+
+按未部署项目处理：Windows 配置使用 schema 3、独立偏好 schema 1，Android 与 macOS 配置使用 schema 2；不提供旧数据迁移层。iOS 最低版本为 16，删除旧平台回退。模块职责和新存储约束见[架构](ARCHITECTURE.md)，各平台说明已同步。
+
+| 验证 | 结果与证据 |
+| --- | --- |
+| Windows x64 / x86 | [完整构建与原生回归通过](https://github.com/sck03/ocserv-openwrt/actions/runs/44029620705)，涵盖实际窗口、DPAPI、回环认证、资源回收；x64 含隔离网络检查 |
+| macOS Universal / Linux | [完整构建通过](https://github.com/sck03/ocserv-openwrt/actions/runs/44029748950)；macOS 为未签名包，Linux amd64/arm64 在 Debian 13、Ubuntu 26.04 四组安装启动验证通过 |
+| 服务端 | [回归通过](https://github.com/sck03/ocserv-openwrt/actions/runs/44029756115)，使用 `validate_only=true`、`publish_release=false`；含真实浏览器与 Linux 网络隔离测试 |
+| 自动回归 | [通过](https://github.com/sck03/ocserv-openwrt/actions/runs/44029580599)，新增 push / PR 检查覆盖源码、策略、服务端、浏览器、Linux CTest 与 Apple 存储 |
+| Android | [三架构完整构建通过](https://github.com/sck03/ocserv-openwrt/actions/runs/44027438169)，含 Gradle 测试、APK 签名与 16 KiB 对齐检查 |
+| iOS | [未签名构建通过](https://github.com/sck03/ocserv-openwrt/actions/runs/44027453159)，含共享地址、网络设置和数据包检查 |
+
+前四组基于 `f11ecfc`；Android / iOS 基于 `2b02c5d`，两者及共享 Apple 运行代码在后续提交中未变。验证中发现并修复了管理模块尾部残片及渲染参数遗漏、macOS 凭据接口漏改的调用点，以及 Windows 原生界面测试仍依赖旧存储文件的问题；修复后对应完整工作流重新通过。
+
+本地 Windows 存储 94 项、路由覆盖 43 项、Android JVM 策略 42 项通过；新增独占锁定配置文件时仍可保存偏好的检查，以及混合地址族、非法路由、任意等价分区和覆盖缺口测试。服务端逻辑 126、隔离事务 107、进程 20、occtl 18、代理运行 20、配置渲染 4，浏览器页面 21、列表 20、轮询 32 项通过；浏览器无脚本错误。清理脚本 10 项、构建参数与源包检查通过。
+
+Windows 桌面 Chrome 157 对 4096 条模拟连接测得响应 511,353 字节，JSON 解析中位数 1.5 ms、p95 约 1.8 ms，页面仅保留当前页 50 行。该数据用于约束管理页优化范围，不能推算真实 N1 的 CPU、移动端耗电或 VPN 吞吐。本轮未增加服务端分页协议，也未发布 Release 或部署设备。实际路由器、移动端长期连接与耗电，以及签名后的 Apple 扩展仍需实机验收。
+
+精简本地报告、CI 运行与附件摘要、性能数据保存在 `artifacts/verification/2026-11-17-refactor/`。9 份 CI 附件通过 GitHub SHA-256 与 ZIP CRC 核验，保留 45 份汇总报告。Windows 资源夹具处理 600,000 个事件及 1,000 轮清空，x64 句柄数保持 118、x86 保持 135；Linux 两架构分别通过 102 次异步偏好完成、合并、登录启动与失败检查。
+
+清理脚本删除本轮构建和测试生成物共 343 个文件、37,396,904 字节（约 35.7 MiB）；82 个既有发行包、私有配置和备份文件清理前后 SHA-256 一致。锁定依赖、工具和验证证据保留。自动审批拒绝删除重复解压的 CI 夹具后，按用户要求将其统一移至 `artifacts/待手动删除-20261117/refactor-ci-fixtures/`，共 319 个文件、1,788,804 字节（约 1.7 MiB），可手动删除整个 `待手动删除-20261117` 目录。
+
 ## 2026-11-17 恢复、存储与模块边界维护
 
 修复普通账号事务重启后无法恢复、启动渲染失败覆盖账号文件、隔离预检临时密码文件残留，以及大在线列表缓存容量不足。启动和管理统一使用 ocserv 包的 Lua 渲染、存储和预检；删除重复 shell 实现。Windows 配置操作后台执行并保持消息循环，Linux 偏好失败反馈与选项回退，macOS 文件/钥匙串由串行 actor 处理，Apple 回调使用局部释放池。管理页拆分 API、文案、DOM 模块；Android 存储和日志业务迁入正式 Kotlin 文件。
