@@ -85,7 +85,7 @@ void install_bridge(HWND window) {
 class TestStoreLease {
 public:
     explicit TestStoreLease(const ProfileStore &store)
-        : mutex_(CreateMutexW(nullptr, FALSE, local_object_name(L"ProfileStore", store.directory()).c_str())) {
+        : mutex_(CreateMutexW(nullptr, FALSE, (local_object_name(L"ProfileStore", store.directory()) + L".preferences").c_str())) {
         const DWORD result = mutex_ ? WaitForSingleObject(mutex_.get(), 5000) : WAIT_FAILED;
         check(result == WAIT_OBJECT_0 || result == WAIT_ABANDONED, "Could not hold the test store lease");
     }
@@ -360,14 +360,14 @@ int wmain(int argc, wchar_t **argv) {
                         ApplicationTestAccess::queue(application, preferences);
                         check(store.remove(added.id, error), "Could not remove the obsolete automatic profile");
                     }
-                    check(!writer.flush(error), "An obsolete automatic profile snapshot unexpectedly saved");
-                    writer.take_result(); // Handle the expected failure before the message loop resumes.
+                    check(writer.flush(error), "Independent preferences failed to save after profile deletion");
+                    writer.take_result();
                     check(ApplicationTestAccess::reload(application) && writer.flush(error) &&
                               store.load_metadata(profiles, preferences, error) && profiles.size() == 1 &&
                               preferences.auto_connect.empty() && preferences.selected == original_id,
-                          "Reload left the writer stuck on an obsolete failed automatic-profile snapshot");
+                          "Reload retained an obsolete automatic-profile reference");
                     std::string intact_store;
-                    const auto path = store.directory() / L"profiles.json";
+                    const auto path = store.directory() / L"preferences.json";
                     check(read_file(path, intact_store, error) && write_atomic(path, "{invalid", error),
                           "Could not create the temporary preference-save failure");
                     ApplicationTestAccess::queue(application, preferences);

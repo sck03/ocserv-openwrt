@@ -49,22 +49,26 @@ bool interval(const std::string &route, std::pair<uint64_t, uint64_t> &result) {
     return true;
 }
 }
-bool ipv4_full_tunnel(const std::vector<std::string> &routes) {
-    if (routes.empty()) return true;
-    if (routes.size() > 4096) return false;
+Ipv4Coverage ipv4_coverage(const std::vector<std::string> &routes) {
+    if (routes.empty()) return Ipv4Coverage::Full;
+    if (routes.size() > 4096) return Ipv4Coverage::Invalid;
     std::vector<std::pair<uint64_t, uint64_t>> ranges;
     ranges.reserve(routes.size());
     for (const auto &route : routes) {
+        // OpenConnect puts both address families in split_includes. Like its
+        // script environment, IPv6 entries do not constrain IPv4 coverage.
+        if (route.find(':') != std::string::npos) continue;
         std::pair<uint64_t, uint64_t> range;
-        if (!interval(route, range)) return false;
+        if (!interval(route, range)) return Ipv4Coverage::Invalid;
         ranges.push_back(range);
     }
+    if (ranges.empty()) return Ipv4Coverage::Full;
     std::sort(ranges.begin(), ranges.end());
     uint64_t covered = 0;
     for (const auto &range : ranges) {
-        if (range.first > covered) return false;
+        if (range.first > covered) return Ipv4Coverage::Split;
         covered = std::max(covered, range.second);
     }
-    return covered == (uint64_t{1} << 32);
+    return covered == (uint64_t{1} << 32) ? Ipv4Coverage::Full : Ipv4Coverage::Split;
 }
 }

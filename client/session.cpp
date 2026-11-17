@@ -343,13 +343,19 @@ bool Session::update_network_policy() {
         return false;
     std::vector<std::string> included;
     for (auto *route = info->split_includes; route; route = route->next) {
-        if (included.size() >= 4096)
+        if (included.size() >= 4096) {
+            error_ = tr(language_, L"服务器下发的路由过多。", L"The gateway supplied too many routes.");
             return false;
-        if (route->route)
-            included.emplace_back(route->route);
+        }
+        included.emplace_back(route->route ? route->route : "");
+    }
+    const auto coverage = ipv4_coverage(included);
+    if (coverage == Ipv4Coverage::Invalid) {
+        error_ = tr(language_, L"服务器下发的 IPv4 路由无效。", L"The gateway supplied invalid IPv4 routes.");
+        return false;
     }
     const bool ipv6 = (info->addr6 && *info->addr6) || (info->netmask6 && *info->netmask6);
-    return ipv6_guard_.require(!ipv6 && ipv4_full_tunnel(included), error_);
+    return ipv6_guard_.require(!ipv6 && coverage == Ipv4Coverage::Full, error_);
 }
 bool Session::prepare_script_log() {
     script_environment_lock_ = std::unique_lock<std::mutex>(script_environment_mutex, std::try_to_lock);

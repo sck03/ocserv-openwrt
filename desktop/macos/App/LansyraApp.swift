@@ -203,7 +203,7 @@ final class DesktopVPN: NSObject, ObservableObject, OSSystemExtensionRequestDele
           guard await saveDraft() else { if request == epoch { busy = false }; return }
           guard request == epoch else { return }
           do {
-            let credential = password.isEmpty && draft.rememberPassword ? try await repository.credential(draft.id) : password
+            let credential = password.isEmpty && draft.rememberPassword ? try await repository.credential(draft) : password
             guard request == epoch else { return }
             sessionPassword = credential
             guard VPNCredentialValid(sessionPassword) else { throw ClientError.missingPassword }

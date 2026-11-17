@@ -207,6 +207,14 @@ int main(int argc, char **argv) {
                                        &attributes) &&
                   CompareFileTime(&marker, &attributes.ftLastWriteTime) == 0,
               "identical preferences rewrote the file");
+        {
+            Handle locked(CreateFileW((store.directory() / L"profiles.json").c_str(), GENERIC_READ,
+                                      0, nullptr, OPEN_EXISTING, 0, nullptr));
+            check(locked.get() != INVALID_HANDLE_VALUE, "could not exclusively lock the profile fixture");
+            preferences.log_level = 2;
+            check(store.save_preferences(preferences, error),
+                  "preference updates tried to read the exclusively locked profile file");
+        }
         auto invalid_preferences = preferences;
         invalid_preferences.auto_connect = "invalid-id";
         check(!store.save_preferences(invalid_preferences, error) &&
