@@ -34,12 +34,12 @@
 | Android `ProfilePolicy`、`ProfileCodec` | 配置校验、来源绑定、格式和加解密失败处理 | 不依赖 Android 存储；DataStore 只负责事务持久化 |
 | Android `DiagnosticLog` | 已知秘密、认证结构和 URL 过滤 | 清理后才发布到界面或 Logcat；日志历史另有数量与字符预算 |
 | 服务端 `logic`、`firewall` | 纯校验、配置渲染、受管防火墙定义 | 无进程或文件系统副作用，可直接做 Lua 回归 |
-| ocserv 包 `ocserv.logic/storage/process/runtime` | 服务和管理页共用的渲染、存储、进程与预检 | 安装到 `/usr/lib/lua/ocserv`，不依赖 LuCI 页面；init 只管理证书和进程。当前产品使用 plain 认证和独立地址池，不提供代理 ARP 自动修改 LAN 的旧路径 |
+| ocserv 包 `ocserv.logic/storage/process/runtime` | 服务和管理页共用的渲染、存储、进程与预检 | 安装到 `/usr/lib/lua/ocserv`，不依赖 LuCI 页面；原生 UCI 读取使用 `foreach`，不调用 LuCI 扩展方法。init 只管理证书和进程；安装器实际执行同一渲染预检。当前产品使用 plain 认证和独立地址池，不提供代理 ARP 自动修改 LAN 的旧路径 |
 | 服务端 `backend`、`guard` | 一致的配置快照、普通配置事务、可恢复的 VPN-only 事务 | 快照读取前后核对文件；写入受互斥锁、修订、待提交变更和权限检查约束 |
 | 服务端 `guard_state` | 隔离恢复记录的纯结构校验与受管目标定义 | 不访问文件或启动命令；复用代理登记表，在状态展示、确认、应用和恢复前统一检查 |
 | 服务端 `proxy_registry`、`proxy` | 代理身份/能力登记、服务归属、配置计划和入口就绪检查 | 三款已验证适配共用事务；其他已知服务仅检测和提示。核心进程名不能代替软件适配；不新增常驻轮询 |
 | 服务端 `storage`、`configuration` | 有界原子文件 IO、流式行扫描、候选作用域和持久恢复记录 | 文件读取与扫描共用打开错误处理；扫描独立于代理策略。`with_stage` 管理原生 UCI 候选从创建到清理的完整生命周期；恢复前检查全部文件，后续修改保留现场 |
-| 服务端 `process`、`guard_log` | 有时限的子进程执行、结构化日志 | 不经过 shell 拼接；区分 EAGAIN/EINTR 与真实 I/O 错误，所有失败路径回收进程；日志不保存原始命令输出和凭据，并复用有界原子存储 |
+| 服务端 `process`、`guard_log` | 有时限的子进程执行、结构化日志 | 不经过 shell 拼接；`nixio.exec` 使用 execv，调用方必须提供可执行路径，不搜索 PATH。区分 EAGAIN/EINTR 与真实 I/O 错误，所有失败路径回收进程；日志不保存原始命令输出和凭据，并复用有界原子存储 |
 | 服务端 `lease`、安装工具 `with-lock` | LuCI、恢复和 shell 维护共用 POSIX 租约 | 锁文件不删除；同 PID exec 保留所有权，进程退出自动释放；不用不兼容的 flock 替代 |
 | 服务端 `query_cache` | 可丢弃的在线/版本/能力快照 | 完成查询后开始有效期；独立失效代次隔离跨进程迟到写入；命中时无写入或子进程，配置事务不依赖缓存正确性 |
 | 服务端 `occtl`、`json_array` | 会话查询策略、增量对象分帧和显示字段裁剪 | `json_array` 只管理数组边界、字符串转义和记录预算，由 jsonc 解码每条对象；`occtl` 检查会话字段。复用进程流式输出，失败不发布部分结果 |

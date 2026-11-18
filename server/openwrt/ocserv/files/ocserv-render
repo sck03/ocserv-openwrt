@@ -1,8 +1,18 @@
 #!/usr/bin/lua
 -- Never print rendered configuration, passwords or command output.
-local ok, failure = pcall(function() require("ocserv.runtime").start() end)
+local ok, failure = xpcall(function() require("ocserv.runtime").start() end, function(err)
+    local code = type(err) == "table" and err.code or "internal_error"
+    -- procd may discard stderr before an instance starts. Log the error code
+    -- and code locations, never exception text that could contain credentials.
+    pcall(function()
+        local message = "ocserv: runtime preparation failed: " .. code
+        if code == "internal_error" then message = message .. debug.traceback("", 2):gsub("\n", " | ") end
+        require("nixio").syslog("err", message)
+    end)
+    return code
+end)
 if not ok then
     io.stderr:write("ocserv runtime preparation failed: ",
-        type(failure) == "table" and failure.code or "internal_error", "\n")
+        failure, "\n")
     os.exit(1)
 end

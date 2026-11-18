@@ -182,6 +182,11 @@ if ! /etc/init.d/ocserv initcerts; then
     echo '证书初始化失败，安装尚未完成。修正后重新运行 install.sh；可用 logread -e ocserv 查看原因。'
     exit 1
 fi
+echo '正在验证 ocserv 运行配置。'
+if ! /usr/libexec/ocserv-render; then
+    echo '运行配置生成或检查失败，安装尚未完成。请查看 logread -e ocserv，修正后重新运行 install.sh。' >&2
+    exit 1
+fi
 /etc/init.d/ocserv-easy-guard enable
 /etc/init.d/ocserv-easy-guard restart
 

@@ -23,10 +23,19 @@ if ! apk info -e ocserv >/dev/null 2>&1 && ! apk info -e luci-app-ocserv-easy >/
     exit 0
 fi
 for command in uci lua fw4; do command -v "$command" >/dev/null || fail "缺少命令：$command"; done
+# The Lua runner uses execv, which does not search PATH for bare command names.
+firewall_command=$(command -v fw4)
 directory=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
 runtime=/usr/share/ocserv-easy
 [ ! -f "$directory/with-lock.lua" ] || runtime=$directory
-bounded() { lua "$runtime/run.lua" "$@"; }
+bounded() {
+    command_status=0
+    lua "$runtime/run.lua" "$@" || command_status=$?
+    if [ "$command_status" != 0 ]; then
+        echo "卸载命令失败（退出码 $command_status）：$*" >&2
+    fi
+    return "$command_status"
+}
 service_running() {
     service_status=0
     bounded 5 /etc/init.d/"$1" status >/dev/null 2>&1 || service_status=$?
@@ -92,7 +101,7 @@ replace_file() {
     cp -p "$1" "$2.lansyra-new" && mv -f "$2.lansyra-new" "$2"
 }
 reload_network() {
-    bounded 30 fw4 check && bounded 30 /etc/init.d/firewall reload || return 1
+    bounded 30 "$firewall_command" check && bounded 30 /etc/init.d/firewall reload || return 1
     for proxy in nikki momo; do
         if [ -f "$journal/restart-$proxy" ]; then bounded 100 /etc/init.d/"$proxy" restart || return 1; fi
     done
@@ -129,7 +138,7 @@ set --
 for package in luci-app-ocserv-easy luci-i18n-ocserv-zh-cn luci-app-ocserv ocserv; do
     if apk info -e "$package" >/dev/null 2>&1; then set -- "$@" "$package"; fi
 done
-echo "卸载软件包：${*:-（无，检查残留配置）}"
+echo "卸载预演（尚未删除软件包）：${*:-（无，检查残留配置）}"
 if [ "$#" -gt 0 ]; then apk del --simulate "$@" || fail '软件包卸载预检失败。'; fi
 if [ "$mode" = --dry-run ]; then
     echo '仅预览：未停止服务、恢复事务或删除文件。APK 会同时清理不再需要的依赖。'
@@ -138,7 +147,8 @@ fi
 for record in /etc/ocserv/easy-transaction/state.json /etc/ocserv/easy-guard/state.json /etc/ocserv/easy-install-network; do
     [ ! -e "$record" ] || fail "存在待恢复事务：$record；请先完成恢复。"
 done
-recover_network || exit 1
+if [ -d "$journal" ]; then echo "正在恢复上次未完成的卸载：$journal"; fi
+recover_network || fail "卸载恢复失败，已保留记录：$journal；请根据上方错误修复后重新运行卸载。"
 backup=$(mktemp -d /root/lansyra-before-uninstall-XXXXXX)
 echo "卸载前备份：$backup"
 cp "$directory/uninstall.sh" "$directory/with-lock.lua" "$directory/lease.lua" \
@@ -221,7 +231,10 @@ for key in $keys; do
     cmp -s "$path" "$journal/after/$key" || replace_file "$journal/after/$key" "$path"
 done
 reload_network
-if [ "$#" -gt 0 ]; then apk del "$@"; fi
+if [ "$#" -gt 0 ]; then
+    echo "正在删除软件包：$*"
+    apk del "$@"
+fi
 for package in ocserv luci-app-ocserv-easy luci-app-ocserv luci-i18n-ocserv-zh-cn; do
     if apk info -e "$package" >/dev/null 2>&1; then fail "$package 仍被其他包依赖，未删除配置。"; fi
 done

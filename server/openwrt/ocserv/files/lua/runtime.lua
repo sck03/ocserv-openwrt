@@ -29,9 +29,12 @@ function M.render(cursor)
     logic.require(type(config) == "table", "unknown_schema")
     local values, normalized_dns, normalized_routes = logic.validate_settings(logic.settings(config, dns, routes))
     for key, value in pairs(values) do config[key] = value end
+    -- Startup uses libuci's native cursor, which has no LuCI get_first helper.
+    local domain = ""
+    cursor:foreach("dhcp", "dnsmasq", function(row) domain = row.domain or ""; return false end)
     return logic.render(storage.read("/etc/ocserv/ocserv.conf.template") or "",
         storage.read("/etc/ocserv/ocserv.conf.local") or "", config, normalized_dns, normalized_routes,
-        {domain = cursor:get_first("dhcp", "dnsmasq", "domain", "")}), logic.passwd(users)
+        {domain = domain}), logic.passwd(users)
 end
 
 function M.start()

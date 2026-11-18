@@ -28,6 +28,9 @@ elif name=='lua':
         failure('fail_recovery')
         (root/'etc/ocserv/easy-transaction/state.json').unlink(missing_ok=True)
     elif pathlib.Path(args[0]).name=='run.lua':
+        # nixio.exec uses execv: unlike subprocess.run's default, it never
+        # searches PATH. A bare fw4 used to make recovery fail silently (127).
+        if '/' not in args[2]:sys.exit(127)
         try:sys.exit(subprocess.run(args[2:],timeout=float(args[1])).returncode)
         except subprocess.TimeoutExpired:sys.exit(124)
     elif pathlib.Path(args[0]).name=='network.lua':
@@ -155,6 +158,8 @@ with tempfile.TemporaryDirectory(prefix='lansyra-uninstall-') as temporary:
     root=fixture('success')
     result=run(root)
     assert result.returncode==0,result.stdout+result.stderr
+    assert '卸载预演（尚未删除软件包）' in result.stdout
+    assert '正在删除软件包' in result.stdout and '卸载完成。备份：' in result.stdout
     assert sorted(json.loads((root/'installed').read_text()))==['nikki','openclash']
     assert json.loads((root/'etc/config/firewall').read_text())==dict(lan='zone',administrator='rule')
     assert json.loads((root/'etc/config/nikki').read_text())==dict(subscription='keep',lan='keep')
@@ -178,6 +183,9 @@ with tempfile.TemporaryDirectory(prefix='lansyra-uninstall-') as temporary:
         assert (result.returncode==0)==(mode=='--dry-run')
         assert (root/'ocserv-running').exists() and not list((root/'root').iterdir())
         assert (root/'etc/config/firewall').read_bytes()==before
+        if mode=='--dry-run':
+            assert '卸载预演（尚未删除软件包）' in result.stdout
+            assert '正在删除软件包' not in result.stdout and '卸载完成。' not in result.stdout
     checks.append('preview, invalid arguments and unconfirmed stdin never stop services or delete data')
 
     for fault in ('fail_plan','fail_pin','fail_stop','fail_status','fail_uci','fail_fw4','fail_reload','fail_proxy','fail_apk'):
@@ -226,6 +234,21 @@ with tempfile.TemporaryDirectory(prefix='lansyra-uninstall-') as temporary:
             result=run(root)
             assert result.returncode==0,result.stdout+result.stderr
     checks.append('process termination recovers on retry without overwriting later administrator edits')
+
+    root=fixture('failed-network-recovery')
+    assert run(root,INTERRUPT='1').returncode!=0
+    (root/'fail_fw4').touch()
+    result=run(root)
+    assert result.returncode!=0
+    assert '退出码 1' in result.stderr and 'fw4 check' in result.stderr
+    assert '卸载恢复失败' in result.stderr
+    assert (root/'etc/lansyra-uninstall/prepared').exists()
+    assert (root/'etc/ocserv/server-key.pem').exists()
+    assert 'ocserv' in json.loads((root/'installed').read_text())
+    assert '正在删除软件包' not in result.stdout and '卸载完成。' not in result.stdout
+    result=run(root)
+    assert result.returncode==0,result.stdout+result.stderr
+    checks.append('failed network recovery reports the command and status, preserves its journal, and retries with execv paths')
 
     for interrupted in (False,True):
         root=fixture('post-removal-'+str(interrupted))

@@ -33,6 +33,10 @@ sh install.sh
 
 网络变更在 `/etc/lansyra-uninstall` 保存前后文件，逐个原子替换。防火墙检查、重载或 APK 删除失败时恢复网络文件；已停止的 VPN 服务不会自动启用。再次执行同一命令即可重试。进程中断后先核对全部现场，发现管理员后续修改则保留现场与记录，不覆盖新配置。
 
+`卸载预演` 下的 `Purging … OK` 是 `apk del --simulate` 输出，尚未删除软件包。只有最后出现 `卸载完成。备份：…` 且脚本退出码为 0，才表示全部卸载完成。页面仍可打开或 `/etc/init.d/ocserv status` 显示 `active with no instances`，都不代表 VPN 进程正在运行。
+
+旧脚本曾以裸命令名 `fw4` 调用不搜索 PATH 的执行器，导致网络恢复返回 127、保留恢复记录，并阻止下一次安装。修正版使用 `command -v fw4` 得到的完整路径，并报告失败命令与退出码；用修正版套装中的 `uninstall.sh` 重试即可继续恢复，不要手动删除 `/etc/lansyra-uninstall` 来绕过检查。
+
 若命令已随软件包删除，使用终端打印的实际目录执行 `sh /root/lansyra-before-uninstall-实际后缀/uninstall.sh --yes`，或重新解压套装执行 `sh uninstall.sh --yes`。中断期间保留 Lua/nixio；全部清理完成后，即使运行库已被自动移除，备份入口仍能确认已卸载或完成最后的依赖释放。卸载恢复记录存在时，安装器拒绝开始新安装。
 
 遇到 `/etc/ocserv/easy-install-network` 未完成首次安装记录，先用对应完整套装运行 `sh install.sh` 完成安装恢复，再卸载。损坏或不支持的隔离事务使用原版本处理，不直接删除记录。卸载依赖现有 APK、UCI、Lua/nixio 和 Firewall4，不适用于 IPK 固件或其他项目。

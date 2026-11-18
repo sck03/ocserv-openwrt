@@ -31,12 +31,12 @@ class ConfigTests(unittest.TestCase):
         ''')
         cls.lua.globals().TEMPLATE = cls.template
         cls.runtime = cls.lua.eval('require("ocserv.runtime")')
-        cls.cursor = cls.lua.eval('''function(config, dns, routes)
+        cls.cursor = cls.lua.eval('''function(config, dns, routes, domains)
             return {load=function() return true end,
                 get_all=function() return config end,
-                get_first=function() return "lan" end,
                 foreach=function(_, _, kind, visit)
-                    for _, row in ipairs(kind=="dns" and dns or kind=="routes" and routes or {}) do visit(row) end
+                    local rows=kind=="dns" and dns or kind=="routes" and routes or kind=="dnsmasq" and domains or {}
+                    for _, row in ipairs(rows) do if visit(row)==false then break end end
                 end}
         end''')
         cls.defaults = dict(re.findall(r"option\s+(\w+)\s+'([^']*)'", (PACKAGE / "config").read_text()))
@@ -48,11 +48,20 @@ class ConfigTests(unittest.TestCase):
                                  self.lua.table_from([self.lua.table_from({"ip": ip, "netmask": mask}) for ip, mask in routes]),
                                  self.lua.table_from({"domain": "lan"}))
 
-    def startup(self, configs, dns=("1.1.1.1",), routes=()):
+    def startup(self, configs, dns=("1.1.1.1",), routes=(), domains=("lan",)):
         dns_rows = self.lua.table_from([self.lua.table_from({"ip": value}) for value in dns])
         route_rows = self.lua.table_from([self.lua.table_from({"ip": ip, "netmask": mask}) for ip, mask in routes])
-        return [self.runtime.render(self.cursor(self.lua.table_from(config), dns_rows, route_rows))[0]
+        domain_rows = self.lua.table_from([self.lua.table_from({"domain": value} if value is not None else {}) for value in domains])
+        return [self.runtime.render(self.cursor(self.lua.table_from(config), dns_rows, route_rows, domain_rows))[0]
                 for config in configs]
+
+    def test_native_cursor_reads_only_the_first_dnsmasq_domain(self):
+        actual, = self.startup([self.defaults], domains=("first.test", "ignored.test"))
+        self.assertIn("default-domain = first.test", directives(actual))
+        self.assertNotIn("ignored.test", actual)
+        for domains in ((), (None, "ignored.test")):
+            actual, = self.startup([self.defaults], domains=domains)
+            self.assertFalse(any(line.startswith("default-domain =") for line in directives(actual)))
 
     def test_shipped_ipv4_defaults_match_luci(self):
         actual, = self.startup([self.defaults])
@@ -80,6 +89,23 @@ class ConfigTests(unittest.TestCase):
         routes = (("192.168.19.0", "255.255.255.0"), ("fd19::", "64"))
         actual, = self.startup([config], dns, routes)
         self.assertEqual(directives(actual), directives(self.render(config, dns, routes)))
+
+    def test_startup_errors_reach_syslog_without_exception_secrets(self):
+        for failure, expected in (("error('synthetic-secret')", 'internal_error'),
+                                  ("error({code='write_failed',detail='synthetic-secret'})", 'write_failed')):
+            lua = LuaRuntime()
+            lua.execute('''
+                LOG, STDERR, EXIT_CODE = '', '', nil
+                package.preload['nixio']=function()return {syslog=function(_,message)LOG=message end}end
+                io.stderr={write=function(_,...)STDERR=table.concat({...})end}
+                os.exit=function(code)EXIT_CODE=code end
+            ''')
+            lua.execute("package.preload['ocserv.runtime']=function()return {start=function()"+failure+" end}end")
+            lua.execute((PACKAGE/'ocserv-render').read_text(encoding='utf-8').split('\n',1)[1])
+            self.assertEqual(lua.globals().EXIT_CODE, 1)
+            self.assertIn(expected, lua.globals().STDERR)
+            self.assertIn('ocserv: runtime preparation failed: '+expected, lua.globals().LOG)
+            self.assertNotIn('synthetic-secret', lua.globals().LOG+lua.globals().STDERR)
 
 
 if __name__ == "__main__":

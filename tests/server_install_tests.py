@@ -181,6 +181,8 @@ elif name=='ocpasswd':
     pathlib.Path(args[1]).write_text(args[2]+':*:$6$fixture$'+'x'*86+'\n')
 elif name=='ocserv' and args==['initcerts']:
     if fail('fail_cert'): sys.exit(1)
+elif name=='ocserv-render':
+    if fail('fail_render'): sys.exit(1)
 elif name=='ocserv' and args==['status']:
     sys.exit(0 if (root/'running').exists() else 1)
 elif name=='ocserv' and args==['stop']:
@@ -215,6 +217,9 @@ with tempfile.TemporaryDirectory(prefix='lansyra-install-test-') as temporary:
             path = root / 'etc/init.d' / service
             path.write_text(MOCK, encoding='utf-8')
             path.chmod(0o755)
+        renderer = root / 'usr/libexec/ocserv-render'
+        renderer.write_text(MOCK, encoding='utf-8')
+        renderer.chmod(0o755)
         (root / 'etc/config/firewall').write_text(json.dumps({'lan': 'zone', 'lan.name': 'lan'}))
         (root / 'etc/config/openclash').write_text('existing subscription and rules\n')
         (root / 'etc/config/dhcp').write_text('existing dns settings\n')
@@ -443,7 +448,7 @@ with tempfile.TemporaryDirectory(prefix='lansyra-install-test-') as temporary:
     assert run(root).returncode!=0 and not (root/'installed').exists()
     checks.append('a mixture of old and new APKs is rejected before installing')
 
-    for fault in ('fail_apk', 'fail_cert', 'fail_uci', 'fail_fw4', 'fail_reload'):
+    for fault in ('fail_apk', 'fail_cert', 'fail_render', 'fail_uci', 'fail_fw4', 'fail_reload'):
         root = fixture(fault)
         previous = (root / 'etc/config/firewall').read_bytes()
         (root / fault).touch()
@@ -452,6 +457,10 @@ with tempfile.TemporaryDirectory(prefix='lansyra-install-test-') as temporary:
         assert (root / 'etc/config/firewall').read_bytes() == previous, fault
         assert (root / 'etc/ocserv/easy-install-pending').exists(), fault
         assert not (root / 'uci-staging').exists(), fault
+        if fault=='fail_render':
+            assert '运行配置生成或检查失败' in result.stderr
+            assert '安装完成。' not in result.stdout
+            assert 'ocserv-easy-guard enable' not in (root/'commands').read_text()
         result = run(root)
         assert result.returncode == 0, fault + result.stdout + result.stderr
         assert not (root / 'etc/ocserv/easy-install-pending').exists(), fault
