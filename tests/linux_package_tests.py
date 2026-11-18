@@ -31,6 +31,7 @@ def audit(package):
         "usr/share/icons/hicolor/scalable/apps/io.github.sck03.lansyra.svg",
         "usr/share/doc/lansyra/copyright",
         "usr/share/doc/lansyra/DESKTOP.md",
+        "usr/share/doc/lansyra/CONNECTION-PROFILE.md",
         "usr/share/doc/lansyra/THIRD-PARTY-NOTICES.md",
     }
     with tarfile.open(fileobj=io.BytesIO(payload)) as contents:
