@@ -125,7 +125,8 @@ def main():
         shutil.copyfile(ROOT / "server/openwrt/luci-app-ocserv-easy/luasrc/model/ocserv_easy/lease.lua", output / "lease.lua")
         shutil.copyfile(ROOT / "server/openwrt/luci-app-ocserv-easy/luasrc/model/ocserv_easy/firewall.lua", output / "firewall.lua")
         shutil.copyfile(ROOT / "server/openwrt/ocserv/files/lua/process.lua", output / "process.lua")
-        for filename in ("OPENWRT-N1.md", "OPENWRT.md", "SERVER-UI.md", "UNINSTALL.md", "VPN-ONLY-PROXY.md", "WAN.md"):
+        for filename in ("OPENWRT-N1.md", "OPENWRT.md", "SERVER-UI.md", "UNINSTALL.md", "VPN-ONLY-PROXY.md", "WAN.md",
+                         "CONNECTION-PROFILE.md", "ROUTER-TESTING.md"):
             shutil.copyfile(ROOT / "docs" / filename, output / filename)
         source = output / "source"
         source.mkdir(exist_ok=True)

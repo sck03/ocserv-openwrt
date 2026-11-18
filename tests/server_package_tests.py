@@ -116,6 +116,8 @@ class ServerPackageTests(unittest.TestCase):
                              (self.root / "server/openwrt/luci-app-ocserv-easy/luasrc/model/ocserv_easy/lease.lua").read_bytes())
             self.assertEqual(contents.read(prefix + "uninstall.sh"),
                              (self.ui_stage / "usr/sbin/lansyra-uninstall").read_bytes())
+            for guide in ("CONNECTION-PROFILE.md", "ROUTER-TESTING.md"):
+                self.assertEqual(contents.read(prefix + guide), (self.root / "docs" / guide).read_bytes())
             for name in ('run.lua', 'network.lua'):
                 self.assertEqual(contents.read(prefix + name), (self.ui_stage / 'usr/share/ocserv-easy' / name).read_bytes())
             self.assertEqual(contents.read(prefix + 'process.lua'),

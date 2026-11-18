@@ -19,6 +19,7 @@ def main():
     parser.add_argument('--host', required=True)
     parser.add_argument('--username', default='root')
     parser.add_argument('--exercise', action='store_true')
+    parser.add_argument('--guard-enabled', action='store_true', help='Test an already confirmed VPN-only isolation session')
     parser.add_argument('--output', type=Path, default=Path('test-results/router-vpn.json'))
     args = parser.parse_args()
     password = os.environ.get('LANSYRA_ROUTER_PASSWORD')
@@ -31,8 +32,9 @@ def main():
     ssh.connect(args.host, username=args.username, password=password, look_for_keys=False, allow_agent=False, timeout=12)
     api = RouterAPI('http://' + args.host, args.username, password)
     original = api.data()
-    if not original['running'] or original['guard']['phase'] != 'disabled':
-        raise RuntimeError('Start VPN and disable isolation before the traffic test')
+    expected_guard = 'enabled' if args.guard_enabled else 'disabled'
+    if not original['running'] or original['guard']['phase'] != expected_guard:
+        raise RuntimeError('VPN must be running and isolation must be ' + expected_guard)
     token = secrets.token_hex(3)
     ns, host_if, peer_if = 'lansyra-qa-' + token, 'lq' + token + 'h', 'lq' + token + 'p'
     account, secret = 'lansyra_vpn_' + token, secrets.token_urlsafe(24)
