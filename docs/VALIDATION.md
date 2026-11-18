@@ -2,6 +2,38 @@
 
 本页记录岚序（Lansyra）全新安装版本的验证证据与实机边界。以前的打包和系统升级记录见[历史版本](https://github.com/sck03/ocserv-openwrt/blob/ba903fe/docs/VALIDATION.md)。
 
+## 2026-11-18 N1 原生启动、卸载与 Nikki 实机验收
+
+管理页为 **0.8.1-r1**，ocserv 为 **1.6.0-r4**。核心修复提交 [`14d60ca`](https://github.com/sck03/ocserv-openwrt/commit/14d60ca)，补齐套装文档及实机隔离检查的提交为 [`f03b0d0`](https://github.com/sck03/ocserv-openwrt/commit/f03b0d0)。测试设备为 Phicomm N1，OPL/Flippy OpenWrt 25.12-SNAPSHOT、aarch64_generic、Linux 6.12.66；使用局域网 SSH 和已登录的 LuCI HTTP 接口。
+
+实机确认了两个代码问题：卸载恢复以裸命令 `fw4` 调用 `nixio.exec`，返回 127；改成完整路径后检查通过。启动渲染调用原生 UCI 不存在的 `get_first`，使安装后的 ocserv 没有运行实例。修复分别使用确定的可执行路径和原生 `foreach`；安装完成前实际运行配置生成/校验，失败明确中止。启动异常只记录错误码和代码位置，不记录异常正文或凭据。对应回归替身不再额外提供 LuCI 方法或隐式搜索 PATH。
+
+| 验证 | 结果与证据 |
+| --- | --- |
+| GitHub 自动回归 | [`f03b0d0` 三个任务通过](https://github.com/sck03/ocserv-openwrt/actions/runs/44247889390)：portable、Linux、Apple storage |
+| 首轮六架构服务端 | [`14d60ca` 全部通过](https://github.com/sck03/ocserv-openwrt/actions/runs/44245729036)，未发布 Release |
+| 最终套装 | [`f03b0d0` 六架构全部通过](https://github.com/sck03/ocserv-openwrt/actions/runs/44248083766)，打包文档已增加公共配置契约和实机测试说明 |
+| Linux 与浏览器回归 | 安装恢复 52、卸载恢复 19、服务逻辑 128、隔离事务 107、证书 14；三款代理页面各 22，表格 20、轮询 32 |
+| N1 原生运行库 | 4 组通过：实际 UCI 渲染/ocserv 校验、execv 退出码、进程截止时间、原子文件/权限/目录同步 |
+| N1 管理接口 | 正式安装包上 15 组通过，涵盖账号增删改、启停与开机设置、端口/UDP/DNS/分流、失败候选保留现场、五平台配置导出、CSRF 和修订冲突 |
+| N1 真实 VPN | 独立网络命名空间中的 OpenConnect 9.12 通过 TLS、DTLS、网关 ICMP、DNS、公共 HTTPS、账号停用撤销和按连接断开 |
+| N1 Nikki | 现有配置的普通 VPN 接入和隔离中的真实流量通过；普通 LAN 代理端口/DNS被拦截，管理访问保留；关闭恢复和不确认后的实际超时恢复均通过 |
+| Nikki 停止故障 | 停止代理后拒绝开启隔离，VPN 配置及运行状态保持；重启原配置后入口恢复 |
+
+正式 APK 完成一次完整卸载、重复卸载和全新安装；恢复记录、旧账号和证书被清理，重复卸载返回成功。配置、证书和原始故障现场备份保留在设备的 `/root/lansyra-before-*`。实机原先无法直连公共 DNS `1.1.1.1`，路由器自身也失败；改用其已有且可达的 LAN DNS 后，真实 VPN DNS/HTTPS 检查通过。这是现场上游条件，不作为程序缺陷或代理成功的替代证据。
+
+正式包连续 20 轮 TLS 连接/断开完成，主进程在开始及每 5 轮采样时均为 **13 个文件描述符、3700 KiB RSS**。连续 20 次状态请求中位数 **164.1 ms**、最大 **167.4 ms**。这是短期功能及资源回收检查，不是长期泄漏、耗电或吞吐测试，也不用于宣称性能提升百分比。
+
+已安装的 41 个运行文件与仓库源文件逐个 SHA-256 一致，包括启动脚本、公共 Lua 模块、控制器、页面资源和卸载入口。
+
+实机测试入口及清理约束见[路由器验收](ROUTER-TESTING.md)。测试后 Nikki 配置、Nikki 模板、DHCP 和网络配置与测试前备份逐字节一致；测试账号、客户端、网络命名空间和防火墙规则均移除。精简日志、报告、CI 摘要和文件核验记录保存在 `artifacts/verification/2026-11-18-n1-acceptance/`。
+
+最终六架构套装位于 `dist/2026-11-18-n1-acceptance/`，本地 `dist/lansyra` 和设备 `/tmp/lansyra` 已同步完整的 N1 套装。13 份服务端 CI 附件及自动回归附件通过 GitHub SHA-256 和 ZIP CRC 核验，六份套装另逐个检查包内清单。最终套装在实机再次全新安装成功，启用服务和开机启动，账号保持为空，隔离开关关闭。
+
+清理脚本删除了约 **261 MiB** 的临时测试、重复下载和 Python 缓存。直接删除三个旧安装文件被自动审批以 `blocked by policy` 拒绝，已统一移至 `artifacts/待手动删除-20261118-n1/`，移动前后逐个 SHA-256 一致，可手动删除该目录。16 个既有安装包/配置文件均核对原摘要，其中三项移入上述目录，其余保持原位置；新套装、源码和设备备份保留。
+
+本机浏览器自动化因无法可靠识别当前网址而被工具停止；真实 LuCI 功能通过 HTTP 接口验证，页面交互和截图来自隔离 CI，不能描述为本机实机浏览器操作。手机/Windows 客户端、外网接入、长期运行和断电恢复不在本次实机验证范围；这些边界与已通过的真实隧道、Nikki 及自动恢复检查分别记录。
+
 ## 2026-11-18 公共配置契约、平台能力与资源优化
 
 应用提交为 [`d6d060f`](https://github.com/sck03/ocserv-openwrt/commit/d6d060f)。Windows 更新为 0.8.0，macOS / Linux 为 0.2.0，Android / iOS 为 0.3.0，管理页为 0.8.0-r1，ocserv 为 1.6.0-r3。五个平台统一导入有版本号的公共 `.vpn`，Windows / Linux 共用 C++ 编解码，Apple 共用 Swift 编解码；管理接口与配置渲染均使用显式版本契约。不提供旧数据或旧接口迁移；Android 私有配置为 schema 4。字段、大小预算和平台能力见[公共连接配置](CONNECTION-PROFILE.md)。

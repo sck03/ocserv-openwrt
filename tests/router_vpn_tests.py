@@ -20,11 +20,14 @@ def main():
     parser.add_argument('--username', default='root')
     parser.add_argument('--exercise', action='store_true')
     parser.add_argument('--guard-enabled', action='store_true', help='Test an already confirmed VPN-only isolation session')
+    parser.add_argument('--cycles', type=int, default=0, help='Additional TLS connect/disconnect cycles (0-64)')
     parser.add_argument('--output', type=Path, default=Path('test-results/router-vpn.json'))
     args = parser.parse_args()
     password = os.environ.get('LANSYRA_ROUTER_PASSWORD')
     if not args.exercise or password is None:
         parser.error('--exercise and LANSYRA_ROUTER_PASSWORD are required; use a disposable LAN router')
+    if not 0 <= args.cycles <= 64:
+        parser.error('--cycles must be between 0 and 64')
     ssh = paramiko.SSHClient()
     ssh.load_system_host_keys()
     # Testing an explicitly selected private router may precede its first SSH use.
@@ -43,6 +46,7 @@ def main():
     gateway = str(ipaddress.IPv4Network((original['settings']['ipaddr'], original['settings']['netmask'])).network_address + 1)
     dns = str(ipaddress.ip_address(original['settings']['dns'][0]))
     checks, errors = [], []
+    resources = []
 
     def command(text, input_text=None, timeout=35, check=True):
         stdin, stdout, stderr = ssh.exec_command(text, timeout=timeout)
@@ -59,6 +63,16 @@ def main():
     def passed(label):
         checks.append(label)
         print('PASS ' + label, flush=True)
+
+    def sample_resources():
+        _, output = command("""lua - <<'LUA'
+local fs=require 'nixio.fs'
+local f=assert(io.open('/var/run/ocserv.pid'));local pid=f:read('*l');f:close()
+local f=assert(io.open('/proc/'..pid..'/status'));local status=f:read('*a');f:close()
+local count=0;for name in fs.dir('/proc/'..pid..'/fd') do if name~='.' and name~='..' then count=count+1 end end
+print(require('luci.jsonc').stringify({fds=count,rss_kib=tonumber(status:match('VmRSS:%s*(%d+)'))}))
+LUA""")
+        resources.append(json.loads(output))
 
     def online():
         return [row for row in api.data()['online'] or [] if row['name'] == account]
@@ -158,6 +172,18 @@ esac
         api.action(action='disconnect', id=str(session['id']))
         assert not online()
         passed('disconnect-by-session removes the live VPN connection')
+        if args.cycles:
+            sample_resources()
+            for cycle in range(1, args.cycles + 1):
+                connect(False)
+                command(shlex.join(prefix + ['ping', '-c', '1', '-W', '2', gateway]))
+                api.action(action='disconnect', id=str(online()[0]['id']))
+                assert not online()
+                if cycle % 5 == 0 or cycle == args.cycles:
+                    sample_resources()
+                    print('Reconnect cycles: ' + str(cycle), flush=True)
+            assert resources[-1]['fds'] <= resources[0]['fds'] + 2, resources
+            passed(str(args.cycles) + ' reconnect cycles complete without accumulating server file descriptors')
     except Exception as error:
         errors.append(type(error).__name__ + ': ' + str(error))
         raise
@@ -186,6 +212,7 @@ esac
         ssh.close()
         args.output.parent.mkdir(parents=True, exist_ok=True)
         args.output.write_text(json.dumps({'passed': len(checks), 'checks': checks, 'errors': errors,
+            'reconnect_cycles': args.cycles, 'server_resource_samples': resources,
             'boundary': 'Real OpenWrt services and VPN packets; client runs in a separate router network namespace.'},
             ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
     if errors:
