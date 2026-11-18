@@ -795,7 +795,7 @@ test("a malformed hash can be reset without treating the old record as valid",fu
     check(backend.data().users[1].enabled and not backend.data().users[1].needs_password)
 end)
 test("backend default plain auth and no hash disclosure",function()
-    reset();local data=backend.data();check(data.api_version==1 and data.settings_supported and data.supported and data.running and data.users[1].password==nil)
+    reset();local data=backend.data();check(data.api_version==2 and data.settings_supported and data.supported and data.running and data.users[1].password==nil)
 end)
 test("configuration snapshots reject files changed after UCI loading or final field reads",function()
     local uci=package.loaded["luci.model.uci"]
@@ -1109,6 +1109,14 @@ test("failed or ambiguous certificate exports never fall back to unpinned profil
     reset();S.files["/etc/ocserv/ocserv.conf.local"]="[vhost:other.example.com]\n"
     expect("pin_unavailable",function()backend.export("pin","vpn.example.com")end)
 end)
+test("unavailable CA and pin cannot be persisted as export preferences",function()
+    reset(); S.certtool_code=1; S.files["/etc/ocserv/ca.pem"]=nil
+    local revision=backend.data().revision
+    for mode,code in pairs({pin="pin_unavailable",profile="ca_unavailable"}) do
+        expect(code,function()request({action="client_profile",server="vpn.example.test",cert_mode=mode,platform="windows"})end)
+        check(backend.data().revision==revision)
+    end
+end)
 test("profile downloads reject insecure addresses and injected lines",function()
     reset()
     for _,url in ipairs({"http://vpn.example.com","vpn.example.com\nServerPin=bad","vpn.example.com:99999","user:password@vpn.example.com"}) do
@@ -1270,6 +1278,36 @@ test("installed package version and advanced fields have one runtime contract",f
     expect("unsupported_client_dns",function()backend.export("pin","vpn.example.com","android")end)
     settings.default_domain=""
     expect("split_dns_requires_domain",function()request({action="settings",settings=settings,allow_restart=true})end)
+end)
+test("a reachable DNS family is required before restarting",function()
+    reset(); local original=backend.data(); local s=original.settings
+    s.dns={"2001:db8::53"}; s.ip6addr=""
+    expect("ipv4_dns_required",function()request({action="settings",settings=s,allow_restart=true})end)
+    check(backend.data().revision==original.revision and not contains_command("restart"))
+    s.dns[2]="1.1.1.1"; logic.validate_settings(s)
+    s.dns[2]=nil; s.ip6addr="fd77::/64"; logic.validate_settings(s)
+end)
+test("settings, saved profiles and one-off downloads agree on endpoint conflicts",function()
+    reset(); local original=backend.data(); local url="https://"..original.settings.dns[1]..":4443"
+    expect("dns_is_endpoint",function()request({action="client_profile",platform="windows",server=url,cert_mode="address"})end)
+    expect("dns_is_endpoint",function()backend.export("address",url,"windows")end)
+    original.settings.easy_public_url=url
+    expect("dns_is_endpoint",function()request({action="settings",settings=original.settings})end)
+    check(backend.data().revision==original.revision)
+end)
+test("split DNS compatibility is enforced in both edit orders and published to clients",function()
+    reset(); local s=backend.data().settings; s.split_dns="1"; s.default_domain="example.test"
+    local function select_target(target) return request({action="client_profile",platform=target,server="vpn.example.test",cert_mode="address"}) end
+    select_target("android")
+    expect("unsupported_client_dns",function()request({action="settings",settings=s,allow_restart=true})end)
+    select_target("windows"); request({action="settings",settings=s,allow_restart=true})
+    local snapshot=backend.data()
+    for _,target in ipairs(snapshot.client_targets) do
+        check(target.unavailable==(target.id=="android" and "unsupported_client_dns" or nil))
+    end
+    expect("unsupported_client_dns",function()select_target("android")end)
+    expect("unsupported_client_dns",function()backend.export("address","vpn.example.test","android")end)
+    check(backend.data().revision==snapshot.revision)
 end)
 TEST_PREVIEW={reset=reset,backend=backend,request=request,state=function()return S end}
 if not TEST_KEEP_SANDBOX then io.open=original_io_open end

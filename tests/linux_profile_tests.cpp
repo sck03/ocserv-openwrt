@@ -4,7 +4,17 @@
 #include <iostream>
 #include <sys/socket.h>
 
-int main() {
+int main(int argc, char **argv) {
+    assert(argc == 2);
+    const std::string corpus = std::string(argv[1]) + "/";
+    for (const char *name : {"pinned", "prompt", "ambiguous"}) {
+        const auto path = corpus + name + ".vpn.fixture";
+        assert(g_file_test(path.c_str(), G_FILE_TEST_IS_REGULAR));
+        bool accepted = false;
+        try { delete lansyra::read_public_profile(path); accepted = true; }
+        catch (const std::runtime_error &) {}
+        assert(accepted == (std::string(name) == "prompt"));
+    }
     auto *original = lansyra::profile_candidate(nullptr, "Before", "https://vpn.example.com", "fixture", "");
     auto *ip = nm_connection_get_setting_ip4_config(original);
     g_object_set(ip, NM_SETTING_IP_CONFIG_NEVER_DEFAULT, TRUE, NM_SETTING_IP_CONFIG_DNS_PRIORITY, -100, nullptr);
@@ -24,7 +34,15 @@ int main() {
     assert(!nm_setting_vpn_get_secret(nm_connection_get_setting_vpn(candidate), "cookie"));
     assert(g_strcmp0(nm_connection_get_id(original), "Before") == 0 && nm_setting_vpn_get_secret(vpn, "cookie"));
     assert(g_strcmp0(nm_connection_get_uuid(original), nm_connection_get_uuid(candidate)) == 0);
-    g_object_unref(candidate); g_object_unref(original);
+    auto *strict = lansyra::profile_candidate(candidate, "CA", "https://vpn.example.com", "", "/tmp/test-ca.pem");
+    auto *strictVpn = nm_connection_get_setting_vpn(strict);
+    assert(g_strcmp0(nm_setting_vpn_get_data_item(strictVpn, "prevent_invalid_cert"), "yes") == 0);
+    auto *prompt = lansyra::profile_candidate(strict, "Prompt", "https://vpn.example.com", "", "");
+    auto *promptVpn = nm_connection_get_setting_vpn(prompt);
+    assert(!nm_setting_vpn_get_data_item(promptVpn, "cacert"));
+    assert(!nm_setting_vpn_get_data_item(promptVpn, "prevent_invalid_cert"));
+    assert(nm_setting_vpn_get_data_item(strictVpn, "cacert"));
+    g_object_unref(prompt); g_object_unref(strict); g_object_unref(candidate); g_object_unref(original);
     auto publicProfile = lansyra::ConnectionFile::parse("[VPN]\nVersion=1\nServer=https://vpn.example.com\nTrust=prompt\n");
     assert(publicProfile.server == "https://vpn.example.com");
     std::cout << "Linux editing preserves routes, DNS, proxy and identity without mutating originals\n";

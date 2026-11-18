@@ -3,7 +3,7 @@ local nixio = require "nixio"
 local fs = require "nixio.fs"
 local uci = require "luci.model.uci"
 local logic = require "ocserv.logic"
-logic.require(logic.settings_contract==1,"interface_mismatch")
+logic.require(logic.settings_contract==2,"interface_mismatch")
 local guard = require "luci.model.ocserv_easy.guard"
 local firewall = require "luci.model.ocserv_easy.firewall"
 local run = require("ocserv.process").run
@@ -86,7 +86,7 @@ end
 function M.data(admin,permissions)
     local s=snapshot(); local state=M.status(true)
     state.version=version()
-    state.api_version=1
+    state.api_version=2
     state.ui_version=require("luci.model.ocserv_easy.package_version").read()
     state.permissions=permissions or {write=true,settings=true,guard=true}
     state.supported=logic.supported_version(state.version)
@@ -104,7 +104,7 @@ function M.data(admin,permissions)
     state.certificates_ready=certificate:find("-----BEGIN CERTIFICATE-----",1,true)~=nil and key~=nil and (key.size or 0)>0
     state.installation_pending=fs.access("/etc/ocserv/easy-install-pending")==true
     state.client_profile={cert_mode=s.config.easy_cert_mode or "pin",platform=s.config.easy_client_platform or "windows"}
-    state.client_targets=client_profile.targets
+    state.client_targets=client_profile.targets(state.settings)
     state.guard=guard.status(admin)
     return state
 end
@@ -244,6 +244,7 @@ for _,key in ipairs({"tcp-port","udp-port","max-clients","max-same-clients","dpd
 for _,key in ipairs({"server-cert","server-key","split-dns","ping-leases"}) do managed[key]=true end
 local function apply_settings(s,request)
     local values,dns,routes=logic.validate_settings(request.settings)
+    client_profile.require_target(s.config.easy_client_platform or "windows",values)
     for line in (s.extra.."\n"):gmatch("([^\n]*)\n") do
         logic.require(not managed[line:match("^%s*([%w-]+)%s*=")],"custom_override")
     end
@@ -378,6 +379,37 @@ function M.proxy_status()
     result.proxy=name
     return result
 end
+local function server_pin(s)
+    local rendered=logic.render(s.template,s.extra,s.config,s.dns,s.routes,
+        {domain=s.cursor:get_first("dhcp","dnsmasq","domain","")})
+    local certificate
+    for line in (rendered.."\n"):gmatch("([^\n]*)\n") do
+        -- Multiple keys or virtual hosts need an explicitly selected pin.
+        logic.require(not line:match("^%s*%[vhost:"),"pin_unavailable")
+        local path=line:match("^%s*server%-cert%s*=%s*(.-)%s*$")
+        if path then
+            logic.require(not certificate,"pin_unavailable")
+            certificate=path:match('^"(.*)"$') or path
+        end
+    end
+    logic.require(certificate and certificate:sub(1,1)=="/","pin_unavailable")
+    local code,output=run({"/usr/bin/certtool","--pubkey-info","--load-certificate",certificate},8)
+    local pin=code==0 and ("\n"..output.."\n"):match("\n%s*(pin%-sha256:[A-Za-z0-9+/]+=)%s*\n")
+    logic.require(pin and #pin==55,"pin_unavailable")
+    return pin
+end
+local function public_ca()
+    local ca=read("/etc/ocserv/ca.pem",65536)
+    logic.require(ca and ca:find("-----BEGIN CERTIFICATE-----",1,true) and ca:find("-----END CERTIFICATE-----",1,true) and not ca:find("PRIVATE KEY",1,true),"ca_unavailable")
+    return ca
+end
+local function distribution(s,url,mode,platform)
+    local server,cert_mode,target=client_profile.validate(url,mode,platform,logic.settings(s.config,s.dns,{}))
+    local value
+    if cert_mode=="pin" then value=server_pin(s)
+    elseif cert_mode=="profile" then value=nixio.bin.b64encode(public_ca()) end
+    return server,cert_mode,target,value
+end
 function M.action(request,admin)
     logic.require(type(request)=="table" and type(request.action)=="string","bad_request")
     local lease=require "luci.model.ocserv_easy.lease"
@@ -399,7 +431,7 @@ function M.action(request,admin)
         if request.action=="guard" then return guard.begin(request.command,admin,request.token) end
         if request.action=="initcerts" then initcerts(); return {effect="certificates_initialized"} end
         if request.action=="client_profile" then
-            local server,cert_mode,platform=client_profile.validate(request.server,request.cert_mode,request.platform)
+            local server,cert_mode,platform=distribution(s,request.server,request.cert_mode,request.platform)
             if server==(s.config.easy_public_url or "") and cert_mode==(s.config.easy_cert_mode or "pin") and platform==(s.config.easy_client_platform or "windows") then return {effect="unchanged"} end
             return transaction(s,running(),function()
                 logic.require(s.cursor:set("ocserv","config","easy_public_url",server),"write_failed")
@@ -447,38 +479,10 @@ function M.recover(boot)
     if not ok then error(result,0) end
     return true
 end
-local function server_pin(s)
-    local rendered=logic.render(s.template,s.extra,s.config,s.dns,s.routes,
-        {domain=s.cursor:get_first("dhcp","dnsmasq","domain","")})
-    local certificate
-    for line in (rendered.."\n"):gmatch("([^\n]*)\n") do
-        -- Multiple keys or virtual hosts need an explicitly selected pin.
-        logic.require(not line:match("^%s*%[vhost:"),"pin_unavailable")
-        local path=line:match("^%s*server%-cert%s*=%s*(.-)%s*$")
-        if path then
-            logic.require(not certificate,"pin_unavailable")
-            certificate=path:match('^"(.*)"$') or path
-        end
-    end
-    logic.require(certificate and certificate:sub(1,1)=="/","pin_unavailable")
-    local code,output=run({"/usr/bin/certtool","--pubkey-info","--load-certificate",certificate},8)
-    local pin=code==0 and ("\n"..output.."\n"):match("\n%s*(pin%-sha256:[A-Za-z0-9+/]+=)%s*\n")
-    logic.require(pin and #pin==55,"pin_unavailable")
-    return pin
-end
 function M.export(kind,url,platform)
     logic.require(kind=="ca" or kind=="profile" or kind=="address" or kind=="pin","bad_request")
-    local normalized
-    if kind~="ca" then
-        normalized=client_profile.validate(url,kind,platform)
-        local s=snapshot()
-        logic.require(platform~="android" or s.config.split_dns~="1","unsupported_client_dns")
-        if kind=="address" then return client_profile.encode(normalized,kind),"Lansyra.vpn" end
-        if kind=="pin" then return client_profile.encode(normalized,kind,server_pin(s)),"Lansyra.vpn" end
-    end
-    local ca=read("/etc/ocserv/ca.pem",65536)
-    logic.require(ca and ca:find("-----BEGIN CERTIFICATE-----",1,true) and ca:find("-----END CERTIFICATE-----",1,true) and not ca:find("PRIVATE KEY",1,true),"ca_unavailable")
-    if kind=="ca" then return ca,"ca.pem" end
-    return client_profile.encode(normalized,kind,nixio.bin.b64encode(ca)),"Lansyra.vpn"
+    if kind=="ca" then return public_ca(),"ca.pem" end
+    local server,mode,_,value=distribution(snapshot(),url,kind,platform)
+    return client_profile.encode(server,mode,value),"Lansyra.vpn"
 end
 return M

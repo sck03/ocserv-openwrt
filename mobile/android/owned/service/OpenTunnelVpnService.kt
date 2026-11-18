@@ -59,6 +59,7 @@ class OpenTunnelVpnService : VpnService(), TunnelHost {
 
     private val runner: TunnelRunner? get() = sessions.current()
     private var startupJob: Job? = null
+    private var ownedTicket: Long? = null
     private var ownerWait: Job? = null
     private val mainHandler = Handler(Looper.getMainLooper())
 
@@ -111,16 +112,16 @@ class OpenTunnelVpnService : VpnService(), TunnelHost {
 
     override fun onRevoke() {
         VpnBus.info("VPN permission was revoked by the system")
-        stopTunnel()
-        super.onRevoke()
+        // stopTunnel owns stopSelf after teardown. Discard queued revocations if this instance is destroyed.
+        scope.launch { stopTunnel() }
     }
 
     override fun onDestroy() {
         stopNetworkMonitoring()
         statsJob?.cancel()
-        sessions.cancelStart()
+        if (sessions.cancelStart(ownedTicket)) VpnBus.reset()
         startupJob?.cancel()
-        runner?.requestDisconnect()
+        if (sessions.active(ownedTicket)) runner?.requestDisconnect()
         releaseWakeLock()
         scope.cancel()
         super.onDestroy()
@@ -129,17 +130,20 @@ class OpenTunnelVpnService : VpnService(), TunnelHost {
     // ── lifecycle ──────────────────────────────────────────────────────
 
     private fun startTunnel() {
+        if (sessions.active(ownedTicket)) return
         val ticket = sessions.begin()
         if (ticket == null) {
             // A restarted Android service may inherit a live worker owned by its
             // predecessor. Keep the foreground contract until that lease ends.
             goForeground()
             if (ownerWait?.isActive != true) ownerWait = scope.launch {
-                while (sessions.busy() && isActive) delay(250L)
-                if (isActive) stopSelfSafely()
+                val completion = sessions.awaitIdle()
+                if (sessions.idle(completion)) stopSelfSafely()
             }
             return
         }
+        ownerWait?.cancel()
+        ownedTicket = ticket
         VpnBus.reset()
         VpnBus.setStage(ConnectionStage.PREPARING)
         goForeground()
@@ -170,7 +174,10 @@ class OpenTunnelVpnService : VpnService(), TunnelHost {
                     }
                 }
             } catch (error: CancellationException) {
-                if (sessions.cancelStart(ticket)) stopSelfSafely()
+                if (sessions.cancelStart(ticket)) {
+                    VpnBus.reset()
+                    stopSelfSafely()
+                }
                 throw error
             } catch (error: Exception) {
                 if (sessions.cancelStart(ticket)) {
@@ -189,7 +196,7 @@ class OpenTunnelVpnService : VpnService(), TunnelHost {
     private fun stopTunnel() {
         val tunnel = runner
         if (tunnel == null) {
-            sessions.cancelStart()
+            if (sessions.cancelStart(ownedTicket)) VpnBus.reset()
             startupJob?.cancel()
             stopSelfSafely()
             return

@@ -1,0 +1,5 @@
+[VPN]
+Version=1
+Server=https://vpn.example.test:4443
+Protocol=anyconnect
+Trust=prompt

@@ -1,7 +1,7 @@
 -- SPDX-License-Identifier: GPL-3.0-or-later
 -- Pure policy and rendering shared by service startup and management.
 local M = {}
-M.settings_contract = 1
+M.settings_contract = 2
 
 function M.fail(code) error({ code = code }, 0) end
 function M.require(ok, code) if not ok then M.fail(code) end return ok end
@@ -255,6 +255,27 @@ function M.settings(config, dns, routes)
     s.route_mode = #s.routes == 0 and "all" or "split"
     return s
 end
+-- Shared by the runtime renderer, settings transactions and public profile distribution.
+function M.validate_dns(url, ipv6_pool, addresses)
+    local normalized,host=M.url(url)
+    M.require(url=="" or normalized, "invalid_url")
+    M.require(M.array(addresses,3) and #addresses>=1, "invalid_dns")
+    local endpoint=address_key(host)
+    local dns,seen,has_ipv4={},{},false
+    for _,address in ipairs(addresses) do
+        local number=M.ipv4(address)
+        M.require((number and number>0 and number<3758096384 and math.floor(number/16777216)~=127) or
+            unicast6(ipv6_key(address)), "invalid_dns")
+        local key=address_key(address)
+        M.require(key~=endpoint, "dns_is_endpoint")
+        M.require(not seen[key], "duplicate_dns")
+        seen[key]=true
+        has_ipv4=has_ipv4 or number~=nil
+        dns[#dns+1]={ip=address}
+    end
+    M.require(ipv6_pool~="" or has_ipv4, "ipv4_dns_required")
+    return dns
+end
 function M.validate_settings(input)
     M.require(type(input)=="table", "bad_request")
     local out={}
@@ -288,20 +309,7 @@ function M.validate_settings(input)
     for _, key in ipairs({"server_cert","server_key"}) do
         M.require(out[key]:match("^/[%w%._/%-]+$") and not out[key]:find("/../",1,true) and not out[key]:match("/%.%.$"), "invalid_certificate_path")
     end
-    M.require(out.easy_public_url=="" or M.url(out.easy_public_url), "invalid_url")
-    M.require(M.array(input.dns,3) and #input.dns>=1, "invalid_dns")
-    local dns,seen={},{}
-    local _,endpoint=M.url(out.easy_public_url)
-    endpoint=address_key(endpoint)
-    for _,address in ipairs(input.dns) do
-        local number=M.ipv4(address)
-        M.require((number and number>0 and number<3758096384 and math.floor(number/16777216)~=127) or
-            unicast6(ipv6_key(address)), "invalid_dns")
-        local key=address_key(address)
-        M.require(key~=endpoint, "dns_is_endpoint")
-        M.require(not seen[key], "duplicate_dns"); seen[key]=true
-        dns[#dns+1]={ip=address}
-    end
+    local dns=M.validate_dns(out.easy_public_url,out.ip6addr,input.dns)
     M.require(input.route_mode=="all" or input.route_mode=="split", "invalid_route_mode")
     local routes={}
     if input.route_mode=="split" then

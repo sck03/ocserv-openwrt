@@ -584,9 +584,15 @@
     if (activeTab === "users") renderUsers();
     else if (activeTab === "settings") renderSettings(state, content);
     else if (activeTab === "guard") renderGuard(state, content);
-    else if (activeTab === "maintenance")
+    else if (activeTab === "maintenance") {
+      var restart = mutationButton(t("重启 VPN 服务", "Restart VPN service"), function () {
+        confirm(t("重启 VPN 服务", "Restart VPN service"),
+          t("重启将断开所有活动连接。继续重启？", "Restarting disconnects all active sessions. Continue?"),
+          {action: "service", command: "restart", allow_restart: true});
+      });
+      content.appendChild(element("section", {className: "easy-card"}, [restart]));
       content.appendChild(window.LansyraMaintenance(element, button, t));
-    else renderExport(state, content);
+    } else renderExport(state, content);
     root.querySelectorAll('[role="tab"]').forEach(function (b) {
       var selected = b.dataset.tab === activeTab;
       b.setAttribute("aria-selected", String(selected));
@@ -754,7 +760,7 @@
   function load(preserveDialog) {
     statusRead.cancel();
     return loadRead.run(function (data) {
-      if (data.api_version !== 1 || !data.permissions) throw { code: "interface_mismatch" };
+      if (data.api_version !== 2 || !data.permissions) throw { code: "interface_mismatch" };
       backgroundRefresh = false;
       state = data;
       if (preserveDialog && readerOpen) {

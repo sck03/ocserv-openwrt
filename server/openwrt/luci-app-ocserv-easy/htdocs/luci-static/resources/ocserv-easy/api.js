@@ -25,7 +25,7 @@
             "token=" +
             encodeURIComponent(options.token) +
             "&payload=" +
-            encodeURIComponent(JSON.stringify(Object.assign({}, payload, { api_version: 1 })));
+            encodeURIComponent(JSON.stringify(Object.assign({}, payload, { api_version: 2 })));
         }
         var response = await fetch(options.base + "/" + path, settings);
         var data;

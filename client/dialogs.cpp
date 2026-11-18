@@ -177,7 +177,8 @@ private:
             result.group = utf8(value(ProfileGroup));
             result.ca_file = trim(value(ProfileCA));
             auto pin = utf8(trim(value(ProfilePin)));
-            if (pin != result.server_pin) {
+            if (pin != result.server_pin || SendMessageW(item(ProfilePin), EM_GETMODIFY, 0, 0)) {
+                pin_input_ = ProfileStore::PinInput::Explicit;
                 result.server_pin = pin;
                 result.fixed_pin = !pin.empty();
             }
@@ -290,7 +291,7 @@ private:
                     return 0;
                 std::wstring reason;
                 if (!run_storage(window_, language_, [this](std::wstring &error) {
-                        return store_.save(result, error);
+                        return store_.save(result, error, pin_input_);
                     }, reason)) {
                     error(window_, reason);
                     return 0;
@@ -339,6 +340,7 @@ private:
     ProfileStore &store_;
     Language language_;
     bool advanced_;
+    ProfileStore::PinInput pin_input_ = ProfileStore::PinInput::Inherited;
     std::vector<Protocol> protocols_;
 };
 

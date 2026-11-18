@@ -64,9 +64,7 @@ window.OcservEasyExport = function ({ t, element, field, options, mutationButton
       className: "cbi-button cbi-button-apply",
       text: t("下载 .vpn 连接配置", "Download .vpn profile"),
     });
-    var compatibility = element("p", {className:"easy-notice error", hidden:true,
-      text:t("Android 不支持按域名分配 DNS。请先关闭服务设置中的 DNS 分流，或选择支持该功能的客户端。",
-        "Android cannot select DNS by domain. Disable split DNS on the server or choose a supported client.")});
+    var compatibility = element("p", {className:"easy-notice error", hidden:true});
     var save = mutationButton(
       t("保存客户端设置", "Save client settings"),
       function () {
@@ -81,22 +79,19 @@ window.OcservEasyExport = function ({ t, element, field, options, mutationButton
         });
       },
     );
+    var readOnly = save.disabled;
     function updateDownload() {
       var target = targets.find(function (item) { return item.id === platform.value; });
-      if (!target || !target.modes.includes(trust.value)) { profile.disabled = true; return; }
-      var incompatible = target.split_dns === false && state.settings.split_dns === "1";
-      compatibility.hidden = !incompatible;
-      if (incompatible) { profile.disabled = true; return; }
-      profile.disabled =
-        trust.value === "pin"
-          ? !state.certificates_ready
-          : trust.value === "profile"
-            ? !state.ca_available
-            : false;
+      var reason = target ? target.unavailable : "unsupported_client_profile";
+      compatibility.hidden = !reason;
+      compatibility.textContent = reason ? errorText({code: reason}) : "";
+      var option = trust.selectedOptions[0];
+      profile.disabled = !!reason || !option || option.disabled;
+      save.disabled = readOnly || profile.disabled;
     }
     function selectPlatform() {
       var target = targets.find(function (item) { return item.id === platform.value; });
-      if (!target) { profile.disabled = true; return; }
+      if (!target) { updateDownload(); return; }
       Array.from(trust.options).forEach(function (option) {
         option.disabled = !target.modes.includes(option.value) ||
           (option.value === "pin" && !state.certificates_ready) ||
@@ -160,6 +155,7 @@ window.OcservEasyExport = function ({ t, element, field, options, mutationButton
       );
     form.addEventListener("submit", function (event) {
       event.preventDefault();
+      if (profile.disabled) return;
       download(trust.value, server.value.trim(), platform.value);
     });
     var ca = button(t("下载 ca.pem", "Download ca.pem"), function () {

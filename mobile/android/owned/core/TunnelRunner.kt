@@ -294,7 +294,6 @@ class TunnelRunner(
 
         val domains = buildList {
             ip.domain?.split(' ', ',', '\t')?.let { addAll(it) }
-            addAll(ip.splitDNS.orEmpty())
         }
 
         for (domain in domains.map { it.trim() }.filter { it.isNotEmpty() }.distinct()) {

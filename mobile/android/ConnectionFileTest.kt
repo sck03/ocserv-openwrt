@@ -4,6 +4,14 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class ConnectionFileTest {
+    @Test fun sharedDistributionProfiles() {
+        for (name in listOf("pinned", "prompt", "ambiguous")) {
+            val url = requireNotNull(javaClass.getResource("/public-profiles/$name.vpn.fixture"))
+            val raw = url.readText(Charsets.UTF_8)
+            if (name == "ambiguous") assertThrows(IllegalArgumentException::class.java) { ConnectionFile.parse(raw) }
+            else assertEquals(name == "pinned", ConnectionFile.parse(raw).profile.trustedCertificate.isNotEmpty())
+        }
+    }
     private val pin = "pin-sha256:" + "A".repeat(43) + "="
     @Test fun publicFilesRoundTripWithoutPrivateFields() {
         val encoded = ConnectionFile(VpnProfile(name = "Office", server = "https://vpn.example.com", trustedCertificate = pin,

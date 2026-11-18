@@ -28,7 +28,12 @@ NMConnection *profile_candidate(NMConnection *existing, const std::string &name,
     g_object_set(vpn, NM_SETTING_VPN_SERVICE_TYPE, Service, NM_SETTING_VPN_USER_NAME, username.c_str(), nullptr);
     nm_setting_vpn_add_data_item(vpn, "gateway", server.c_str());
     nm_setting_vpn_add_data_item(vpn, "protocol", "anyconnect");
-    if (ca.empty()) nm_setting_vpn_remove_data_item(vpn, "cacert");
+    if (ca.empty()) {
+        // Only undo our CA policy on the transition from a configured CA.
+        if (nm_setting_vpn_get_data_item(vpn, "cacert"))
+            nm_setting_vpn_remove_data_item(vpn, "prevent_invalid_cert");
+        nm_setting_vpn_remove_data_item(vpn, "cacert");
+    }
     else {
         nm_setting_vpn_add_data_item(vpn, "cacert", ca.c_str());
         nm_setting_vpn_add_data_item(vpn, "prevent_invalid_cert", "yes");

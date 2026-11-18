@@ -45,7 +45,7 @@ jobs:
           for file in server/openwrt/luci-app-ocserv-easy/htdocs/luci-static/resources/ocserv-easy/*.js; do node --check "$file"; done
       - name: Real browser UI, polling and 4096-session regressions
         run: |
-          python tests/server_browser_tests.py
+          python tests/server_browser_tests.py --all-proxies
       - uses: actions/upload-artifact@v7.0.2
         if: always()
         with:
@@ -70,4 +70,4 @@ jobs:
           persist-credentials: false
       - run: |
           swiftc -import-objc-header client/apple/ServerAddress.h -framework Foundation -framework Security client/apple-app/ConnectionFile.swift desktop/macos/App/ProfilePersistence.swift tests/apple_storage_tests.swift -o /tmp/apple-storage-tests
-          /tmp/apple-storage-tests
+          /tmp/apple-storage-tests client/tests/public-profiles

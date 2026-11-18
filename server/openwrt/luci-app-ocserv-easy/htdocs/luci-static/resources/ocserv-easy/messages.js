@@ -7,7 +7,9 @@
       unsupported_client_profile: t("目标客户端不支持所选证书方式，请重新选择客户端和导出方式。", "The target client does not support this certificate method."),
       split_dns_requires_domain: t("启用 DNS 分流前请填写默认域名。", "Enter a default domain before enabling split DNS."),
       invalid_certificate_path: t("请填写有效的证书和私钥绝对路径。", "Enter valid absolute certificate and private key paths."),
-      unsupported_client_dns: t("此客户端不支持 DNS 分流，请调整服务设置或选择其他客户端。", "This client does not support split DNS."),
+      unsupported_client_dns: t("Android 不支持 DNS 分流。请关闭 DNS 分流，或先保存其他目标客户端。", "Disable split DNS or save a target client other than Android first."),
+      ipv4_dns_required: t("仅配置 IPv4 地址池时，至少需要一个 IPv4 DNS 服务器。", "An IPv4-only tunnel needs at least one IPv4 DNS server."),
+      pin_unavailable: t("无法读取唯一的服务端证书公钥指纹，请检查证书或虚拟主机配置。", "Cannot determine a single server public-key pin. Check the certificate and virtual hosts."),
       file_too_large: t(
         "配置超过大小上限，原配置已保留。请减少配置内容后重试。",
         "The configuration exceeds its size limit. Previous settings were preserved.",

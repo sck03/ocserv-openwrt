@@ -96,7 +96,8 @@ public:
     bool load(std::vector<Profile> &profiles, Preferences &preferences, std::wstring &error) const;
     bool load_metadata(std::vector<Profile> &profiles, Preferences &preferences, std::wstring &error) const;
     static void unlock(Profile &profile);
-    bool save(Profile &profile, std::wstring &error);
+    enum class PinInput { Inherited, Explicit };
+    bool save(Profile &profile, std::wstring &error, PinInput pin_input = PinInput::Inherited);
     bool remove(const std::string &id, std::wstring &error);
     bool save_preferences(const Preferences &preferences, std::wstring &error);
     bool update_secrets(const std::string &id, const std::wstring &gateway,

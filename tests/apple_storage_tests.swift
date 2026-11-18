@@ -3,6 +3,12 @@ import Foundation
 @main
 struct StorageTests {
     static func main() throws {
+        precondition(CommandLine.arguments.count == 2, "Expected the public profile fixture directory")
+        let corpus = URL(fileURLWithPath: CommandLine.arguments[1], isDirectory: true)
+        for name in ["pinned", "prompt", "ambiguous"] {
+            let bytes = try Data(contentsOf: corpus.appendingPathComponent(name + ".vpn.fixture"))
+            precondition(((try? PublicConnection.parse(bytes)) != nil) == (name == "pinned"))
+        }
         let pin = "pin-sha256:" + Data(repeating: 0, count: 32).base64EncodedString()
         let valid = VPNProfile(name: "Fixture", server: "https://vpn.example.com", username: "fixture", pin: pin)
         let data = try ProfileFile.encoded([valid])

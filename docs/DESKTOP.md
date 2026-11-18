@@ -40,6 +40,8 @@ bash scripts/build-macos.sh unsigned
 
 ## Linux
 
+从指定 CA 切换到首次确认时，保存操作会同时清除旧 CA 路径及该模式设置的强制校验标志。后续连接由 NetworkManager 的 OpenConnect 认证助手按当前配置处理证书。
+
 按实际 CPU 下载并全新安装对应包：
 
 ```sh

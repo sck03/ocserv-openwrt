@@ -2,6 +2,12 @@
 
 本页记录岚序（Lansyra）全新安装版本的验证证据与实机边界。以前的打包和系统升级记录见[历史版本](https://github.com/sck03/ocserv-openwrt/blob/ba903fe/docs/VALIDATION.md)。
 
+## 2026-11-18 管理接口 v2 与客户端配置回归
+
+管理页 0.8.2-r1 与 ocserv 1.6.0-r5 使用设置契约 2。Lua 5.1 服务端回归通过 134 项，隔离事务通过 107 项。固定指纹与首次确认两种实际导出逐字节匹配共享样例。缺少 CA、无法读取 Pin、入口与 DNS 冲突以及 Android 与 DNS 分流不兼容的保存请求都保留原修订号。
+
+Chrome 在 OpenClash、Nikki、Momo 三个独立模拟后端各通过 25 项页面检查，4096 会话列表通过 20 项，轮询通过 32 项。Windows 原生配置测试通过 99 项，Android 会话所有权 JUnit 通过 4 项。此版本的真机连接、吞吐、内存和耗电仍待设备验证。下一节的 N1 记录对应上一套包。
+
 ## 2026-11-18 N1 原生启动、卸载与 Nikki 实机验收
 
 管理页为 **0.8.1-r1**，ocserv 为 **1.6.0-r4**。核心修复提交 [`14d60ca`](https://github.com/sck03/ocserv-openwrt/commit/14d60ca)，补齐套装文档及实机隔离检查的提交为 [`f03b0d0`](https://github.com/sck03/ocserv-openwrt/commit/f03b0d0)。测试设备为 Phicomm N1，OPL/Flippy OpenWrt 25.12-SNAPSHOT、aarch64_generic、Linux 6.12.66；使用局域网 SSH 和已登录的 LuCI HTTP 接口。

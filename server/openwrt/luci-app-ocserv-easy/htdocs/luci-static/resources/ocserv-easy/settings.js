@@ -111,8 +111,8 @@ window.OcservEasySettings = function ({ t, element, field, array, writable, erro
         t("DNS 服务器", "DNS servers"),
         dns,
         t(
-          "每行一个 IP；使用本机 DNS 时填写隧道地址，例如 10.77.0.1。",
-          "One IP per line. For DNS on this router, use its tunnel address, such as 10.77.0.1.",
+          "每行一个 IP。仅启用 IPv4 时至少填写一个 IPv4 DNS。使用本机 DNS 时填写隧道地址，例如 10.77.0.1。",
+          "One IP per line. An IPv4-only pool needs at least one IPv4 DNS server. For DNS on this router, use its tunnel address, such as 10.77.0.1.",
         ),
       ),
       field(t("流量路由方式", "Traffic routing"), routeMode),

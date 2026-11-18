@@ -11,7 +11,8 @@
 - Apple `RouteSettings` 负责双栈路由与 DNS，`apple-app/ConnectionFile` 供 iOS/macOS 共用，不持有会话状态。
 - Android `HotpCounter` 在生成验证码前预留下次计数；`SpeedHistory` 管理有界、带会话归属的时间序列，`MainPagerScreen` 在图表页面订阅快照。
 - Android `Strings` 集中维护中文、英文和波斯文；配置选择保存在配置所属 DataStore，与删除在同一事务提交。
-- 服务端 `client_profile` 统一导出能力，`package_version` 缓存安装包元数据；HTTP 权限与接口版本由控制器发布和校验。
+- 服务端 `logic.validate_dns` 管理地址族及入口冲突规则。`client_profile` 负责目标能力、不可用原因和公共文件编码，后端在保存和下载时读取所选信任材料。LuCI 根据快照渲染按钮和错误原因。`package_version` 缓存安装包元数据。
+- 服务端导出与 Windows、Linux、Apple、Android 导入测试共用 `client/tests/public-profiles`。样例覆盖固定指纹、首次确认和冲突的信任字段。新增证书方式时应同步更新平台能力与导入测试。
 
 | 模块 | 负责内容 | 边界 |
 |---|---|---|

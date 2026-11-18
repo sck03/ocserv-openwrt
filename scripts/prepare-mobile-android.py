@@ -74,6 +74,7 @@ def prepare(app, root):
             target.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(root / "mobile/android" / f"{name}{suffix}.kt", target)
     owned = root / "mobile/android/owned"
+    shutil.copytree(root / "client/tests/public-profiles", app / "app/src/test/resources/public-profiles", dirs_exist_ok=True)
     for path in sorted(owned.rglob("*.kt")):
         target = app / "app/src/main/java/dev/opentunnel/vpn" / path.relative_to(owned)
         target.parent.mkdir(parents=True, exist_ok=True)

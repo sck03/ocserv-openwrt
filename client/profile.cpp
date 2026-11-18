@@ -307,7 +307,7 @@ bool ProfileStore::update(
         prune_certificates(profiles);
     return true;
 }
-bool ProfileStore::save(Profile &profile, std::wstring &error) {
+bool ProfileStore::save(Profile &profile, std::wstring &error, PinInput pin_input) {
     if (!validate_profile(profile, error))
         return false;
     if (profile.id.empty())
@@ -336,8 +336,10 @@ bool ProfileStore::save(Profile &profile, std::wstring &error) {
                         profile.token_blob.clear();
                         profile.username.clear();
                         profile.group.clear();
-                        profile.server_pin.clear();
-                        profile.fixed_pin = false;
+                        if (pin_input != PinInput::Explicit || !profile.fixed_pin) {
+                            profile.server_pin.clear();
+                            profile.fixed_pin = false;
+                        }
                         profile.secret_unavailable = false;
                     }
                     existing = profile;

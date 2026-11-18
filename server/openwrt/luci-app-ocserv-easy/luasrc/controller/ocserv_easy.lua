@@ -66,15 +66,13 @@ function action()
         logic.require(type(raw)=="string" and #raw<=65536,"bad_request")
         logic.require(not logic.json_has_null(raw),"bad_request")
         local request=require("luci.jsonc").parse(raw)
-        logic.require(type(request)=="table" and request.api_version==1,"interface_mismatch")
-        if type(request)=="table" then
-            local packages=request.action=="guard" and {"firewall","dhcp"} or request.action=="settings" and {"firewall"} or {}
-            if request.action=="guard" then
-                for _,name in ipairs(require("luci.model.ocserv_easy.proxy_registry").names(true)) do packages[#packages+1]=name end
-            end
-            for _,package in ipairs(packages) do
-                logic.require(can_write(package),"forbidden")
-            end
+        logic.require(type(request)=="table" and request.api_version==2,"interface_mismatch")
+        local packages=request.action=="guard" and {"firewall","dhcp"} or request.action=="settings" and {"firewall"} or {}
+        if request.action=="guard" then
+            for _,name in ipairs(require("luci.model.ocserv_easy.proxy_registry").names(true)) do packages[#packages+1]=name end
+        end
+        for _,package in ipairs(packages) do
+            logic.require(can_write(package),"forbidden")
         end
         return require("luci.model.ocserv_easy.backend").action(request,require("luci.http").getenv("REMOTE_ADDR"))
     end)

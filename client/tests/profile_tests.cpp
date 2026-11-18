@@ -16,14 +16,24 @@ void check(bool result, const char *message) {
 }
 } // namespace
 int main(int argc, char **argv) {
-    if (argc != 2) {
-        std::cerr << "A dedicated fixture directory is required\n";
+    if (argc != 3) {
+        std::cerr << "Supply a temporary directory and the public-profile corpus\n";
         return 2;
     }
     const auto root = std::filesystem::absolute(argv[1]) / wide(random_id());
     std::filesystem::create_directories(root);
     try {
         std::wstring error, normalized, origin;
+        {
+            ProfileStore imports(root / L"corpus");
+            Profile imported;
+            const std::filesystem::path corpus(argv[2]);
+            check(imports.import_connection(corpus / "pinned.vpn.fixture", imported, error) && imported.fixed_pin,
+                  "shared pinned profile");
+            check(imports.import_connection(corpus / "prompt.vpn.fixture", imported, error) && imported.server_pin.empty(),
+                  "shared first-connection profile");
+            check(!imports.import_connection(corpus / "ambiguous.vpn.fixture", imported, error), "shared ambiguous policy");
+        }
         check(normalize_gateway(L"192.168.19.253:4443", normalized, &origin) &&
                   normalized == L"https://192.168.19.253:4443",
               "plain gateway normalization");
@@ -288,6 +298,16 @@ int main(int argc, char **argv) {
         first = profiles.front();
         first.gateway = L"different.example.com";
         check(store.save(first, error) && first.password.empty(), "changed gateway clears saved password");
+        const auto explicit_pin = "pin-sha256:" + std::string(43, 'A') + "=";
+        first.gateway = L"new-pinned.example.com";
+        first.server_pin = explicit_pin;
+        first.fixed_pin = true;
+        check(store.save(first, error, ProfileStore::PinInput::Explicit) && store.load(profiles, preferences, error) &&
+                  profiles.front().fixed_pin && profiles.front().server_pin == explicit_pin,
+              "explicit pin for replacement gateway survives reopening");
+        first.gateway = L"other.example.com";
+        check(store.save(first, error) && !first.fixed_pin && first.server_pin.empty(),
+              "changing gateway without an explicit pin clears inherited trust");
         auto path = store.directory() / L"profiles.json";
         check(write_atomic(path, "{invalid fixture JSON", error), "write corrupt fixture");
         check(!store.load(profiles, preferences, error) && store.save_preferences(preferences, error),

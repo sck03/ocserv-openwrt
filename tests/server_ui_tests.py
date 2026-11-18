@@ -168,8 +168,24 @@ with sync_playwright() as pw:
         page.get_by_label('目标客户端', exact=True).select_option('linux')
         expect(page.get_by_label('证书验证方式', exact=True)).to_have_value('profile')
         expect(page.locator('option[value="pin"]')).to_be_disabled()
-        page.get_by_label('目标客户端', exact=True).select_option('windows')
         checks.append('export methods follow target client capabilities without an unpinned fallback')
+        def split_dns_targets(route):
+            response=route.fetch(); payload=response.json()
+            for target in payload['data']['client_targets']:
+                if target['id']=='android': target['unavailable']='unsupported_client_dns'
+            route.fulfill(response=response,json=payload)
+        page.route('**/easy/data',split_dns_targets)
+        page.get_by_role('button',name='刷新',exact=True).click()
+        # Wait for the refreshed form. Editing the old form intentionally cancels its pending read.
+        expect(page.get_by_label('目标客户端',exact=True)).to_have_value('windows')
+        page.get_by_label('目标客户端',exact=True).select_option('android')
+        for label in ('保存客户端设置','下载 .vpn 连接配置'):
+            expect(page.get_by_role('button',name=label,exact=True)).to_be_disabled()
+        expect(page.get_by_text('Android 不支持 DNS 分流。',exact=False)).to_be_visible()
+        page.get_by_label('目标客户端',exact=True).select_option('windows')
+        expect(page.get_by_role('button',name='保存客户端设置',exact=True)).to_be_enabled()
+        page.unroute('**/easy/data',split_dns_targets)
+        checks.append('save and download follow the server platform availability reason')
         def missing_certificates(route):
             response=route.fetch()
             payload=response.json()
@@ -191,6 +207,14 @@ with sync_playwright() as pw:
         assert page.evaluate('document.documentElement.scrollWidth <= window.innerWidth + 1')
         checks.append('mobile layout fits the viewport')
         page.get_by_role('tab',name='系统维护',exact=True).click()
+        page.get_by_role('button',name='重启 VPN 服务',exact=True).click()
+        expect(page.get_by_role('dialog')).to_be_visible()
+        page.get_by_role('button',name='取消',exact=True).click()
+        expect(page.get_by_role('dialog')).to_have_count(0)
+        page.get_by_role('button',name='重启 VPN 服务',exact=True).click()
+        page.get_by_role('button',name='确认',exact=True).click()
+        expect(page.get_by_role('dialog')).to_have_count(0)
+        checks.append('maintenance restart requires confirmation and refreshes the service state')
         expect(page.get_by_label('卸载命令',exact=True)).to_have_value('lansyra-uninstall --yes')
         page.evaluate("Object.defineProperty(navigator,'clipboard',{configurable:true,value:{writeText:async()=>{throw Error('denied')}}})")
         page.get_by_role('button',name='复制卸载命令',exact=True).click()
@@ -214,6 +238,14 @@ with sync_playwright() as pw:
         page.get_by_role('tab',name='Maintenance',exact=True).click()
         expect(page.get_by_label('Uninstall command',exact=True)).to_have_value('lansyra-uninstall --yes')
         checks.append('maintenance instructions render in English')
+        def read_only(route):
+            response=route.fetch(); payload=response.json()
+            payload['data']['permissions']['write']=False
+            route.fulfill(response=response,json=payload)
+        page.route('**/easy/data',read_only)
+        page.get_by_role('button',name='Refresh',exact=True).click()
+        expect(page.get_by_role('button',name='Restart VPN service',exact=True)).to_be_disabled()
+        checks.append('read-only maintenance cannot restart the service')
     finally:
         page.screenshot(path=str(args.output/'last-state.png'),full_page=True)
         browser.close()

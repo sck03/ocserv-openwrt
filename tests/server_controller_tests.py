@@ -11,7 +11,7 @@ lua.execute('package.preload[...] = assert(loadstring(select(2,...)))',
 lua.execute('package.preload[...] = assert(loadstring(select(2,...)))',
             "luci.model.ocserv_easy.proxy_registry", (model / "proxy_registry.lua").read_text(encoding="utf-8"))
 lua.execute('''
-permissions={ocserv=true}; payload={action="settings",api_version=1}; raw="fixture"; calls=0
+permissions={ocserv=true}; payload={action="settings",api_version=2}; raw="fixture"; calls=0
 package.loaded["luci.dispatcher"]={context={authsession="fixture"}}
 package.loaded["luci.util"]={ubus=function(_,_,request)return {access=permissions[request.object]==true}end}
 package.loaded["luci.http"]={
@@ -41,7 +41,7 @@ raw='{"settings":{"routes":["192.168.19.0/24",null]}}'
 action();assert(reply.error=="bad_request" and calls==2)
 raw='{"password":"null","enabled":false}'
 action();assert(reply.ok and calls==3)
-payload.api_version=2;action();assert(reply.error=="interface_mismatch" and calls==3)
+payload.api_version=1;action();assert(reply.error=="interface_mismatch" and calls==3)
 payload.api_version=nil;action();assert(reply.error=="interface_mismatch" and calls==3)
 ''')
 print(json.dumps({"passed": 13, "boundary": "Actual LuCI controller; simulated session ACL and backend"}))
