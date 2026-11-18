@@ -40,6 +40,8 @@ jobs:
           "$RUNNER_TEMP/mobile-protocol-tests"
           clang -Wall -Wextra -Werror -fobjc-arc -framework Foundation tests/ios_connection_tests.m client/apple/NetworkSettingsOperation.m -o "$RUNNER_TEMP/ios-connection-tests"
           "$RUNNER_TEMP/ios-connection-tests"
+          clang -Wall -Wextra -Werror -fobjc-arc -framework Foundation -framework NetworkExtension tests/apple_route_tests.m client/apple/RouteSettings.m -o "$RUNNER_TEMP/apple-route-tests"
+          "$RUNNER_TEMP/apple-route-tests"
           bash -n scripts/build-apple-core.sh scripts/build-ios.sh
           xcodebuild -version
       - uses: actions/cache@v6.1.0

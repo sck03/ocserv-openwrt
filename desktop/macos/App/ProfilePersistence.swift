@@ -56,18 +56,8 @@ actor ProfileRepository {
     }
 
     func importProfile(_ url: URL) throws -> VPNProfile {
-        let data = try ProfileFile.readData(url, limit: 65536)
-        guard let text = String(data: data, encoding: .utf8) else { throw ClientError.invalidProfile }
-        var values: [String: String] = [:]
-        var section = false
-        for line in text.components(separatedBy: .newlines) {
-            if line.hasPrefix("[") { section = line == "[VPN]"; continue }
-            let pair = line.split(separator: "=", maxSplits: 1, omittingEmptySubsequences: false)
-            if section && pair.count == 2 { values[String(pair[0])] = String(pair[1]) }
-        }
-        guard values["Protocol", default: "anyconnect"] == "anyconnect" else { throw ClientError.invalidProfile }
-        return VPNProfile(name: values["Name"] ?? url.deletingPathExtension().lastPathComponent,
-                          server: values["Server"] ?? "", username: "", pin: values["ServerPin"] ?? "")
+        let value = try PublicConnection.read(url)
+        return VPNProfile(name: value.name, server: value.server, username: "", pin: value.pin)
     }
 }
 enum ClientError: LocalizedError {
@@ -88,6 +78,13 @@ struct ProfileFile: Codable {
     static let maxBytes = 1_048_576
     var schema = 2
     var profiles: [VPNProfile]
+
+    static func upsert(_ profile: VPNProfile, in profiles: [VPNProfile]) -> [VPNProfile] {
+        var values = profiles
+        if let index = values.firstIndex(where: { $0.id == profile.id }) { values[index] = profile }
+        else { values.append(profile) }
+        return values
+    }
 
     static func update(_ values: [VPNProfile], previous: [VPNProfile], credentialID: String, credential: String,
                        readCredential: (String) throws -> String,

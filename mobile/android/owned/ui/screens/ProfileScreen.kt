@@ -89,12 +89,11 @@ private val PROTOCOLS = listOf(
     "array" to "Array Networks",
 )
 
-private val SOFTWARE_TOKENS = listOf(
-    "0" to "Disabled",
-    "1" to "RSA SecurID (stoken)",
-    "2" to "TOTP (Google Auth, etc.)",
-    "3" to "HOTP (Counter-based)",
-)
+private val SOFTWARE_TOKENS by lazy {
+    listOf("0" to "Disabled") + if (dev.opentunnel.vpn.core.NativeLibrary.isAvailable &&
+        org.infradead.libopenconnect.LibOpenConnect.hasOATHSupport())
+        listOf("2" to "TOTP", "3" to "HOTP") else emptyList()
+}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -110,6 +109,7 @@ fun ProfileScreen(
     val lang = appLanguage
     val context = LocalContext.current
     var draft by remember(profile.id) { mutableStateOf(profile) }
+    var dnsText by remember(profile.id) { mutableStateOf(profile.customDnsServers.joinToString("\n")) }
     var baseline by remember(profile.id) { mutableStateOf(profile) }
     var busy by remember(profile.id) { mutableStateOf(false) }
     var operationError by remember(profile.id) { mutableStateOf<String?>(null) }
@@ -128,8 +128,9 @@ fun ProfileScreen(
     val serverError = draft.server.trim().isBlank()
     val mtuError = draft.mtu > 0 && draft.mtu !in 576..1500
     val dpdError = draft.overrideDpdTimeout && draft.dpdSeconds !in 1..86400
+    val dnsError = draft.customDnsServers.size > 3 || draft.customDnsServers.any { !dev.opentunnel.vpn.util.Net.isValidIp(it) }
 
-    val isFormValid = !nameError && !serverError && !mtuError && !dpdError
+    val isFormValid = !nameError && !serverError && !mtuError && !dpdError && !dnsError
 
     val handleSaveAndExit = {
         triedSaving = true
@@ -170,7 +171,7 @@ fun ProfileScreen(
     BackHandler(onBack = handleBackNavigation)
 
     val caCertLauncher = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
-        uri?.let { draft = draft.copy(caCertPath = it.toString()) }
+        uri?.let { draft = draft.copy(caCertPath = it.toString(), trustedCertificate = "") }
     }
     val userCertLauncher = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
         uri?.let { draft = draft.copy(userCertPath = it.toString()) }
@@ -410,6 +411,15 @@ fun ProfileScreen(
                                 Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
                                 verticalArrangement = Arrangement.spacedBy(14.dp),
                             ) {
+                                OutlinedTextField(
+                                    value = dnsText,
+                                    enabled = !busy,
+                                    onValueChange = { text -> dnsText = text; draft = draft.copy(customDnsServers = text.lines().map(String::trim).filter(String::isNotEmpty)) },
+                                    isError = triedSaving && dnsError,
+                                    label = { Text("自定义 DNS / Custom DNS") },
+                                    supportingText = { Text("每行一个 IP，最多三个；留空使用服务器设置。 / Up to three IPs; blank uses the gateway.") },
+                                    modifier = Modifier.fillMaxWidth(),
+                                )
                                 NumberField(
                                     label = "MTU override (576 - 1500)",
                                     enabled = !busy,
@@ -487,6 +497,17 @@ fun ProfileScreen(
                         }
                     }
 
+                    SectionCard(title = "服务器公钥指纹 / Server pin") {
+                        OutlinedTextField(
+                            value = draft.trustedCertificate,
+                            enabled = !busy,
+                            singleLine = true,
+                            onValueChange = { pin -> draft = draft.copy(trustedCertificate = pin.trim(), caCertPath = if (pin.isBlank()) draft.caCertPath else "") },
+                            label = { Text("pin-sha256:…") },
+                            supportingText = { Text("填写管理员核实的指纹；指定 CA 或指纹校验失败会拒绝连接。 / Verify the pin with your administrator.") },
+                            modifier = Modifier.padding(16.dp).fillMaxWidth(),
+                        )
+                    }
                     if (draft.trustedCertificate.isNotBlank()) {
                         SectionCard(title = "Pinned Certificate") {
                             Column(Modifier.padding(16.dp)) {

@@ -41,9 +41,16 @@ local function response(operation)
 end
 function page()
     require("luci.http").header("Cache-Control","no-store")
-    require("luci.template").render("ocserv_easy/index",{writable=can_write(),firewall_writable=can_write("firewall")})
+    require("luci.template").render("ocserv_easy/index")
 end
-function data() response(function() return require("luci.model.ocserv_easy.backend").data(require("luci.http").getenv("REMOTE_ADDR")) end) end
+function data() response(function()
+    local write=can_write()
+    local settings=write and can_write("firewall")
+    local guard=settings and can_write("dhcp")
+    for _,name in ipairs(require("luci.model.ocserv_easy.proxy_registry").names(true)) do guard=guard and can_write(name) end
+    return require("luci.model.ocserv_easy.backend").data(require("luci.http").getenv("REMOTE_ADDR"),
+        {write=write,settings=settings,guard=guard})
+end) end
 function guard_log() response(function() return require("luci.model.ocserv_easy.guard_log").read() end) end
 function proxy_status() response(function() return require("luci.model.ocserv_easy.backend").proxy_status() end) end
 function status() response(function()
@@ -59,6 +66,7 @@ function action()
         logic.require(type(raw)=="string" and #raw<=65536,"bad_request")
         logic.require(not logic.json_has_null(raw),"bad_request")
         local request=require("luci.jsonc").parse(raw)
+        logic.require(type(request)=="table" and request.api_version==1,"interface_mismatch")
         if type(request)=="table" then
             local packages=request.action=="guard" and {"firewall","dhcp"} or request.action=="settings" and {"firewall"} or {}
             if request.action=="guard" then
@@ -74,7 +82,7 @@ end
 function download()
     local http=require "luci.http"
     local ok,content,filename=pcall(function()
-        return require("luci.model.ocserv_easy.backend").export(http.formvalue("kind"),http.formvalue("server"))
+        return require("luci.model.ocserv_easy.backend").export(http.formvalue("kind"),http.formvalue("server"),http.formvalue("platform"))
     end)
     http.header("Cache-Control","no-store")
     http.header("X-Content-Type-Options","nosniff")

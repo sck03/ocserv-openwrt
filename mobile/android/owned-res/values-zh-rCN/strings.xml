@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">岚序 Lansyra</string>
+    <string name="channel_status">VPN 连接状态</string>
+    <string name="channel_status_desc">VPN 运行时的持续通知</string>
+    <string name="channel_alerts">需要处理</string>
+    <string name="channel_alerts_desc">认证、证书确认和连接错误</string>
+    <string name="notif_connecting">正在连接…</string>
+    <string name="notif_connected">VPN 已连接</string>
+    <string name="notif_reconnecting">正在重连…</string>
+    <string name="notif_disconnecting">正在断开…</string>
+    <string name="notif_error">VPN 已断开</string>
+    <string name="notif_action_required">岚序 Lansyra 需要处理</string>
+    <string name="action_disconnect">断开</string>
+    <string name="state_connected">已连接</string>
+    <string name="state_connecting">正在连接</string>
+    <string name="state_disconnected">未连接</string>
+    <string name="state_error">连接失败</string>
+    <string name="widget_description">岚序 Lansyra 快速连接</string>
+    <string name="widget_2x2_desc">岚序 Lansyra 紧凑小组件</string>
+    <string name="widget_3x2_desc">岚序 Lansyra 连接信息卡片</string>
+    <string name="widget_4x1_desc">岚序 Lansyra 横向状态条</string>
+    <string name="widget_orb_desc">连接状态，点击打开应用</string>
+    <string name="widget_status_disconnected">未连接</string>
+    <string name="widget_status_connecting">正在连接…</string>
+    <string name="widget_status_connected">已连接</string>
+    <string name="widget_btn_connect">连接</string>
+    <string name="widget_btn_disconnect">断开</string>
+    <string name="widget_btn_cancel">取消</string>
+</resources>

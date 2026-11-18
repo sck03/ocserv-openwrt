@@ -549,7 +549,7 @@ void Application::command(int id) {
         else
             reload(value.id);
     } else if (id == ExportProfile && profile) {
-        auto path = choose_file(window_, true, ProfileFilter, L"vpn", profile->name + L".vpn");
+        auto path = choose_file(window_, true, ProfileFilter, L"vpn", profile_file_name(profile->name));
         if (!path)
             return;
         std::wstring reason;

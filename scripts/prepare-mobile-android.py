@@ -30,9 +30,8 @@ def prepare(app, root):
                            'android:text="@string/app_name"'), encoding="utf-8")
     # These visible names bypass Android string resources in the pinned upstream.
     source = app / "app/src/main/java/dev/opentunnel/vpn"
+    (source / "util/LocationResolver.kt").unlink()
     for file, replacements in {
-        "util/Strings.kt": [('"OpenTunnel"', '"岚序 Lansyra"')],
-        "ui/screens/SettingsScreen.kt": [('append("OpenTunnel ', 'append("岚序 Lansyra ')],
         "ui/screens/LogScreen.kt": [('OpenTunnel log', '岚序 Lansyra log')],
     }.items():
         path = source / file
@@ -68,8 +67,8 @@ def prepare(app, root):
         shutil.copy2(root / "mobile/android" / source, target)
 
     for name in ("SessionOwner", "SessionControl", "PromptWait", "DiagnosticLog", "ProfilePolicy", "ProfileCodec",
-                 "CertificateFiles", "AppRoutingPolicy"):
-        package = "data" if name.startswith("Profile") or name == "CertificateFiles" else "core"
+                 "CertificateFiles", "ConnectionFile", "AppRoutingPolicy", "HotpCounter", "SpeedHistory"):
+        package = "data" if name.startswith("Profile") or name in ("CertificateFiles", "ConnectionFile") else "core"
         for suffix, directory in (("", "main"), ("Test", "test")):
             target = app / f"app/src/{directory}/java/dev/opentunnel/vpn/{package}/{name}{suffix}.kt"
             target.parent.mkdir(parents=True, exist_ok=True)
@@ -79,5 +78,11 @@ def prepare(app, root):
         target = app / "app/src/main/java/dev/opentunnel/vpn" / path.relative_to(owned)
         target.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(path, target)
+    owned_resources = root / "mobile/android/owned-res"
+    for path in sorted(owned_resources.rglob("*")):
+        if path.is_file():
+            target = resources / path.relative_to(owned_resources)
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(path, target)
     shutil.copy2(root / "mobile/android/AppTrafficCollector.kt", app / "app/src/main/java/dev/opentunnel/vpn/core/AppTrafficCollector.kt")
     shutil.copy2(root / "mobile/android/AppTrafficCollectorTest.kt", app / "app/src/test/java/dev/opentunnel/vpn/AppTrafficCollectorTest.kt")

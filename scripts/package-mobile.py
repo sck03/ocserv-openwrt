@@ -17,8 +17,8 @@ def package(platform):
         raise ValueError("Package mobile sources from a Git checkout to exclude signing files")
     directories = {
         "android": ("mobile/android",),
-        "ios": ("mobile/ios", "client/apple"),
-        "macos": ("desktop/macos", "client/apple", "resources"),
+        "ios": ("mobile/ios", "client/apple", "client/apple-app"),
+        "macos": ("desktop/macos", "client/apple", "client/apple-app", "resources"),
     }[platform]
     scripts = (
         "build_common.py", "source-directory.py", "mobile-sources.py", "package-mobile.py", "ios-signing.py",
@@ -28,8 +28,8 @@ def package(platform):
     )
     paths = source_files(ROOT, directories, (
         "mobile/sources.json",
-        "LICENSE", "README.md", "THIRD-PARTY-NOTICES.md", "docs/MOBILE.md", "docs/DESKTOP.md",
-        "tests/mobile_build_tests.py", "tests/mobile_protocol_tests.c", "tests/ios_connection_tests.m", "tests/apple_storage_tests.swift",
+        "LICENSE", "README.md", "THIRD-PARTY-NOTICES.md", "docs/MOBILE.md", "docs/DESKTOP.md", "docs/CONNECTION-PROFILE.md",
+        "tests/mobile_build_tests.py", "tests/mobile_protocol_tests.c", "tests/ios_connection_tests.m", "tests/apple_storage_tests.swift", "tests/apple_route_tests.m",
         ".github/workflows/build-" + ("desktop" if platform == "macos" else platform) + ".yml",
         *("scripts/" + name for name in scripts),
     ))

@@ -1,4 +1,4 @@
-add_library(client_model STATIC platform.cpp profile.cpp preferences.cpp preferences_writer.cpp diagnostics.cpp network_policy.cpp route_coverage.cpp)
+add_library(client_model STATIC platform.cpp profile.cpp preferences.cpp preferences_writer.cpp diagnostics.cpp network_policy.cpp route_coverage.cpp system_proxy.cpp)
 target_include_directories(client_model PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}" "${VPN_GENERATED_DIR}")
 target_compile_definitions(client_model PUBLIC
     UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX WINVER=0x0A00 _WIN32_WINNT=0x0A00
@@ -37,6 +37,14 @@ configure_file("${PROJECT_SOURCE_DIR}/.deps/sources/wintun/bin/${WINTUN_ARCH}/wi
                "${CMAKE_BINARY_DIR}/wintun.dll" COPYONLY)
 configure_file(vendor/vpnc-script-win.js "${CMAKE_BINARY_DIR}/vpnc-script-win.js" COPYONLY)
 if(BUILD_TESTING)
+    add_executable(native_dpi_tests tests/dpi_tests.cpp)
+    target_link_libraries(native_dpi_tests PRIVATE client_ui)
+    set_target_properties(native_dpi_tests PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}")
+    add_test(NAME native_dpi COMMAND native_dpi_tests)
+    add_executable(native_proxy_tests tests/proxy_tests.cpp)
+    target_link_libraries(native_proxy_tests PRIVATE client_model)
+    set_target_properties(native_proxy_tests PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}")
+    add_test(NAME native_proxy COMMAND native_proxy_tests)
     add_executable(route_coverage_tests tests/route_coverage_tests.cpp route_coverage.cpp)
     target_include_directories(route_coverage_tests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
     add_test(NAME route_coverage COMMAND route_coverage_tests)

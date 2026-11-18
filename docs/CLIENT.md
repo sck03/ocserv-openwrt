@@ -58,16 +58,18 @@
 
 ~~~ini
 [VPN]
+Version=1
 Name=公司 VPN
 Server=https://vpn.example.com:4443/group
 Protocol=anyconnect
-PreferUDP=1
-ReconnectSeconds=300
+Trust=prompt
 ~~~
 
-可选字段为 AuthGroup、ServerPin 或 CABase64。只接受完整公钥 SHA-256 指纹及可解析的公共证书，拒绝私钥、无效编码、无效 UDP/重连选项和非 HTTPS 地址。
+`Trust` 为 `pin`、`ca` 或 `prompt`，分别使用 ServerPin、CABase64 或首次连接确认。重复、未知字段及旧版无版本号文件直接拒绝。公共文件最大 128 KiB，内嵌 CA 最大 64 KiB；详见[公共配置契约](CONNECTION-PROFILE.md)。
 
-**配置 → 导出配置** 导出所选名称、地址、协议、分组、UDP、重连及指纹或公共 CA，不包含用户名、密码、令牌、私钥和本地脚本。服务端管理页生成的 .vpn 也可导入。
+**配置 → 导出配置** 导出名称、地址、协议及证书策略，不包含用户名、密码、令牌、私钥和本地脚本。分组、UDP 和重连等私有选项在本机管理。指定 CA 与指纹互斥；服务端管理页选择 Windows 后生成的 `.vpn` 可直接导入。
+
+系统代理设置会应用绕过列表，包括 `<local>`、通配符、端口和 IPv6 地址。窗口按显示器 DPI 更新字体与控件，保留逻辑布局坐标，反复移动窗口不会累积缩放误差。
 
 偏好文件最大 16 KiB，保存偏好不读写最大 8 MiB 的配置文件。删除配置后，读取时会校正失效的选中/自动连接引用，连接前仍验证目标配置。
 

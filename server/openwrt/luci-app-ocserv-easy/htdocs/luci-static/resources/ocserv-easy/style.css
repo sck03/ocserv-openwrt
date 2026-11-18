@@ -77,3 +77,15 @@
 #ocserv-easy .easy-command { display:flex; flex-wrap:wrap; gap:10px; padding:14px; border-radius:9px; background:var(--background-color-low, #f4f6f8); }
 #ocserv-easy .easy-command input { flex:1 1 220px; min-width:0; font-family:ui-monospace,Consolas,monospace; }
 #ocserv-easy .easy-command button { flex:0 0 auto; }
+#ocserv-easy .easy-edit-state { padding:8px 12px; border-left:3px solid #bd704b; background:var(--background-color-low, #f7f3ed); }
+#ocserv-easy [aria-busy="true"] { cursor:progress; }
+#ocserv-easy input:focus, #ocserv-easy select:focus, #ocserv-easy textarea:focus { border-color:#275eaa; box-shadow:0 0 0 2px rgba(39,94,170,.12); }
+@media (max-width:680px) {
+  #ocserv-easy .easy-heading { gap:10px; margin:8px 0 12px; }
+  #ocserv-easy h2 { font-size:22px; }
+  #ocserv-easy .easy-tabs { margin:14px 0 6px; gap:6px; }
+  #ocserv-easy .easy-tabs button { padding:6px 8px; min-height:36px; }
+  #ocserv-easy .easy-summary strong { margin:4px 0; }
+  #ocserv-easy .easy-summary .easy-card { padding:8px; }
+  #ocserv-easy .easy-save-bar { position:sticky; bottom:0; z-index:2; padding:12px 0; }
+}

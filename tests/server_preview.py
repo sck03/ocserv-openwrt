@@ -4,9 +4,12 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 import base64
 import json
 import argparse
+import re
 from urllib.parse import parse_qs, urlsplit
 
 ROOT=Path(__file__).resolve().parents[1]
+makefile=(ROOT/'server/openwrt/luci-app-ocserv-easy/Makefile').read_text(encoding='utf-8')
+preview_version=re.search(r'^PKG_VERSION:=(.+)$',makefile,re.M).group(1).strip()
 from lupa.lua51 import LuaRuntime, lua_type
 from lua_json import install
 from lua_modules import install_modules
@@ -52,6 +55,7 @@ def to_python(value):
 resources=ROOT/'server/openwrt/luci-app-ocserv-easy/htdocs/luci-static/resources/ocserv-easy'
 def data(status=False):
     value=to_python(backend.status() if status else backend.data())
+    if not status:value['ui_version']=preview_version
     value['guard']=to_python(guard.status('192.168.19.2',not status))
     if not status:value['revision']+='-guard-'+str(guard_revision)
     return value
@@ -87,7 +91,7 @@ class Handler(BaseHTTPRequestHandler):
         if fields.get('token')!=['local-preview-only']:self.send('{}',status=403);return
         if self.path=='/easy/download':
             try:
-                content,filename=backend.export(fields.get('kind',[''])[0],fields.get('server',[''])[0])
+                content,filename=backend.export(fields.get('kind',[''])[0],fields.get('server',[''])[0],fields.get('platform',['windows'])[0])
                 raw=content.encode()
                 self.send_response(200)
                 self.send_header('Content-Type','application/octet-stream')

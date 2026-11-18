@@ -17,6 +17,7 @@ class CertificateFiles(
     private val directory = directory.canonicalFile
     private val live = mutableMapOf<String, Int>()
     private var saved = emptySet<String>()
+    private var reconciled = false
     private val filename = Regex("[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}\\.pem")
 
     class Lease internal constructor(val profile: VpnProfile, private var release: (() -> Unit)?) : Closeable {
@@ -50,15 +51,13 @@ class CertificateFiles(
     }
 
     /** Stage only picker URIs or existing managed files; failures remove all new copies. */
-    @Synchronized fun stage(profile: VpnProfile): Lease {
+    @Synchronized fun stage(profile: VpnProfile, ca: ByteArray? = null): Lease {
         val created = mutableListOf<File>()
-        fun import(source: String): String {
-            if (source.isEmpty()) return ""
-            if (!source.startsWith("content://")) return file(source).absolutePath
+        fun copy(input: InputStream): String {
             check(directory.isDirectory || directory.mkdirs()) { "Cannot create certificate storage" }
             val target = File(directory, UUID.randomUUID().toString() + ".pem")
             created += target
-            openContent(source).use { input ->
+            input.use {
                 check(target.createNewFile()) { "Cannot create certificate file" }
                 protectFile(target)
                 target.outputStream().use { output ->
@@ -78,8 +77,13 @@ class CertificateFiles(
             }
             return target.absolutePath
         }
+        fun import(source: String): String = when {
+            source.isEmpty() -> ""
+            source.startsWith("content://") -> openContent(source).use(::copy)
+            else -> file(source).absolutePath
+        }
         return try {
-            retain(profile.copy(caCertPath = import(profile.caCertPath),
+            retain(profile.copy(caCertPath = if (ca == null) import(profile.caCertPath) else copy(ca.inputStream()),
                 userCertPath = import(profile.userCertPath), privateKeyPath = import(profile.privateKeyPath)))
         } catch (error: Throwable) {
             created.forEach { it.delete() }
@@ -89,8 +93,12 @@ class CertificateFiles(
 
     /** Call after a successful profile transaction, while profile mutations are serialized. */
     @Synchronized fun reconcile(profiles: List<VpnProfile>) {
-        saved = profiles.flatMap(::paths).toSet()
-        prune()
+        val references = profiles.flatMap(::paths).toSet()
+        if (!reconciled || references != saved) {
+            saved = references
+            reconciled = true
+            prune()
+        }
     }
 
     private fun prune() {

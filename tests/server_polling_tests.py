@@ -44,15 +44,19 @@ with sync_playwright() as pw:
     dialog.get_by_label('再次输入密码', exact=True).fill('FixturePassword123')
     pending_actions, pending_data = [], []
     page.route('**/easy/action', lambda route: pending_actions.append(route))
-    page.route('**/easy/data', lambda route: pending_data.append(route))
+    def capture_saved_snapshot(route):
+        pending_data.append(route)
+        page.evaluate('window.savedSnapshotWaiting = true')
+    page.route('**/easy/data', capture_saved_snapshot)
     dialog.get_by_role('button', name='保存并生效', exact=True).click()
     expect(dialog.get_by_label('登录账号', exact=True)).to_be_disabled()
     expect(dialog.get_by_label('密码', exact=True)).to_be_disabled()
     expect(page.get_by_role('button', name='刷新', exact=True)).to_be_disabled()
     assert len(pending_actions) == 1
     checks.append('a pending save locks editable fields as well as buttons')
-    pending_actions[0].fulfill(response=pending_actions[0].fetch())
-    page.wait_for_function('true')
+    with page.expect_request('**/easy/data'):
+        pending_actions[0].fulfill(response=pending_actions[0].fetch())
+    page.wait_for_function('window.savedSnapshotWaiting === true')
     assert len(pending_data) == 1
     expect(dialog.get_by_role('button', name='保存并生效', exact=True)).to_be_disabled()
     expect(dialog.get_by_role('button', name='取消', exact=True)).to_be_disabled()
@@ -61,7 +65,7 @@ with sync_playwright() as pw:
     checks.append('a successful save keeps controls locked while refreshing its result')
     pending_data[0].abort()
     expect(page.get_by_role('dialog')).to_have_count(0)
-    expect(page.locator('#ocserv-easy .easy-notice.error')).to_contain_text('操作已成功，但状态刷新失败')
+    expect(page.locator('#ocserv-easy > .easy-notice.error')).to_contain_text('操作已成功，但状态刷新失败')
     expect(page.get_by_role('button', name='刷新', exact=True)).to_be_enabled()
     assert len(pending_actions) == 1
     saved = page.request.get(args.url + 'easy/data').json()['data']['users']
@@ -75,7 +79,7 @@ with sync_playwright() as pw:
     page.get_by_label('客户端实际连接的服务器地址', exact=True).fill('retry.example.com:4443')
     page.route('**/easy/action', lambda route: route.fulfill(status=409, json={'ok': False, 'error': 'stale_revision'}))
     page.get_by_role('button', name='保存客户端设置', exact=True).click()
-    expect(page.locator('#ocserv-easy .easy-notice.error')).to_contain_text('配置已被其他页面修改')
+    expect(page.locator('#ocserv-easy > .easy-notice.error')).to_contain_text('配置已被其他页面修改')
     expect(page.get_by_label('客户端实际连接的服务器地址', exact=True)).to_have_value('retry.example.com:4443')
     expect(page.get_by_label('客户端实际连接的服务器地址', exact=True)).to_be_enabled()
     page.unroute('**/easy/action')
@@ -164,7 +168,7 @@ with sync_playwright() as pw:
     assert len(obsolete) == 1
     page.route('**/easy/action', lambda route: route.fulfill(status=409, json={'ok': False, 'error': 'stale_revision'}))
     page.get_by_role('button', name='关闭开机启动', exact=True).click()
-    expect(page.locator('#ocserv-easy .easy-notice.error')).to_contain_text('配置已被其他页面修改')
+    expect(page.locator('#ocserv-easy > .easy-notice.error')).to_contain_text('配置已被其他页面修改')
     obsolete[0].fulfill(json=status)
     page.wait_for_timeout(100)
     expect(page.get_by_role('button', name='停止服务', exact=True)).to_be_visible()
@@ -323,7 +327,7 @@ with sync_playwright() as pw:
     page.wait_for_function('true')
     assert len(actions) == 1
     page.clock.run_for(123000)
-    expect(page.locator('#ocserv-easy .easy-notice.error')).to_contain_text('服务端可能仍在执行')
+    expect(page.locator('#ocserv-easy > .easy-notice.error')).to_contain_text('服务端可能仍在执行')
     page.clock.run_for(60000)
     assert len(actions) == 1, 'timed-out mutation was retried'
     actions[0].abort()
@@ -410,7 +414,7 @@ with sync_playwright() as pw:
     assert page.evaluate('window.stalledReads[0].signal.aborted'), 'full refresh retained the obsolete status query'
     page.route('**/easy/action', lambda route: route.fulfill(status=409, json={'ok': False, 'error': 'stale_revision'}))
     page.get_by_role('button', name='关闭开机启动', exact=True).click()
-    expect(page.locator('#ocserv-easy .easy-notice.error')).to_contain_text('配置已被其他页面修改')
+    expect(page.locator('#ocserv-easy > .easy-notice.error')).to_contain_text('配置已被其他页面修改')
     assert page.evaluate('window.stalledReads.every(read => read.signal.aborted)'), 'mutation retained an obsolete read'
     checks.append('full refresh cancels polling and a mutation cancels the superseded full refresh')
     page.unroute('**/easy/action')

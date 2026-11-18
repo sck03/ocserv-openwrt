@@ -6,7 +6,6 @@ import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.emptyPreferences
-import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.core.stringSetPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
@@ -19,7 +18,7 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 
-private val Context.dataStore: DataStore<Preferences> by preferencesDataStore(name = "opentunnel")
+private val Context.dataStore: DataStore<Preferences> by preferencesDataStore(name = "lansyra_settings_v1")
 
 data class ConnectionSnapshot(val profile: VpnProfile, val settings: AppSettings, val certificates: CertificateFiles.Lease)
 
@@ -47,10 +46,7 @@ class Repository private constructor(context: Context) {
         val reconnectOnNetwork = booleanPreferencesKey("settings.reconnectOnNetworkChange")
         val statsInNotification = booleanPreferencesKey("settings.statsInNotification")
         val verboseLogging = booleanPreferencesKey("settings.verboseLogging")
-        val customDns = stringPreferencesKey("settings.customDns")
-        val enableGeoIpLookup = booleanPreferencesKey("settings.enableGeoIpLookup")
         val hapticFeedbackEnabled = booleanPreferencesKey("settings.hapticFeedbackEnabled")
-        val activeProfileId = stringPreferencesKey("settings.activeProfileId")
     }
 
     private val settingsError = MutableStateFlow<String?>(null)
@@ -66,22 +62,16 @@ class Repository private constructor(context: Context) {
     val storageError = combine(profileStore.storageError, settingsError) { profile, settings -> profile ?: settings }
     val profiles: Flow<List<VpnProfile>> = profileStore.profiles
 
-    val activeProfile: Flow<VpnProfile> = combine(profileStore.profiles, prefs) { list, p ->
-        val id = p[Keys.activeProfileId].orEmpty()
-        list.firstOrNull { it.id == id } ?: list.firstOrNull() ?: VpnProfile()
-    }
+    val activeProfile: Flow<VpnProfile> = profileStore.activeProfile
 
     suspend fun currentProfile(): VpnProfile =
-        profileStore.connectionProfile(store.data.first()[Keys.activeProfileId].orEmpty())
+        profileStore.connectionProfile()
 
     suspend fun connectionSnapshot(): ConnectionSnapshot {
         val settings = decodeSettings(store.data.first())
-        val (profile, certificates) = profileStore.openConnection(settings.activeProfileId)
-        return ConnectionSnapshot(profile, settings, certificates)
+        val (profile, certificates) = profileStore.openConnection()
+        return ConnectionSnapshot(profile, settings.copy(activeProfileId = profile.id), certificates)
     }
-
-    suspend fun getProfileById(id: String): VpnProfile? =
-        profileStore.allProfiles().firstOrNull { it.id == id }
 
     /** Upsert and return the saved copy (which has an auto-assigned id if new). */
     suspend fun saveProfile(profile: VpnProfile): VpnProfile = profileStore.save(profile)
@@ -91,19 +81,24 @@ class Repository private constructor(context: Context) {
     suspend fun deleteProfile(profileId: String) = profileStore.delete(profileId)
 
     suspend fun setActiveProfile(profileId: String) {
-        store.edit { it[Keys.activeProfileId] = profileId }
+        profileStore.select(profileId)
     }
 
-    suspend fun exportProfilesJson(): String = profileStore.exportJson()
+    suspend fun exportConnection(): String = profileStore.exportConnection()
 
-    suspend fun importProfilesJson(jsonStr: String): Int = profileStore.importJson(jsonStr)
+    suspend fun importConnection(raw: String): VpnProfile = profileStore.importConnection(raw)
 
     suspend fun pinCertificate(profileID: String, server: String, fingerprint: String) =
         profileStore.pinCertificate(profileID, server, fingerprint)
 
+    suspend fun reserveHotp(id: String, server: String, expected: String, next: String) =
+        profileStore.reserveHotp(id, server, expected, next)
+
     // ── settings ─────────────────────────────────────────────────────────────
 
-    val settings: Flow<AppSettings> = prefs.map(::decodeSettings).catch { error ->
+    val settings: Flow<AppSettings> = combine(prefs, activeProfile) { p, profile ->
+        decodeSettings(p).copy(activeProfileId = profile.id)
+    }.catch { error ->
         if (error is CancellationException) throw error
         settingsError.value = "Settings are invalid; connection is blocked."
         emit(AppSettings())
@@ -132,10 +127,7 @@ class Repository private constructor(context: Context) {
             reconnectOnNetworkChange = p[Keys.reconnectOnNetwork] ?: defaults.reconnectOnNetworkChange,
             showStatsInNotification = p[Keys.statsInNotification] ?: defaults.showStatsInNotification,
             verboseLogging = p[Keys.verboseLogging] ?: defaults.verboseLogging,
-            customDns = p[Keys.customDns] ?: defaults.customDns,
-            enableGeoIpLookup = p[Keys.enableGeoIpLookup] ?: defaults.enableGeoIpLookup,
             hapticFeedbackEnabled = p[Keys.hapticFeedbackEnabled] ?: defaults.hapticFeedbackEnabled,
-            activeProfileId = p[Keys.activeProfileId].orEmpty(),
         )
     }
 
@@ -155,8 +147,6 @@ class Repository private constructor(context: Context) {
     suspend fun setShowStatsInNotification(enabled: Boolean) =
         store.edit { it[Keys.statsInNotification] = enabled }
     suspend fun setVerboseLogging(enabled: Boolean) = store.edit { it[Keys.verboseLogging] = enabled }
-    suspend fun setCustomDns(dns: String) = store.edit { it[Keys.customDns] = dns }
-    suspend fun setEnableGeoIpLookup(enabled: Boolean) = store.edit { it[Keys.enableGeoIpLookup] = enabled }
     suspend fun setHapticFeedbackEnabled(enabled: Boolean) =
         store.edit { it[Keys.hapticFeedbackEnabled] = enabled }
 

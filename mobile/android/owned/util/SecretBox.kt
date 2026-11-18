@@ -19,7 +19,7 @@ import javax.crypto.spec.GCMParameterSpec
 object SecretBox {
 
     private const val KEYSTORE = "AndroidKeyStore"
-    private const val KEY_ALIAS = "lansyra.secrets.v2"
+    private const val KEY_ALIAS = "lansyra.secrets.v4"
     private const val TRANSFORM = "AES/GCM/NoPadding"
     private const val IV_BYTES = 12
     private const val TAG_BITS = 128

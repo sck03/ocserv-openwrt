@@ -48,11 +48,19 @@
     });
   }
   function writable() {
-    return !!options.writable && !!state && state.supported;
+    return !!state && state.permissions.write && state.supported;
   }
   function mutationButton(label, handler, kind) {
     var b = button(label, handler, kind);
     b.disabled = !writable();
+    return b;
+  }
+  function accountButton(label, handler, kind) {
+    var b = mutationButton(label, handler, kind);
+    if (state.running && !state.capabilities.terminate) {
+      b.disabled = true;
+      b.title = t("暂无法确认会话撤销能力，请刷新重试。", "Session revocation is unavailable. Refresh and retry.");
+    }
     return b;
   }
   function errorText(error) {
@@ -75,6 +83,8 @@
   async function complete(payload, preserveDialog) {
     if (busy) throw { code: "busy" };
     busy = true;
+    root.setAttribute("aria-busy", "true");
+    notice(t("正在应用，请稍候…", "Applying changes…"));
     // One operation owns both the submission and its refreshed revision.
     ++loadGeneration;
     loadRead.cancel();
@@ -112,6 +122,7 @@
       notice(effects[result.effect] || t("操作完成。", "Done."));
     } finally {
       busy = false;
+      root.setAttribute("aria-busy", "false");
       controls.forEach(function (pair) {
         pair[0].disabled = pair[1];
       });
@@ -351,7 +362,7 @@
         return user.name;
       },
       function (user) {
-        var toggle = mutationButton(
+        var toggle = accountButton(
           user.enabled ? t("停用", "Disable") : t("恢复", "Enable"),
           function () {
             confirm(
@@ -401,7 +412,7 @@
           element("td", {}, [presence]),
           element("td", {}, [
             element("div", { className: "easy-buttons" }, [
-              mutationButton(
+              accountButton(
                 user.needs_password
                   ? t("重设密码", "Reset password")
                   : t("修改", "Edit"),
@@ -410,7 +421,7 @@
                 },
               ),
               toggle,
-              mutationButton(
+              accountButton(
                 t("删除", "Delete"),
                 function () {
                   confirm(
@@ -521,7 +532,7 @@
     onlineList.update(state.online_error ? [] : array(state.online));
     onlineError.hidden = !state.online_error;
   }
-  var renderSettings = window.OcservEasySettings({ t, element, field, array, writable, options, errors, confirm });
+  var renderSettings = window.OcservEasySettings({ t, element, field, array, writable, errors, confirm });
   var renderGuard = window.OcservEasyGuard({ t, element, array, errors, showReader, button, mutationButton, complete, notice, errorText, confirm, writable });
   var renderExport = window.OcservEasyExport({ t, element, field, options, mutationButton, button, complete, notice, errorText });
   function renderStatus() {
@@ -563,6 +574,8 @@
   }
   function renderTab() {
     formEdited = false;
+    var indicator = root.querySelector(".easy-edit-state");
+    if (indicator) indicator.hidden = true;
     accountList = null;
     onlineList = null;
     onlineError = null;
@@ -652,6 +665,8 @@
       hidden: true,
     });
     root.appendChild(messageBox);
+    root.appendChild(element("p", {className:"easy-edit-state easy-muted", hidden:true, role:"status",
+      text:t("有未保存的更改", "Unsaved changes")}));
     statusBox = element("div", { className: "easy-summary" });
     statusKey = null;
     root.appendChild(statusBox);
@@ -674,7 +689,7 @@
           : errors.upgrade_required,
         true,
       );
-    else if (!options.writable) notice(errors.forbidden);
+    else if (!state.permissions.write) notice(errors.forbidden);
     var tabs = element("div", {
       className: "easy-tabs",
       role: "tablist",
@@ -728,6 +743,8 @@
   function edited(event) {
     loadRead.cancel();
     if (!modal && event.target.closest("form")) formEdited = true;
+    var indicator = root.querySelector(".easy-edit-state");
+    if (indicator) indicator.hidden = !formEdited;
   }
   root.addEventListener("input", edited);
   root.addEventListener("change", edited);
@@ -737,6 +754,7 @@
   function load(preserveDialog) {
     statusRead.cancel();
     return loadRead.run(function (data) {
+      if (data.api_version !== 1 || !data.permissions) throw { code: "interface_mismatch" };
       backgroundRefresh = false;
       state = data;
       if (preserveDialog && readerOpen) {
@@ -805,7 +823,7 @@
         state.guard &&
         state.guard.phase === "pending" &&
         state.guard.token &&
-        writable()
+        writable() && state.permissions.guard
       ) {
         // A successful authenticated request from the retained management IP
         // confirms connectivity. No confirmation is sent after a failed request.

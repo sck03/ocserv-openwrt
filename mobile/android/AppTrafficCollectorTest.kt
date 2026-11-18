@@ -33,10 +33,10 @@ class FakeTrafficStatsProvider : TrafficStatsProvider {
     var permissionGranted: Boolean = true
     var bulkQueries = 0
 
-    override fun getUidRxBytes(uid: Int): Long = rxCounters.getOrDefault(uid, 0L)
-    override fun getUidTxBytes(uid: Int): Long = txCounters.getOrDefault(uid, 0L)
+    var unavailable = false
     override fun getAllUidStats(): Map<Int, dev.opentunnel.vpn.core.UidTrafficBytes>? {
         bulkQueries++
+        if (unavailable) return null
         val allUids = rxCounters.keys + txCounters.keys
         return allUids.associateWith { uid ->
             dev.opentunnel.vpn.core.UidTrafficBytes(
@@ -121,6 +121,7 @@ class AppTrafficCollectorTest {
     }
 
     @Test fun returningToThePageKeepsTotalsWithoutDisplayingAnOldSpeed() = runTest(testDispatcher) {
+        fakeStats.setCounters(10001, 0, 0)
         collector.loadApps(listOf(chromeMeta))
         collector.start()
         runCurrent()
@@ -134,6 +135,35 @@ class AppTrafficCollectorTest {
         assertEquals(0L, collector.entries.value.single().rxRate)
         collector.stop()
         runCurrent()
+    }
+
+    @Test fun failedAndMissingObservationsCannotResetTotalsOrCreateSpeedSpikes() = runTest(testDispatcher) {
+        fakeStats.setCounters(10001, 10_000_000, 0)
+        collector.loadApps(listOf(chromeMeta))
+        collector.tick()
+        fakeStats.unavailable = true
+        fakeStats.advanceTime(1000)
+        collector.tick()
+        assertFalse(collector.summary.value.available)
+        fakeStats.unavailable = false
+        fakeStats.rxCounters.clear()
+        fakeStats.txCounters.clear()
+        collector.tick()
+        fakeStats.setCounters(10001, 10_000_100, 0)
+        fakeStats.advanceTime(1000)
+        collector.tick()
+        assertEquals(100L, collector.entries.value.single().rxBytes)
+        assertEquals(0L, collector.entries.value.single().rxRate)
+        assertTrue(collector.summary.value.available)
+    }
+
+    @Test fun firstSuccessfulObservationEstablishesBaselineAfterAnUnavailableLoad() = runTest(testDispatcher) {
+        fakeStats.unavailable = true
+        collector.loadApps(listOf(chromeMeta))
+        fakeStats.unavailable = false
+        fakeStats.setCounters(10001, 50_000_000, 0)
+        collector.tick()
+        assertEquals(0L, collector.summary.value.totalBytes)
     }
 
     @Test

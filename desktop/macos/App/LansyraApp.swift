@@ -140,8 +140,7 @@ final class DesktopVPN: NSObject, ObservableObject, OSSystemExtensionRequestDele
                 else if sameOrigin { credential = try await repository.credential(previous ?? profile) }
             }
             guard credential.isEmpty || VPNCredentialValid(credential) else { throw ClientError.missingPassword }
-            var values = profiles.filter { $0.id != profile.id }
-            values.append(profile)
+            let values = ProfileFile.upsert(profile, in: profiles)
             try await write(values, credentialID: profile.id, credential: credential)
             draft = profiles.first { $0.id == profile.id } ?? profile
             UserDefaults.standard.set(profile.id, forKey: "selected")
@@ -248,7 +247,7 @@ final class DesktopVPN: NSObject, ObservableObject, OSSystemExtensionRequestDele
                 config.providerBundleIdentifier = tunnelID
                 config.serverAddress = profile.server
                 config.providerConfiguration = ["profileID": profile.id, "pin": profile.pin, "username": profile.username]
-                config.includeAllNetworks = true
+                config.includeAllNetworks = false
                 config.excludeLocalNetworks = false
                 config.disconnectOnSleep = false
                 active.protocolConfiguration = config
@@ -433,15 +432,17 @@ final class DesktopVPN: NSObject, ObservableObject, OSSystemExtensionRequestDele
 
 struct ConnectionView: View {
     @ObservedObject var vpn: DesktopVPN
+    @State private var confirmDelete = false
     var body: some View {
         HStack(spacing: 0) {
             VStack {
                 List(vpn.profiles) { profile in
                     Button(profile.name) { vpn.select(profile) }.buttonStyle(.plain).disabled(vpn.busy || vpn.storageBusy)
+                        .listRowBackground(vpn.draft.id == profile.id ? Color.accentColor.opacity(0.12) : Color.clear)
                 }
                 HStack {
                     Button("新建") { vpn.newProfile() }
-                    Button("删除") { vpn.remove() }
+                    Button("删除", role: .destructive) { confirmDelete = true }.disabled(!vpn.profiles.contains { $0.id == vpn.draft.id })
                 }.disabled(vpn.busy || vpn.storageBusy)
                 Button("导入 .vpn 配置…") { vpn.importProfile() }.disabled(vpn.busy || vpn.storageBusy).padding(.bottom)
             }.frame(width: 185)
@@ -475,6 +476,10 @@ struct ConnectionView: View {
                 }
             }.padding(24).frame(minWidth: 440, minHeight: 450)
         }.frame(minWidth: 660, minHeight: 510)
+            .confirmationDialog("删除当前已保存的服务器配置？", isPresented: $confirmDelete, titleVisibility: .visible) {
+                Button("删除", role: .destructive) { vpn.remove() }
+                Button("取消", role: .cancel) { }
+            }
     }
 }
 @main

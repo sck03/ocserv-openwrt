@@ -63,8 +63,6 @@ fun OpenTunnelApp(
     val installedApps by viewModel.installedApps.collectAsStateWithLifecycle()
     val prompt by viewModel.pendingPrompt.collectAsStateWithLifecycle()
     val editingProfileId by viewModel.editingProfileId.collectAsStateWithLifecycle()
-    val rxHistory by viewModel.rxHistory.collectAsStateWithLifecycle()
-    val txHistory by viewModel.txHistory.collectAsStateWithLifecycle()
 
     val appTrafficSummary by viewModel.appTrafficSummary.collectAsStateWithLifecycle()
     val appTrafficEntries by viewModel.appTrafficEntries.collectAsStateWithLifecycle()
@@ -92,7 +90,7 @@ fun OpenTunnelApp(
         }
     }
 
-    val layoutDirection = if (settings.appLanguage == dev.opentunnel.vpn.data.AppLanguage.PERSIAN) {
+    val layoutDirection = if (dev.opentunnel.vpn.util.Strings.isRtl(settings.appLanguage)) {
         androidx.compose.ui.unit.LayoutDirection.Rtl
     } else {
         androidx.compose.ui.unit.LayoutDirection.Ltr
@@ -134,8 +132,7 @@ fun OpenTunnelApp(
                         profile = profile,
                         profiles = profiles,
                         settings = settings,
-                        rxHistoryList = rxHistory,
-                        txHistoryList = txHistory,
+                        speedHistory = viewModel.speedHistory,
                         appTrafficSummary = appTrafficSummary,
                         appTrafficEntries = appTrafficEntries,
                         appTrafficPaused = appTrafficPaused,
@@ -195,9 +192,9 @@ fun OpenTunnelApp(
                             viewModel.setEditingProfileId("new")
                             navController.navigate(Routes.PROFILE)
                         },
-                        onDeleteProfile = viewModel::deleteProfile,
-                        onExportProfiles = viewModel::exportProfiles,
-                        onImportProfiles = viewModel::importProfiles,
+                        onDeleteProfile = viewModel::deleteEditingProfile,
+                        onExportConnection = viewModel::exportConnection,
+                        onImportConnection = viewModel::importConnection,
                         onReorderProfiles = viewModel::reorderProfiles,
                         onBack = { navController.popBackStack() },
                     )

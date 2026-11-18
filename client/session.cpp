@@ -1,7 +1,7 @@
 // Native adaptation of the callback lifecycle in OpenConnect GUI v1.6.2.
 // Upstream: Copyright (C) 2014 Red Hat, GPL-2.0-or-later.
 #include "session.h"
-#include <winhttp.h>
+#include "system_proxy.h"
 #include <algorithm>
 #include <cstdarg>
 #include <cstdio>
@@ -14,62 +14,6 @@ std::mutex script_environment_mutex;
 std::atomic<uint64_t> next_session{0};
 std::wstring safe(const char *value) {
     return value ? wide(value) : std::wstring();
-}
-std::string system_proxy(const std::wstring &url) {
-    WINHTTP_CURRENT_USER_IE_PROXY_CONFIG config{};
-    if (!WinHttpGetIEProxyConfigForCurrentUser(&config))
-        return {};
-    std::wstring selected = config.lpszProxy ? config.lpszProxy : L"";
-    if (config.fAutoDetect || config.lpszAutoConfigUrl) {
-        HINTERNET session = WinHttpOpen(L"Lansyra", WINHTTP_ACCESS_TYPE_NO_PROXY, nullptr, nullptr, 0);
-        if (session) {
-            WinHttpSetTimeouts(session, 5000, 5000, 5000, 5000);
-            WINHTTP_AUTOPROXY_OPTIONS options{};
-            options.dwFlags =
-                config.lpszAutoConfigUrl ? WINHTTP_AUTOPROXY_CONFIG_URL : WINHTTP_AUTOPROXY_AUTO_DETECT;
-            options.lpszAutoConfigUrl = config.lpszAutoConfigUrl;
-            options.dwAutoDetectFlags = WINHTTP_AUTO_DETECT_TYPE_DHCP | WINHTTP_AUTO_DETECT_TYPE_DNS_A;
-            options.fAutoLogonIfChallenged = FALSE;
-            WINHTTP_PROXY_INFO proxy{};
-            if (WinHttpGetProxyForUrl(session, url.c_str(), &options, &proxy)) {
-                selected = proxy.dwAccessType == WINHTTP_ACCESS_TYPE_NAMED_PROXY && proxy.lpszProxy
-                               ? proxy.lpszProxy
-                               : L"";
-                if (proxy.lpszProxy)
-                    GlobalFree(proxy.lpszProxy);
-                if (proxy.lpszProxyBypass)
-                    GlobalFree(proxy.lpszProxyBypass);
-            }
-            WinHttpCloseHandle(session);
-        }
-    }
-    if (config.lpszAutoConfigUrl)
-        GlobalFree(config.lpszAutoConfigUrl);
-    if (config.lpszProxy)
-        GlobalFree(config.lpszProxy);
-    if (config.lpszProxyBypass)
-        GlobalFree(config.lpszProxyBypass);
-    std::wstring fallback;
-    for (size_t begin = 0; begin < selected.size();) {
-        size_t end = selected.find(L';', begin);
-        auto item = trim(selected.substr(begin, end == std::wstring::npos ? end : end - begin));
-        if (item.rfind(L"https=", 0) == 0) {
-            fallback = item.substr(6);
-            break;
-        }
-        if (item.rfind(L"http=", 0) == 0)
-            fallback = item.substr(5);
-        else if (item.find(L'=') == std::wstring::npos && fallback.empty())
-            fallback = item;
-        if (end == std::wstring::npos)
-            break;
-        begin = end + 1;
-    }
-    if (fallback.empty())
-        return {};
-    if (fallback.find(L"://") == std::wstring::npos)
-        fallback = L"http://" + fallback;
-    return utf8(fallback);
 }
 } // namespace
 Session::Session(Profile profile, ProfileStore *store, Language language, Sink sink, Options options)

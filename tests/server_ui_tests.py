@@ -135,20 +135,20 @@ with sync_playwright() as pw:
             page.get_by_role('button',name='下载 .vpn 连接配置',exact=True).click()
         pending.value.save_as(str(args.output/'domain-pin.vpn'))
         pinned=(args.output/'domain-pin.vpn').read_text()
-        assert 'Server=https://vpn.example.com:4443\nServerPin=pin-sha256:' in pinned
+        assert 'Server=https://vpn.example.com:4443\n' in pinned and 'Trust=pin\nServerPin=pin-sha256:' in pinned and 'Version=1\n' in pinned
         assert 'CABase64=' not in pinned
         page.get_by_label('客户端实际连接的服务器地址',exact=True).fill('[2001:db8::1]:4443')
         with page.expect_download() as pending:
             page.get_by_role('button',name='下载 .vpn 连接配置',exact=True).click()
         pending.value.save_as(str(args.output/'ipv6-pin.vpn'))
-        assert 'Server=https://[2001:db8::1]:4443\nServerPin=pin-sha256:' in (args.output/'ipv6-pin.vpn').read_text()
+        assert 'Server=https://[2001:db8::1]:4443\n' in (args.output/'ipv6-pin.vpn').read_text()
         checks.append('public hostname and IPv6 profiles include the configured server public-key pin by default')
         page.get_by_label('证书验证方式',exact=True).select_option('address')
         page.get_by_label('客户端实际连接的服务器地址',exact=True).fill('192.168.19.253:4443')
         with page.expect_download() as pending:
             page.get_by_role('button',name='下载 .vpn 连接配置',exact=True).click()
         pending.value.save_as(str(args.output/'address.vpn'))
-        assert (args.output/'address.vpn').read_text()=='[VPN]\nServer=https://192.168.19.253:4443\n'
+        assert (args.output/'address.vpn').read_text()=='[VPN]\nVersion=1\nServer=https://192.168.19.253:4443\nProtocol=anyconnect\nTrust=prompt\n'
         page.get_by_label('证书验证方式',exact=True).select_option('profile')
         page.get_by_role('button',name='保存客户端设置',exact=True).click()
         expect(page.get_by_text('客户端地址和证书验证方式已保存。',exact=True)).to_be_visible()
@@ -162,11 +162,19 @@ with sync_playwright() as pw:
         assert 'CABase64=' in (args.output/'ca.vpn').read_text()
         page.screenshot(path=str(args.output/'profile-export.png'),full_page=True)
         checks.append('address and CA profiles download through the real export handler')
+        page.get_by_label('目标客户端', exact=True).select_option('ios')
+        expect(page.get_by_label('证书验证方式', exact=True)).to_have_value('pin')
+        expect(page.locator('option[value="profile"]')).to_be_disabled()
+        page.get_by_label('目标客户端', exact=True).select_option('linux')
+        expect(page.get_by_label('证书验证方式', exact=True)).to_have_value('profile')
+        expect(page.locator('option[value="pin"]')).to_be_disabled()
+        page.get_by_label('目标客户端', exact=True).select_option('windows')
+        checks.append('export methods follow target client capabilities without an unpinned fallback')
         def missing_certificates(route):
             response=route.fetch()
             payload=response.json()
             payload['data'].update(certificates_ready=False,ca_available=False,installation_pending=True)
-            payload['data']['client_profile']={'cert_mode':'pin'}
+            payload['data']['client_profile']={'cert_mode':'pin','platform':'windows'}
             route.fulfill(response=response,json=payload)
         page.route('**/easy/data',missing_certificates)
         page.get_by_role('button',name='刷新',exact=True).click()

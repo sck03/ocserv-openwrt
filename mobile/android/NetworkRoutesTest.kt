@@ -25,4 +25,16 @@ class NetworkRoutesTest {
             NetworkRoutes.routes(listOf("invalid"), emptyList(), NetworkRoutes.Rules(false, false, emptyList()), false, false)
         }
     }
+
+    @Test fun explicitPrivateNetworksSurviveDefaultLocalBypass() {
+        val rules = NetworkRoutes.Rules(false, false, emptyList())
+        assertEquals(listOf(Cidr("192.168.19.0", 24, false)),
+            NetworkRoutes.routes(listOf("192.168.19.0/24"), emptyList(), rules, true, false))
+        assertThrows(IllegalArgumentException::class.java) {
+            NetworkRoutes.routes(listOf("192.168.19.0/24"), listOf("192.168.19.0/24"), rules, true, false)
+        }
+        val routes = NetworkRoutes.routes(emptyList(), emptyList(), rules, true, false, listOf("10.77.0.1"))
+        assertTrue(routes.contains(Cidr("10.77.0.1", 32, false)))
+        assertFalse(routes.any { it.address == "10.0.0.0" && it.prefixLength == 8 })
+    }
 }

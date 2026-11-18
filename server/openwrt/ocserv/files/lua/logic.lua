@@ -1,6 +1,7 @@
 -- SPDX-License-Identifier: GPL-3.0-or-later
 -- Pure policy and rendering shared by service startup and management.
 local M = {}
+M.settings_contract = 1
 
 function M.fail(code) error({ code = code }, 0) end
 function M.require(ok, code) if not ok then M.fail(code) end return ok end
@@ -233,9 +234,10 @@ function M.change_user(users, request, hash_password)
 end
 
 M.defaults = { port="4443", udp_port="", max_clients="8", max_same="2", dpd="120", udp="1", compression="0",
-    cisco_compat="1", predictable_ips="1", ipaddr="192.168.100.0", netmask="255.255.255.0", ip6addr="", default_domain="", easy_public_url="" }
+    cisco_compat="1", predictable_ips="1", ipaddr="192.168.100.0", netmask="255.255.255.0", ip6addr="", default_domain="", easy_public_url="",
+    split_dns="0",ping_leases="0",server_cert="/etc/ocserv/server-cert.pem",server_key="/etc/ocserv/server-key.pem" }
 local numbers={port={1,65535},max_clients={1,4096},max_same={1,64},dpd={10,3600}}
-local flags={udp=true,compression=true,cisco_compat=true,predictable_ips=true}
+local flags={udp=true,compression=true,cisco_compat=true,predictable_ips=true,split_dns=true,ping_leases=true}
 local certificate_modes={pin=true,address=true,profile=true}
 function M.validate_client_profile(server,cert_mode)
     M.require(M.text(server,512),"invalid_url")
@@ -282,6 +284,10 @@ function M.validate_settings(input)
         M.require(unicast6(key) and p and p>=16 and p<=112 and network6(key,p), "invalid_ipv6_pool")
     end
     M.require(out.default_domain=="" or M.domain(out.default_domain), "invalid_domain")
+    M.require(out.split_dns~="1" or out.default_domain~="", "split_dns_requires_domain")
+    for _, key in ipairs({"server_cert","server_key"}) do
+        M.require(out[key]:match("^/[%w%._/%-]+$") and not out[key]:find("/../",1,true) and not out[key]:match("/%.%.$"), "invalid_certificate_path")
+    end
     M.require(out.easy_public_url=="" or M.url(out.easy_public_url), "invalid_url")
     M.require(M.array(input.dns,3) and #input.dns>=1, "invalid_dns")
     local dns,seen={},{}

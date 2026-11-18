@@ -1,5 +1,6 @@
 package dev.opentunnel.vpn.ui.screens
 
+
 import android.os.SystemClock
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
@@ -29,9 +30,6 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.pager.HorizontalPager
-import androidx.compose.foundation.pager.PagerState
-import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -62,7 +60,6 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
-import androidx.lifecycle.compose.LifecycleStartEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -90,28 +87,20 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.lerp
 import androidx.compose.ui.unit.sp
 import dev.opentunnel.vpn.core.ConnectionStage
-import dev.opentunnel.vpn.core.LogLine
 import dev.opentunnel.vpn.core.TrafficStats
 import dev.opentunnel.vpn.core.TunnelStatus
 import dev.opentunnel.vpn.data.AppLanguage
 import dev.opentunnel.vpn.data.AppSettings
-import dev.opentunnel.vpn.data.AppTrafficEntry
-import dev.opentunnel.vpn.data.AppTrafficSummary
-import dev.opentunnel.vpn.data.SortDirection
 import dev.opentunnel.vpn.data.SplitTunnelMode
-import dev.opentunnel.vpn.data.TrafficFilterMode
-import dev.opentunnel.vpn.data.TrafficSortBy
 import dev.opentunnel.vpn.data.VpnProfile
 import dev.opentunnel.vpn.ui.components.ActionableErrorBottomSheet
 import dev.opentunnel.vpn.ui.components.ConnectOrb
 import dev.opentunnel.vpn.ui.components.DetailRow
 import dev.opentunnel.vpn.ui.components.FloatingIslandNavigation
-import dev.opentunnel.vpn.ui.components.OpenTunnelWorld
 import dev.opentunnel.vpn.ui.components.SectionCard
 import dev.opentunnel.vpn.ui.components.SettingRow
 import dev.opentunnel.vpn.ui.theme.LocalStatusPalette
 import dev.opentunnel.vpn.ui.theme.MonoNumberStyle
-import dev.opentunnel.vpn.ui.theme.ThemeMode
 import dev.opentunnel.vpn.util.Formatters
 import dev.opentunnel.vpn.util.Strings
 import kotlinx.coroutines.delay
@@ -173,20 +162,6 @@ fun HomeScreen(
 
             Spacer(Modifier.height(16.dp))
 
-            AnimatedVisibility(
-                visible = status.stage == ConnectionStage.CONNECTED &&
-                    (status.info.locationName != null || status.info.pingMs >= 0),
-                enter = fadeIn() + expandVertically(),
-                exit = fadeOut() + shrinkVertically(),
-            ) {
-                LocationBadge(
-                    flag = status.info.locationFlag ?: "\uD83C\uDF10",
-                    name = status.info.locationName ?: Strings.connected(settings.appLanguage),
-                    pingMs = status.info.pingMs,
-                )
-            }
-
-            Spacer(Modifier.height(16.dp))
 
             AnimatedVisibility(
                 visible = status.stage == ConnectionStage.CONNECTED ||
@@ -316,156 +291,6 @@ fun HomeScreen(
                 onViewLogs = onOpenLogs,
                 onDismiss = { showErrorBottomSheet = false },
             )
-        }
-    }
-}
-
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-fun MainPagerScreen(
-    status: TunnelStatus,
-    stats: TrafficStats,
-    logs: List<LogLine>,
-    profile: VpnProfile,
-    profiles: List<VpnProfile>,
-    settings: AppSettings,
-    rxHistoryList: List<Long> = emptyList(),
-    txHistoryList: List<Long> = emptyList(),
-    appTrafficSummary: AppTrafficSummary = AppTrafficSummary(),
-    appTrafficEntries: List<AppTrafficEntry> = emptyList(),
-    appTrafficPaused: Boolean = false,
-    trafficSortBy: TrafficSortBy = TrafficSortBy.TOTAL_TRAFFIC,
-    trafficSortDirection: SortDirection = SortDirection.DESCENDING,
-    trafficFilterMode: TrafficFilterMode = TrafficFilterMode.ALL,
-    trafficSearchQuery: String = "",
-    hasUsageAccessPermission: Boolean = true,
-    onToggleConnection: () -> Unit,
-    onSelectProfile: (String) -> Unit,
-    onOpenProfile: () -> Unit,
-    onOpenProfileManagement: () -> Unit,
-    onOpenSplitTunnel: () -> Unit,
-    onOpenSplitNetworks: () -> Unit = {},
-    onClearLogs: () -> Unit,
-    onThemeMode: (ThemeMode) -> Unit,
-    onAppLanguage: (AppLanguage) -> Unit,
-    onDynamicColor: (Boolean) -> Unit,
-    onBypassLocalNetworks: (Boolean) -> Unit,
-    onConnectOnBoot: (Boolean) -> Unit,
-    onReconnectOnNetworkChange: (Boolean) -> Unit,
-    onShowStatsInNotification: (Boolean) -> Unit,
-    onVerboseLogging: (Boolean) -> Unit,
-    onHapticFeedbackEnabled: (Boolean) -> Unit,
-    onSortByChange: (TrafficSortBy) -> Unit = {},
-    onToggleSortDirection: () -> Unit = {},
-    onFilterModeChange: (TrafficFilterMode) -> Unit = {},
-    onSearchQueryChange: (String) -> Unit = {},
-    onResetTrafficStats: () -> Unit = {},
-    onPauseTrafficMonitoring: () -> Unit = {},
-    onResumeTrafficMonitoring: () -> Unit = {},
-    onGrantUsageAccess: () -> Unit = {},
-    onRefreshPermission: () -> Unit = {},
-    onTrafficVisibilityChanged: (Boolean) -> Unit,
-) {
-    // 4 Pages: 0: Home, 1: Traffic Monitor, 2: Logs, 3: Settings
-    val pagerState = rememberPagerState(initialPage = 0, pageCount = { 4 })
-    val trafficPage = pagerState.settledPage == 1
-    LifecycleStartEffect(trafficPage) {
-        onTrafficVisibilityChanged(trafficPage)
-        onStopOrDispose { onTrafficVisibilityChanged(false) }
-    }
-    val homeScrollState = rememberScrollState()
-    val scope = rememberCoroutineScope()
-
-    OpenTunnelWorld(
-        pagerState = pagerState,
-        stage = status.stage,
-        lang = settings.appLanguage,
-        homeScrollProvider = { homeScrollState.value.toFloat() },
-        onNavigateToPage = { index ->
-            scope.launch { pagerState.animateScrollToPage(index) }
-        },
-    ) {
-        HorizontalPager(
-            state = pagerState,
-            modifier = Modifier.fillMaxSize(),
-        ) { page ->
-            when (page) {
-                0 -> HomeScreen(
-                    status = status,
-                    stats = stats,
-                    profile = profile,
-                    profiles = profiles,
-                    settings = settings,
-                    rxHistoryList = rxHistoryList,
-                    txHistoryList = txHistoryList,
-                    scrollState = homeScrollState,
-                    onToggleConnection = onToggleConnection,
-                    onSelectProfile = onSelectProfile,
-                    onOpenProfile = onOpenProfile,
-                    onOpenProfileManagement = onOpenProfileManagement,
-                    onOpenSplitTunnel = onOpenSplitTunnel,
-                    onOpenSplitNetworks = onOpenSplitNetworks,
-                    onOpenTrafficMonitor = {
-                        scope.launch { pagerState.animateScrollToPage(1) }
-                    },
-                    onOpenLogs = {
-                        scope.launch { pagerState.animateScrollToPage(2) }
-                    },
-                    onOpenSettings = {
-                        scope.launch { pagerState.animateScrollToPage(3) }
-                    },
-                )
-                1 -> AppTrafficMonitorScreen(
-                    vpnStats = stats,
-                    summary = appTrafficSummary,
-                    entries = appTrafficEntries,
-                    isPaused = appTrafficPaused,
-                    sortBy = trafficSortBy,
-                    sortDirection = trafficSortDirection,
-                    filterMode = trafficFilterMode,
-                    searchQuery = trafficSearchQuery,
-                    appLanguage = settings.appLanguage,
-                    hapticEnabled = settings.hapticFeedbackEnabled,
-                    hasUsageAccessPermission = hasUsageAccessPermission,
-                    onSortByChange = onSortByChange,
-                    onToggleSortDirection = onToggleSortDirection,
-                    onFilterModeChange = onFilterModeChange,
-                    onSearchQueryChange = onSearchQueryChange,
-                    onResetStats = onResetTrafficStats,
-                    onPauseMonitoring = onPauseTrafficMonitoring,
-                    onResumeMonitoring = onResumeTrafficMonitoring,
-                    onGrantUsageAccess = onGrantUsageAccess,
-                    onRefreshPermission = onRefreshPermission,
-                    onBack = {
-                        scope.launch { pagerState.animateScrollToPage(0) }
-                    },
-                )
-                2 -> LogScreen(
-                    logs = logs,
-                    appLanguage = settings.appLanguage,
-                    hapticFeedbackEnabled = settings.hapticFeedbackEnabled,
-                    onClear = onClearLogs,
-                    onBack = {
-                        scope.launch { pagerState.animateScrollToPage(0) }
-                    },
-                )
-                3 -> SettingsScreen(
-                    settings = settings,
-                    onThemeMode = onThemeMode,
-                    onAppLanguage = onAppLanguage,
-                    onDynamicColor = onDynamicColor,
-                    onBypassLocalNetworks = onBypassLocalNetworks,
-                    onConnectOnBoot = onConnectOnBoot,
-                    onReconnectOnNetworkChange = onReconnectOnNetworkChange,
-                    onShowStatsInNotification = onShowStatsInNotification,
-                    onVerboseLogging = onVerboseLogging,
-                    onHapticFeedbackEnabled = onHapticFeedbackEnabled,
-                    onOpenSplitNetworks = onOpenSplitNetworks,
-                    onBack = {
-                        scope.launch { pagerState.animateScrollToPage(0) }
-                    },
-                )
-            }
         }
     }
 }
@@ -631,61 +456,6 @@ private fun ProfilePickerRow(
 }
 
 // ── Location Badge ─────────────────────────────────────────────────────────
-
-@Composable
-private fun LocationBadge(flag: String, name: String, pingMs: Long = -1L) {
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.Center,
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Surface(
-            shape = RoundedCornerShape(20.dp),
-            color = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.58f),
-            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.20f)),
-            tonalElevation = 0.dp,
-        ) {
-            Row(
-                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                if (flag.isNotBlank()) {
-                    Text(
-                        text = flag,
-                        fontSize = 18.sp,
-                    )
-                }
-                if (name.isNotBlank()) {
-                    Text(
-                        text = name,
-                        style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Medium),
-                        color = MaterialTheme.colorScheme.onSurface,
-                    )
-                }
-                if (pingMs >= 0) {
-                    val pingColor = when {
-                        pingMs < 60 -> LocalStatusPalette.current.connected
-                        pingMs < 150 -> LocalStatusPalette.current.connecting
-                        else -> LocalStatusPalette.current.error
-                    }
-                    Surface(
-                        shape = CircleShape,
-                        color = pingColor.copy(alpha = 0.15f),
-                    ) {
-                        Text(
-                            text = "⚡ $pingMs ms",
-                            style = MaterialTheme.typography.labelSmall.merge(MonoNumberStyle),
-                            color = pingColor,
-                            fontWeight = FontWeight.Bold,
-                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
-                        )
-                    }
-                }
-            }
-        }
-    }
-}
 
 // ── Top bar ────────────────────────────────────────────────────────────────
 
@@ -947,13 +717,6 @@ private fun ConnectionDetails(status: TunnelStatus, lang: AppLanguage) {
             }
             if (info.excludedApps > 0) {
                 DetailRow(Strings.appsOutsideTunnel(lang), info.excludedApps.toString())
-            }
-            info.locationName?.let { name ->
-                val display = if (info.locationFlag != null) "${info.locationFlag} $name" else name
-                DetailRow(Strings.locationLabel(lang), display)
-            }
-            if (info.pingMs >= 0) {
-                DetailRow(Strings.pingLabel(lang), "${info.pingMs} ms")
             }
         }
     }

@@ -209,7 +209,13 @@ with sync_playwright() as pw:
     expect(accounts.get_by_role('button', name='重设密码', exact=True)).to_be_focused()
     checks.append('modal focus wraps visible controls and Escape restores its opener')
     # Restore the full fixture and capture desktop/mobile layouts for visual QA.
+    # The clock keeps advancing during screenshots and clicks. Full refresh and
+    # subsequent status polls must describe the same restored connection list.
+    status['data']['online'] = copy.deepcopy(snapshot['data']['online'])
+    status['data']['online_error'] = False
     page.get_by_role('button', name='刷新', exact=True).click()
+    expect(online.locator('tbody tr')).to_have_count(50)
+    page.clock.run_for(3000)
     expect(online.locator('tbody tr')).to_have_count(50)
     accounts.get_by_role('searchbox').fill('')
     page.screenshot(path=str(args.output / 'accounts-desktop.png'), full_page=True)
@@ -221,7 +227,13 @@ with sync_playwright() as pw:
     page.get_by_role('button', name='刷新', exact=True).click()
     expect(online.get_by_role('button', name='断开', exact=True).first).to_be_disabled()
     expect(accounts.get_by_role('button', name='修改', exact=True).first).to_be_disabled()
-    online.get_by_role('button', name='下一页', exact=True).click()
+    try:
+        online.get_by_role('button', name='下一页', exact=True).click()
+    except Exception:
+        page.screenshot(path=str(args.output / 'failure.png'), full_page=True)
+        (args.output / 'failure.html').write_text(page.content(), encoding='utf-8')
+        (args.output / 'errors.json').write_text(json.dumps(errors), encoding='utf-8')
+        raise
     expect(online.get_by_role('button', name='断开', exact=True).first).to_be_disabled()
     checks.append('pagination preserves mutation permissions after a full capability refresh')
     page.goto(args.url + '?lang=en', wait_until='networkidle')

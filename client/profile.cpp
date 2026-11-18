@@ -1,4 +1,5 @@
 #include "profile.h"
+#include "connection_file.h"
 #include "store_lease.h"
 #include "vendor/json.hpp"
 #include <algorithm>
@@ -138,6 +139,10 @@ bool validate_profile(Profile &p, std::wstring &error) {
     }
     if (!valid_pin(p.server_pin)) {
         error = L"请填写完整的 pin-sha256 指纹。 / Enter a complete pin-sha256 fingerprint.";
+        return false;
+    }
+    if (!p.server_pin.empty() && !p.ca_file.empty()) {
+        error = L"请选择固定指纹或 CA 证书中的一种。 / Choose either a server pin or a CA certificate.";
         return false;
     }
     if (p.reconnect_timeout < 0 || p.reconnect_timeout > 86400 || p.dtls_period < 0 || p.dtls_period > 3600 ||
@@ -387,77 +392,22 @@ bool ProfileStore::update_secrets(const std::string &id, const std::wstring &gat
 bool ProfileStore::import_connection(const std::filesystem::path &path, Profile &profile,
                                      std::wstring &error) {
     std::string raw;
-    if (!read_file(path, raw, error, 2 * 1024 * 1024))
+    if (!read_file(path, raw, error, lansyra::ConnectionFile::MaxBytes))
         return false;
-    if (raw.rfind("\xef\xbb\xbf", 0) == 0)
-        raw.erase(0, 3);
-    if (raw.rfind("\xff\xfe", 0) == 0) {
-        if (raw.size() % 2) {
-            error = L"配置文件编码无效。 / Invalid profile encoding.";
-            return false;
-        }
-        std::wstring decoded((raw.size() - 2) / 2, L'\0');
-        memcpy(decoded.data(), raw.data() + 2, raw.size() - 2);
-        raw = utf8(decoded);
-    }
     if (raw.find('\0') != std::string::npos || utf8(wide(raw)) != raw) {
         error = L"配置文件编码无效。 / Invalid profile encoding.";
         return false;
     }
+    lansyra::ConnectionFile connection;
+    try { connection = lansyra::ConnectionFile::parse(raw); }
+    catch (...) { error = L"公共配置格式无效；请重新导出版本 1 的 .vpn 文件。 / Invalid version 1 public profile."; return false; }
     Profile candidate;
-    candidate.name = path.stem().wstring();
-    std::istringstream lines(raw);
-    std::string line;
-    bool vpn = false;
-    std::string ca;
-    while (std::getline(lines, line)) {
-        if (!line.empty() && line.back() == '\r')
-            line.pop_back();
-        if (line == "[VPN]") {
-            vpn = true;
-            continue;
-        }
-        if (!line.empty() && line.front() == '[') {
-            vpn = false;
-            continue;
-        }
-        if (!vpn || line.empty() || line.front() == ';' || line.front() == '#')
-            continue;
-        auto split = line.find('=');
-        if (split == std::string::npos)
-            continue;
-        auto key = line.substr(0, split), value = line.substr(split + 1);
-        if (key == "Server")
-            candidate.gateway = wide(value);
-        else if (key == "Name")
-            candidate.name = wide(value);
-        else if (key == "Protocol")
-            candidate.protocol = value;
-        else if (key == "ServerPin") {
-            candidate.server_pin = value;
-            candidate.fixed_pin = !value.empty();
-        } else if (key == "AuthGroup")
-            candidate.group = value;
-        else if (key == "CABase64")
-            ca = value;
-        else if (key == "PreferUDP") {
-            if (value != "0" && value != "1") {
-                error = L"UDP 选项无效。 / Invalid UDP option.";
-                return false;
-            }
-            candidate.disable_udp = value == "0";
-        } else if (key == "ReconnectSeconds") {
-            try {
-                size_t end = 0;
-                candidate.reconnect_timeout = std::stoi(value, &end);
-                if (end != value.size())
-                    throw std::runtime_error("Trailing characters");
-            } catch (...) {
-                error = L"无效的重连时间。 / Invalid reconnect timeout.";
-                return false;
-            }
-        }
-    }
+    candidate.name = connection.name.empty() ? path.stem().wstring() : wide(connection.name);
+    candidate.gateway = wide(connection.server);
+    candidate.protocol = connection.protocol;
+    candidate.server_pin = connection.pin;
+    candidate.fixed_pin = !connection.pin.empty();
+    const auto &ca = connection.ca;
     if (!validate_profile(candidate, error))
         return false;
     candidate.id = random_id();
@@ -497,21 +447,24 @@ bool ProfileStore::export_connection(const std::filesystem::path &path, const Pr
     Profile p = profile;
     if (!validate_profile(p, error))
         return false;
-    std::string result = "[VPN]\nName=" + utf8(p.name) + "\nServer=" + utf8(p.gateway) +
-                         "\nProtocol=" + p.protocol + "\nPreferUDP=" + (p.disable_udp ? "0" : "1") +
-                         "\nReconnectSeconds=" + std::to_string(p.reconnect_timeout) + "\n";
-    if (!p.group.empty() && p.group.find_first_of("\r\n") == std::string::npos)
-        result += "AuthGroup=" + p.group + "\n";
-    if (!p.server_pin.empty())
-        result += "ServerPin=" + p.server_pin + "\n";
+    lansyra::ConnectionFile connection;
+    connection.name = utf8(p.name);
+    connection.server = utf8(p.gateway);
+    connection.protocol = p.protocol;
+    if (!p.server_pin.empty()) {
+        connection.trust = "pin";
+        connection.pin = p.server_pin;
+    }
     else if (!p.ca_file.empty()) {
         std::string ca;
-        if (!read_file(p.ca_file, ca, error, 1024 * 1024))
+        if (!read_file(p.ca_file, ca, error, 65536))
             return false;
         if (!valid_public_certificates(ca, error))
             return false;
-        result += "CABase64=" + base64(ca) + "\n";
+        connection.trust = "ca";
+        connection.ca = base64(ca);
     }
-    return write_atomic(path, result, error);
+    try { return write_atomic(path, connection.encode(), error); }
+    catch (...) { error = L"无法导出公共配置，请检查连接字段。 / Invalid public connection fields."; return false; }
 }
 } // namespace vpn

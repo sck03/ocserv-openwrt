@@ -22,6 +22,7 @@ interface TunnelHost {
     fun protectSocket(socket: Int): Boolean
     fun caBundlePath(): String?
     fun persistCertificatePin(profileID: String, server: String, fingerprint: String)
+    fun reserveHotp(profileID: String, server: String, expected: String, next: String): Boolean
     fun onTunnelFinished(source: TunnelRunner, error: String?)
 }
 
@@ -34,6 +35,7 @@ private interface SessionCallbacks {
     fun onSetupTun()
     fun onValidatePeerCert(reason: String?): Int
     fun onProcessAuthForm(form: LibOpenConnect.AuthForm?): Int
+    fun onTokenLock(): Int
 }
 
 private class Session : LibOpenConnect {
@@ -47,6 +49,7 @@ private class Session : LibOpenConnect {
     override fun onValidatePeerCert(msg: String?): Int = callbacks.onValidatePeerCert(msg)
     override fun onProcessAuthForm(form: LibOpenConnect.AuthForm?): Int =
         callbacks.onProcessAuthForm(form)
+    override fun onTokenLock(): Int = callbacks.onTokenLock()
 }
 
 /** Drives one native session; routing and ownership policies are independently tested. */
@@ -186,7 +189,7 @@ class TunnelRunner(
             if (profile.caCertPath.isNotBlank()) lib.setCAFile(profile.caCertPath)
             else host.caBundlePath()?.let { lib.setCAFile(it) }
         }
-        lib.setSystemTrust(profile.trustedCertificate.isBlank())
+        lib.setSystemTrust(profile.trustedCertificate.isBlank() && profile.caCertPath.isBlank())
 
         if (profile.userCertPath.isNotBlank()) {
             check(lib.setClientCert(profile.userCertPath, profile.privateKeyPath.ifBlank { null }) == 0) {
@@ -205,9 +208,7 @@ class TunnelRunner(
         lib.setXMLPost(!profile.disableXmlPost)
         lib.setPFS(profile.requirePfs)
 
-        val reqMtu = if (profile.mtu > 0) profile.mtu else 1350
-        lib.setReqMTU(reqMtu)
-        VpnBus.log(LogLevel.DEBUG, "Requested MTU $reqMtu")
+        if (profile.mtu > 0) lib.setReqMTU(profile.mtu)
 
         if (profile.overrideDpdTimeout) {
             lib.setDPD(profile.dpdSeconds)
@@ -219,7 +220,6 @@ class TunnelRunner(
         val serverHost = runCatching { java.net.URI(normaliseServer(profile.server)).host }.getOrNull().orEmpty()
         if (profile.allowInsecureCrypto) {
             lib.setAllowInsecureCrypto(true)
-            lib.setSystemTrust(profile.trustedCertificate.isBlank())
             VpnBus.log(LogLevel.DEBUG, "TLS compatibility mode enabled for $serverHost")
         }
     }
@@ -256,8 +256,9 @@ class TunnelRunner(
         builder.setMtu(mtu)
         VpnBus.log(LogLevel.DEBUG, "MTU $mtu")
 
-        applyRoutes(builder, ip, ipv6 != null)
-        applyDns(builder, ip, ipv6 != null)
+        val dns = selectDns(ip, ipv6 != null)
+        applyRoutes(builder, ip, ipv6 != null, dns)
+        applyDns(builder, ip, dns)
         applySplitTunnel(builder)
 
         builder.setBlocking(true)
@@ -270,38 +271,26 @@ class TunnelRunner(
             .getOrNull()
     }
 
-    private fun applyRoutes(builder: VpnService.Builder, ip: LibOpenConnect.IPInfo, ipv6: Boolean) {
+    private fun applyRoutes(builder: VpnService.Builder, ip: LibOpenConnect.IPInfo, ipv6: Boolean, dns: List<String>) {
         val rules = NetworkRoutes.Rules(settings.splitTunnelNetworksEnabled,
             settings.splitTunnelNetworksMode == SplitTunnelMode.INCLUDE_SELECTED, settings.splitTunnelNetworks)
         val routes = NetworkRoutes.routes(ip.splitIncludes.orEmpty().toList(), ip.splitExcludes.orEmpty().toList(),
-            rules, settings.bypassLocalNetworks, ipv6)
+            rules, settings.bypassLocalNetworks, ipv6, dns)
         routes.forEach { builder.addRoute(it.address, it.prefixLength) }
         VpnBus.info("Installed ${routes.size} tunnel route(s)")
     }
 
-    private fun applyDns(builder: VpnService.Builder, ip: LibOpenConnect.IPInfo, ipv6: Boolean) {
-        val customDnsList = profile.customDnsServers.ifEmpty {
-            settings.customDns.split(',', ' ', ';').map { it.trim() }.filter { it.isNotEmpty() }
+    private fun selectDns(ip: LibOpenConnect.IPInfo, ipv6: Boolean): List<String> {
+        require(ip.splitDNS.isNullOrEmpty()) { "Android requires a server without split DNS; use full VPN DNS instead." }
+        val dns = profile.customDnsServers.ifEmpty { ip.DNS.orEmpty() }.distinct()
+        require(dns.size <= 3 && dns.all { Net.isValidIp(it) }) { "Invalid DNS servers" }
+        return dns.filter { ipv6 || ':' !in it }.also {
+            require(it.isNotEmpty()) { "The connection has no reachable DNS server" }
         }
+    }
 
-        var added = 0
-        if (customDnsList.isNotEmpty()) {
-            for (server in customDnsList) {
-                if (Net.isValidIp(server) && (ipv6 || ':' !in server)) {
-                    runCatching { builder.addDnsServer(server) }.onSuccess { added++ }
-                }
-            }
-            if (added > 0) VpnBus.info("Applied $added custom DNS server(s): ${customDnsList.joinToString()}")
-        }
-
-        if (added == 0) {
-            for (server in ip.DNS.orEmpty()) {
-                if (Net.isValidIp(server) && (ipv6 || ':' !in server)) {
-                    runCatching { builder.addDnsServer(server) }.onSuccess { added++ }
-                }
-            }
-            if (added == 0) VpnBus.log(LogLevel.DEBUG, "Gateway supplied no DNS servers")
-        }
+    private fun applyDns(builder: VpnService.Builder, ip: LibOpenConnect.IPInfo, dns: List<String>) {
+        dns.forEach { builder.addDnsServer(it) }
 
         val domains = buildList {
             ip.domain?.split(' ', ',', '\t')?.let { addAll(it) }
@@ -338,7 +327,7 @@ class TunnelRunner(
         server = runCatching { lib.getHostname() }.getOrNull() ?: profile.server,
         ipv4 = ip.addr,
         ipv6 = ip.netmask6 ?: ip.addr6,
-        dns = ip.DNS.orEmpty().toList(),
+        dns = selectDns(ip, ConnectionPolicy.ipv6Address(profile.enableIpv6, ip.addr6, ip.netmask6) != null),
         domain = ip.domain,
         mtu = ConnectionPolicy.tunnelMtu(ip.MTU, profile.mtu,
             ConnectionPolicy.ipv6Address(profile.enableIpv6, ip.addr6, ip.netmask6) != null),
@@ -385,7 +374,20 @@ class TunnelRunner(
 
     private inner class Callbacks : SessionCallbacks {
         private var acceptedPin = ""
+        private var hotp = profile.tokenString
         private var authAttempts = 0
+        override fun onTokenLock(): Int {
+            if (profile.softwareTokenMode != 3) return 0
+            if (disconnectRequested.get() || !sameServer()) return -1
+            return try {
+                val next = HotpCounter.next(hotp)
+                if (session?.setTokenMode(3, hotp) != 0 || !host.reserveHotp(profile.id, profile.server, hotp, next)) -1
+                else { VpnBus.remember(next); hotp = next; 0 }
+            } catch (_: Exception) {
+                VpnBus.error("Could not reserve the HOTP counter; authentication was stopped.")
+                -1
+            }
+        }
         private fun sameServer(): Boolean {
             val lib = session ?: return false
             val expected = java.net.URI(ConnectionPolicy.serverUrl(profile.server))
@@ -466,6 +468,11 @@ class TunnelRunner(
                 if (CertificatePolicy.matches(pinned, fingerprint)) return 0
                 userCancelled.set(true)
                 VpnBus.error("Server public key changed or the saved pin is incomplete; verify it with your administrator.")
+                return -1
+            }
+            if (profile.caCertPath.isNotEmpty()) {
+                userCancelled.set(true)
+                VpnBus.error("Server certificate failed the configured CA check.")
                 return -1
             }
             if (!CertificatePolicy.isFullPin(fingerprint)) return -1
@@ -617,8 +624,8 @@ class TunnelRunner(
         get() = "AnyConnect Android 4.10.05065"
 
     private companion object {
-        /** Reduced to 1 s so that blocked UDP/DTLS fails fast and falls back immediately to CSTP without freezing. */
-        const val DTLS_ATTEMPT_SECONDS      = 1
+        /** Retry cadence; setupDTLS is nonblocking and TLS stays usable. */
+        const val DTLS_ATTEMPT_SECONDS      = 60
         const val RECONNECT_TIMEOUT_SECONDS = 300
         const val DEVICE_ID                 = "0123456789ABCDEF0123456789ABCDEF01234567"
 

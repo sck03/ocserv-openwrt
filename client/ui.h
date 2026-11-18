@@ -4,6 +4,7 @@
 #include <optional>
 
 namespace vpn::ui {
+std::wstring profile_file_name(const std::wstring &name);
 enum Control : int {
     Tabs = 100,
     Servers,
@@ -128,6 +129,8 @@ protected:
     int dpi_ = 96;
 
 private:
+    struct Layout { HWND window; int x, y, width, height; };
+    std::vector<Layout> layout_;
     static LRESULT CALLBACK procedure(HWND window, UINT message, WPARAM wparam, LPARAM lparam);
 };
 // Keep a parent disabled across a complete operation, including consecutive

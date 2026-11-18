@@ -248,6 +248,11 @@ fun AppTrafficMonitorScreen(
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
                 )
             }
+            if (hasUsageAccessPermission && !summary.available) {
+                Text("统计暂不可用，已保留累计流量。 / Counters unavailable; totals retained.",
+                    color = MaterialTheme.colorScheme.error,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp))
+            }
 
             // ── Overall Summary Card ─────────────────────────────────────────
             SummaryHeaderCard(

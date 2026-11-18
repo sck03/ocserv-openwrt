@@ -46,7 +46,7 @@ data class VpnProfile(
     val caCertPath: String = "",
     val userCertPath: String = "",
     val privateKeyPath: String = "",
-    /** Software token mode: 0=Disabled, 1=STOKEN, 2=TOTP, 3=HOTP */
+    /** Software token mode: 0=Disabled, 2=TOTP, 3=HOTP; capabilities come from the native core. */
     val softwareTokenMode: Int = 0,
     val tokenString: String = "",
     val requirePfs: Boolean = false,
@@ -72,6 +72,7 @@ enum class SplitTunnelMode {
 
 enum class AppLanguage {
     SYSTEM,
+    CHINESE,
     ENGLISH,
     PERSIAN,
 }
@@ -98,8 +99,6 @@ data class AppSettings(
     val showStatsInNotification: Boolean = true,
     val verboseLogging: Boolean = false,
 
-    val customDns: String = "",
-    val enableGeoIpLookup: Boolean = false,
     val hapticFeedbackEnabled: Boolean = true,
 
     /** ID of the currently active profile. Empty means use the first available. */

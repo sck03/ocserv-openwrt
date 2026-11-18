@@ -26,9 +26,8 @@ import kotlinx.coroutines.withContext
 
 data class UidTrafficBytes(val rxBytes: Long, val txBytes: Long)
 interface TrafficStatsProvider {
-    fun getUidRxBytes(uid: Int): Long
-    fun getUidTxBytes(uid: Int): Long
-    fun getAllUidStats(): Map<Int, UidTrafficBytes>? = null
+    /** Null means unavailable. Missing UIDs have no new observation, never zero. */
+    fun getAllUidStats(): Map<Int, UidTrafficBytes>?
     fun getElapsedRealtime(): Long
     fun hasPermission(): Boolean = true
 }
@@ -38,7 +37,7 @@ data class AppMetadata(val packageName: String, val uid: Int, val label: String,
 class AppTrafficCollector(
     private val statsProvider: TrafficStatsProvider,
     private val dispatcher: CoroutineDispatcher = Dispatchers.IO,
-    private val sampleIntervalMs: Long = 1000L,
+    private val sampleIntervalMs: Long = 5000L,
 ) {
     private data class Demand(val visible: Boolean = false, val paused: Boolean = false)
     private class Counter(var baseline: Long, var previous: Long = baseline, var rate: Long = 0, var zeroTicks: Int = 0) {
@@ -57,9 +56,11 @@ class AppTrafficCollector(
             return (value - baseline).coerceAtLeast(0)
         }
     }
-    private class Tracker(var app: AppMetadata, bytes: UidTrafficBytes, val firstSeen: Long) {
-        val rx = Counter(bytes.rxBytes)
-        val tx = Counter(bytes.txBytes)
+    private class Tracker(var app: AppMetadata, bytes: UidTrafficBytes?, val firstSeen: Long) {
+        val rx = Counter(bytes?.rxBytes ?: 0)
+        val tx = Counter(bytes?.txBytes ?: 0)
+        var hasBaseline = bytes != null
+        var interrupted = false
         var sampledAt = firstSeen
         var lastActive = 0L
     }
@@ -97,10 +98,6 @@ class AppTrafficCollector(
     fun resume() { demand.update { it.copy(paused = false) } }
     fun destroy() { scope.cancel() }
 
-    private fun bytes(uid: Int, bulk: Map<Int, UidTrafficBytes>?) =
-        if (bulk != null) bulk[uid] ?: UidTrafficBytes(0, 0)
-        else UidTrafficBytes(statsProvider.getUidRxBytes(uid).coerceAtLeast(0), statsProvider.getUidTxBytes(uid).coerceAtLeast(0))
-
     suspend fun loadApps(packages: List<AppMetadata>) = withContext(dispatcher) {
         mutex.withLock {
             val apps = packages.filter { !it.isSystem && it.uid > 0 }.associateBy { it.packageName }
@@ -110,7 +107,7 @@ class AppTrafficCollector(
                 val bulk = statsProvider.getAllUidStats()
                 currentCoroutineContext().ensureActive()
                 val now = statsProvider.getElapsedRealtime()
-                missing.forEach { trackers[it.packageName] = Tracker(it, bytes(it.uid, bulk), now) }
+                missing.forEach { trackers[it.packageName] = Tracker(it, bulk?.get(it.uid), now) }
             }
             apps.forEach { (name, app) -> trackers[name]?.app = app }
         }
@@ -121,7 +118,7 @@ class AppTrafficCollector(
             val bulk = statsProvider.getAllUidStats()
             currentCoroutineContext().ensureActive()
             sessionStart = statsProvider.getElapsedRealtime()
-            trackers.replaceAll { _, old -> Tracker(old.app, bytes(old.app.uid, bulk), sessionStart) }
+            trackers.replaceAll { _, old -> Tracker(old.app, bulk?.get(old.app.uid), sessionStart) }
             hadPermission = statsProvider.hasPermission()
             _entries.value = emptyList()
             _summary.value = AppTrafficSummary(sessionStartTime = sessionStart)
@@ -139,6 +136,12 @@ class AppTrafficCollector(
             val reset = permission != hadPermission
             val bulk = statsProvider.getAllUidStats()
             currentCoroutineContext().ensureActive()
+            if (bulk == null) {
+                rebaseRates = true
+                _entries.value = _entries.value.map { it.copy(rxRate = 0, txRate = 0, totalRate = 0, isActive = false) }
+                _summary.value = _summary.value.copy(available = false, currentRxRate = 0, currentTxRate = 0, activeAppsCount = 0)
+                return@withLock
+            }
             val now = statsProvider.getElapsedRealtime()
             val currentSettings = settings
             var rxTotal = 0L
@@ -149,10 +152,14 @@ class AppTrafficCollector(
             val seen = mutableSetOf<Int>()
             val snapshot = trackers.values.map { tracker ->
                 val app = tracker.app
-                val current = bytes(app.uid, bulk)
+                val current = bulk[app.uid]
                 val elapsed = (now - tracker.sampledAt).coerceAtLeast(1)
-                val rx = tracker.rx.sample(current.rxBytes, elapsed, reset, rebaseRates)
-                val tx = tracker.tx.sample(current.txBytes, elapsed, reset, rebaseRates)
+                val initialize = current != null && (!tracker.hasBaseline || reset)
+                val rebase = rebaseRates || tracker.interrupted || current == null
+                val rx = tracker.rx.sample(current?.rxBytes ?: tracker.rx.previous, elapsed, initialize, rebase)
+                val tx = tracker.tx.sample(current?.txBytes ?: tracker.tx.previous, elapsed, initialize, rebase)
+                if (current != null) tracker.hasBaseline = true
+                tracker.interrupted = current == null
                 tracker.sampledAt = now
                 val active = tracker.rx.rate > 0 || tracker.tx.rate > 0
                 if (active) { tracker.lastActive = now; activeApps++ }

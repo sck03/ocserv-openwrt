@@ -2,8 +2,15 @@
 #include <commdlg.h>
 #include <algorithm>
 #include <cstdio>
+#include <string_view>
 
 namespace vpn::ui {
+std::wstring profile_file_name(const std::wstring &name) {
+    std::wstring result = L"Lansyra-";
+    for (wchar_t c : name)
+        result += c < 32 || std::wstring_view(L"<>:\"/\\|?*").find(c) != std::wstring_view::npos ? L'_' : c;
+    return result + L".vpn";
+}
 Window::~Window() {
     if (window_)
         DestroyWindow(window_);
@@ -33,6 +40,9 @@ LRESULT CALLBACK Window::procedure(HWND window, UINT message, WPARAM wparam, LPA
 }
 bool Window::create(HWND owner, const wchar_t *type, const std::wstring &title, int width, int height,
                     DWORD style, DWORD extended, HMENU menu) {
+    if (window_) return false;
+    layout_.clear();
+    if (font_) { DeleteObject(font_); font_ = nullptr; }
     HINSTANCE instance = GetModuleHandleW(nullptr);
     WNDCLASSEXW cls{};
     cls.cbSize = sizeof(cls);
@@ -75,6 +85,7 @@ HWND Window::control(const wchar_t *type, const std::wstring &text, DWORD style,
         extended, type, text.c_str(), WS_CHILD | WS_VISIBLE | style, px(x), px(y), px(width), px(height),
         window_, reinterpret_cast<HMENU>(static_cast<INT_PTR>(id)), GetModuleHandleW(nullptr), nullptr);
     SendMessageW(result, WM_SETFONT, reinterpret_cast<WPARAM>(font_), TRUE);
+    if (result) layout_.push_back({result, x, y, width, height});
     return result;
 }
 HWND Window::edit(const std::wstring &text, int id, int x, int y, int width, int height, DWORD style) {
@@ -91,9 +102,31 @@ HWND Window::combo(int id, int x, int y, int width, bool editable) {
                    id, x, y, width, 260);
 }
 void Window::move(int id, int x, int y, int width, int height) {
-    MoveWindow(item(id), px(x), px(y), px(width), px(height), TRUE);
+    HWND child = item(id);
+    for (auto &layout : layout_) if (layout.window == child) layout = {child, x, y, width, height};
+    MoveWindow(child, px(x), px(y), px(width), px(height), TRUE);
 }
 LRESULT Window::message(UINT message, WPARAM wparam, LPARAM lparam) {
+    if (message == WM_DPICHANGED && lparam) {
+        const int next = std::max(96, static_cast<int>(HIWORD(wparam)));
+        const auto suggested = *reinterpret_cast<RECT *>(lparam);
+        HFONT font = CreateFontW(-MulDiv(9, next, 72), 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE, DEFAULT_CHARSET,
+            OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY, DEFAULT_PITCH, L"Microsoft YaHei UI");
+        if (!font) return 0;
+        dpi_ = next;
+        for (const auto &layout : layout_) {
+            if (!IsWindow(layout.window) || GetParent(layout.window) != window_) continue;
+            SetWindowPos(layout.window, nullptr, px(layout.x), px(layout.y), px(layout.width), px(layout.height), SWP_NOZORDER | SWP_NOACTIVATE);
+            SendMessageW(layout.window, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
+        }
+        HFONT old = font_;
+        font_ = font;
+        if (old) DeleteObject(old);
+        SetWindowPos(window_, nullptr, suggested.left, suggested.top, suggested.right - suggested.left,
+            suggested.bottom - suggested.top, SWP_NOZORDER | SWP_NOACTIVATE);
+        RedrawWindow(window_, nullptr, nullptr, RDW_INVALIDATE | RDW_ALLCHILDREN);
+        return 0;
+    }
     if (message == WM_ERASEBKGND) {
         RECT rect{};
         GetClientRect(window_, &rect);

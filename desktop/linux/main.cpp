@@ -1,11 +1,13 @@
 #include "agent.h"
 #include "preferences.h"
 #include "protocol.h"
+#include "profile_settings.h"
 #include <gtk/gtk.h>
 #include <glib/gstdio.h>
 #include <cstdio>
 #include <deque>
 #include <sstream>
+#include <memory>
 
 using namespace lansyra;
 namespace {
@@ -47,7 +49,7 @@ public:
     GtkApplication *app;
     GtkWidget *window = nullptr, *servers = nullptr, *status = nullptr, *detail = nullptr,
               *connectButton = nullptr;
-    GtkWidget *newButton = nullptr, *editButton = nullptr, *deleteButton = nullptr, *login = nullptr,
+    GtkWidget *newButton = nullptr, *editButton = nullptr, *deleteButton = nullptr, *importButton = nullptr, *login = nullptr,
               *retryCheck = nullptr;
     NMClient *client = nullptr;
     NMSecretAgentOld *agent = nullptr;
@@ -99,7 +101,7 @@ public:
             client && nm_client_get_nm_running(client) && agent && nm_secret_agent_old_get_registered(agent);
         gtk_button_set_label(GTK_BUTTON(connectButton), busy ? "断开 / 取消" : "连接");
         gtk_widget_set_sensitive(connectButton, !closing && (busy || (!storagePending && available && hasProfile)));
-        for (auto *widget : {servers, newButton, editButton, deleteButton, login, retryCheck})
+        for (auto *widget : {servers, newButton, editButton, deleteButton, importButton, login, retryCheck})
             gtk_widget_set_sensitive(widget, !busy && !storagePending && !closing && (available || smoke));
         gtk_widget_set_sensitive(editButton, !busy && !storagePending && !closing && hasProfile);
         gtk_widget_set_sensitive(deleteButton, !busy && !storagePending && !closing && hasProfile);
@@ -371,7 +373,7 @@ public:
         } else if (window)
             update();
     }
-    void edit(bool existing) {
+    void edit(bool existing, std::shared_ptr<ImportedProfile> imported = {}) {
         auto *selected_profile = existing ? selected() : nullptr;
         g_autoptr(NMRemoteConnection) remote =
             selected_profile ? NM_REMOTE_CONNECTION(g_object_ref(selected_profile)) : nullptr;
@@ -399,54 +401,35 @@ public:
                 nm_setting_vpn_get_user_name(vpn), nm_setting_vpn_get_data_item(vpn, "cacert")};
             for (int i = 0; i < 4; ++i)
                 gtk_entry_set_text(GTK_ENTRY(entries[i]), values[i] ? values[i] : "");
+        } else if (imported) {
+            gtk_entry_set_text(GTK_ENTRY(entries[0]), imported->name.c_str());
+            gtk_entry_set_text(GTK_ENTRY(entries[1]), imported->server.c_str());
+            gtk_entry_set_text(GTK_ENTRY(entries[3]), imported->ca.c_str());
         }
+        GtkWidget *validation = gtk_label_new("");
+        gtk_label_set_line_wrap(GTK_LABEL(validation), TRUE);
+        gtk_grid_attach(GTK_GRID(grid), validation, 0, 4, 2, 1);
         gtk_widget_show_all(dialog);
-        if (gtk_dialog_run(GTK_DIALOG(dialog)) != GTK_RESPONSE_OK) {
-            gtk_widget_destroy(dialog);
-            return;
+        std::string name, server, username, ca;
+        for (;;) {
+            if (gtk_dialog_run(GTK_DIALOG(dialog)) != GTK_RESPONSE_OK) { gtk_widget_destroy(dialog); return; }
+            name = gtk_entry_get_text(GTK_ENTRY(entries[0]));
+            server = gateway(gtk_entry_get_text(GTK_ENTRY(entries[1])));
+            username = gtk_entry_get_text(GTK_ENTRY(entries[2]));
+            ca = gtk_entry_get_text(GTK_ENTRY(entries[3]));
+            if (!name.empty() && field(name) && !server.empty() && field(username) &&
+                (ca.empty() || g_file_test(ca.c_str(), G_FILE_TEST_IS_REGULAR))) break;
+            gtk_label_set_text(GTK_LABEL(validation), "请检查名称、HTTPS 地址、用户名及 CA 文件。输入已保留。");
         }
-        std::string name = gtk_entry_get_text(GTK_ENTRY(entries[0]));
-        auto server = gateway(gtk_entry_get_text(GTK_ENTRY(entries[1])));
-        std::string username = gtk_entry_get_text(GTK_ENTRY(entries[2])),
-                    ca = gtk_entry_get_text(GTK_ENTRY(entries[3]));
         gtk_widget_destroy(dialog);
-        if (name.empty() || !field(name) || server.empty() || !field(username) ||
-            (!ca.empty() && !g_file_test(ca.c_str(), G_FILE_TEST_IS_REGULAR))) {
-            gtk_label_set_text(GTK_LABEL(detail), "请检查名称、HTTPS 地址、用户名及 CA 文件。");
-            return;
-        }
-        auto *connection = nm_simple_connection_new();
-        auto *setting = NM_SETTING_CONNECTION(nm_setting_connection_new());
-        char *uuid =
-            remote ? g_strdup(nm_connection_get_uuid(NM_CONNECTION(remote))) : g_uuid_string_random();
+        auto *connection = profile_candidate(remote ? NM_CONNECTION(remote) : nullptr, name, server, username, ca);
+        const char *uuid = nm_connection_get_uuid(connection);
         const std::string previousID = selectedID;
         selectedID = uuid;
-        g_object_set(setting, NM_SETTING_CONNECTION_ID, name.c_str(), NM_SETTING_CONNECTION_UUID, uuid,
-                     NM_SETTING_CONNECTION_TYPE, NM_SETTING_VPN_SETTING_NAME,
-                     NM_SETTING_CONNECTION_AUTOCONNECT, FALSE, nullptr);
-        nm_setting_connection_add_permission(setting, "user", g_get_user_name(), nullptr);
-        nm_connection_add_setting(connection, NM_SETTING(setting));
-        auto *vpn = NM_SETTING_VPN(nm_setting_vpn_new());
-        g_object_set(vpn, NM_SETTING_VPN_SERVICE_TYPE, Service, NM_SETTING_VPN_USER_NAME, username.c_str(),
-                     nullptr);
-        nm_setting_vpn_add_data_item(vpn, "gateway", server.c_str());
-        nm_setting_vpn_add_data_item(vpn, "protocol", "anyconnect");
-        if (!ca.empty())
-            nm_setting_vpn_add_data_item(vpn, "cacert", ca.c_str());
-        for (const char *key : {"cookie", "gateway", "gwcert", "resolve"})
-            nm_setting_set_secret_flags(NM_SETTING(vpn), key, NM_SETTING_SECRET_FLAG_NOT_SAVED, nullptr);
-        nm_connection_add_setting(connection, NM_SETTING(vpn));
-        auto *user = NM_SETTING_USER(nm_setting_user_new());
-        nm_setting_user_set_data(user, Marker, "1", nullptr);
-        nm_connection_add_setting(connection, NM_SETTING(user));
-        for (NMSetting *ip : {nm_setting_ip4_config_new(), nm_setting_ip6_config_new()}) {
-            g_object_set(ip, NM_SETTING_IP_CONFIG_METHOD, "auto", NM_SETTING_IP_CONFIG_DNS_PRIORITY, -50,
-                         nullptr);
-            nm_connection_add_setting(connection, ip);
-        }
+        if (imported && ca != imported->ca) imported.reset();
         ++pending;
-        struct SaveOperation { Application *self; std::string previousID; };
-        auto *operation = new SaveOperation{this, previousID};
+        struct SaveOperation { Application *self; std::string previousID; std::shared_ptr<ImportedProfile> imported; };
+        auto *operation = new SaveOperation{this, previousID, std::move(imported)};
         if (remote) {
             // Send an immutable candidate. Failed authorization must not mutate
             // the cached remote connection the UI will use for its next attempt.
@@ -459,6 +442,7 @@ public:
                     GError *failure = nullptr;
                     GVariant *reply = nm_remote_connection_update2_finish(NM_REMOTE_CONNECTION(object), result, &failure);
                     bool ok = reply != nullptr;
+                    if (ok && operation->imported) operation->imported->retained = true;
                     if (!ok) self->selectedID = operation->previousID;
                     if (reply) g_variant_unref(reply);
                     g_clear_error(&failure);
@@ -476,6 +460,7 @@ public:
                     GError *failure = nullptr;
                     auto *profile = nm_client_add_connection_finish(NM_CLIENT(object), result, &failure);
                     bool ok = profile != nullptr;
+                    if (ok && operation->imported) operation->imported->retained = true;
                     if (!ok) self->selectedID = operation->previousID;
                     g_clear_object(&profile);
                     g_clear_error(&failure);
@@ -483,7 +468,6 @@ public:
                     self->saved(ok);
                 },
                 operation);
-        g_free(uuid);
         g_object_unref(connection);
         update();
     }
@@ -498,6 +482,57 @@ public:
             });
         }
         maybeClose();
+    }
+    void importProfile() {
+        GtkWidget *dialog = gtk_file_chooser_dialog_new("导入 .vpn 公共配置", GTK_WINDOW(window), GTK_FILE_CHOOSER_ACTION_OPEN,
+            "取消", GTK_RESPONSE_CANCEL, "导入", GTK_RESPONSE_ACCEPT, nullptr);
+        auto *filter = gtk_file_filter_new();
+        gtk_file_filter_set_name(filter, "Lansyra .vpn");
+        gtk_file_filter_add_pattern(filter, "*.vpn");
+        gtk_file_chooser_add_filter(GTK_FILE_CHOOSER(dialog), filter);
+        char *path = gtk_dialog_run(GTK_DIALOG(dialog)) == GTK_RESPONSE_ACCEPT ? gtk_file_chooser_get_filename(GTK_FILE_CHOOSER(dialog)) : nullptr;
+        gtk_widget_destroy(dialog);
+        if (!path) return;
+        ++pending; update();
+        GTask *task = g_task_new(nullptr, nullptr, [](GObject *, GAsyncResult *result, gpointer data) {
+            auto *self = static_cast<Application *>(data);
+            GError *error = nullptr;
+            std::shared_ptr<ImportedProfile> imported(static_cast<ImportedProfile *>(g_task_propagate_pointer(G_TASK(result), &error)));
+            --self->pending;
+            if (!self->closing) {
+                if (imported) self->edit(false, imported);
+                else gtk_label_set_text(GTK_LABEL(self->detail), "导入失败。请选择 Linux 的版本 1 配置（CA 或首次确认），并检查文件和权限。");
+            }
+            g_clear_error(&error);
+            self->maybeClose();
+        }, this);
+        g_task_set_task_data(task, path, g_free);
+        g_task_run_in_thread(task, [](GTask *task, gpointer, gpointer data, GCancellable *) {
+            try { g_task_return_pointer(task, read_public_profile(static_cast<const char *>(data)), [](gpointer value) { delete static_cast<ImportedProfile *>(value); }); }
+            catch (...) { g_task_return_new_error(task, G_IO_ERROR, G_IO_ERROR_INVALID_DATA, "Public profile import failed"); }
+        });
+        g_object_unref(task);
+    }
+    void restoreActive() {
+        const auto *connections = nm_client_get_active_connections(client);
+        for (guint i = 0; i < connections->len; ++i) {
+            auto *connection = NM_ACTIVE_CONNECTION(g_ptr_array_index(connections, i));
+            const char *uuid = nm_active_connection_get_uuid(connection);
+            auto *profile = uuid ? nm_client_get_connection_by_uuid(client, uuid) : nullptr;
+            auto *marker = profile ? NM_SETTING_USER(nm_connection_get_setting(NM_CONNECTION(profile), NM_TYPE_SETTING_USER)) : nullptr;
+            if (!NM_IS_VPN_CONNECTION(connection) || !marker || g_strcmp0(nm_setting_user_get_data(marker, Marker), "1") ||
+                nm_active_connection_get_state(connection) == NM_ACTIVE_CONNECTION_STATE_DEACTIVATED) continue;
+            startup = false;
+            request.begin(); selectedID = targetID = uuid;
+            active = NM_ACTIVE_CONNECTION(g_object_ref(connection));
+            lansyra_agent_select(agent, uuid);
+            g_signal_connect(connection, "state-changed", G_CALLBACK(activeChanged), this);
+            g_signal_connect(connection, "vpn-state-changed", G_CALLBACK(vpnChanged), this);
+            transition("connecting", "正在恢复已有连接状态…");
+            vpnChanged(NM_VPN_CONNECTION(connection), nm_vpn_connection_get_vpn_state(NM_VPN_CONNECTION(connection)), NM_VPN_CONNECTION_STATE_REASON_NONE, this);
+            reload();
+            return;
+        }
     }
     void remove() {
         auto *selected_profile = selected();
@@ -521,6 +556,7 @@ public:
                 auto *self = operation->self;
                 GError *failure = nullptr;
                 bool ok = nm_remote_connection_delete_finish(NM_REMOTE_CONNECTION(object), result, &failure);
+                if (ok) prune_profile_certificates(nm_client_get_connections(self->client), operation->id);
                 if (ok && self->autoID == operation->id) {
                     self->autoID.clear();
                     self->savePreferences();
@@ -577,6 +613,8 @@ public:
         for (auto *button : {newButton, editButton, deleteButton})
             gtk_box_pack_start(GTK_BOX(buttons), button, TRUE, TRUE, 0);
         gtk_box_pack_start(GTK_BOX(box), buttons, FALSE, FALSE, 0);
+        importButton = gtk_button_new_with_label("导入 .vpn 公共配置…");
+        gtk_box_pack_start(GTK_BOX(box), importButton, FALSE, FALSE, 0);
         login = gtk_check_button_new_with_label("登录后自动连接所选服务器");
         retryCheck = gtk_check_button_new_with_label("网络失败后重试（最多 3 次）");
         gtk_box_pack_start(GTK_BOX(box), login, FALSE, FALSE, 0);
@@ -599,6 +637,9 @@ public:
             newButton, "clicked",
             G_CALLBACK((+[](GtkButton *, gpointer data) { static_cast<Application *>(data)->edit(false); })),
             this);
+        g_signal_connect(importButton, "clicked", G_CALLBACK((+[](GtkButton *, gpointer data) {
+            static_cast<Application *>(data)->importProfile();
+        })), this);
         g_signal_connect(
             editButton, "clicked",
             G_CALLBACK((+[](GtkButton *, gpointer data) { static_cast<Application *>(data)->edit(true); })),
@@ -685,6 +726,7 @@ public:
             transition("failed", "系统 VPN 服务不可用",
                        "请启动 NetworkManager，并安装 network-manager-openconnect-gnome。");
         } else {
+            restoreActive();
             reload();
             g_signal_connect(client, "connection-added",
                              G_CALLBACK((+[](NMClient *, NMRemoteConnection *, gpointer data) {

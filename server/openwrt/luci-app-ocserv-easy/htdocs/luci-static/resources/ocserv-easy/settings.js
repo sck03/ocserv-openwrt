@@ -1,12 +1,12 @@
 /* SPDX-License-Identifier: GPL-3.0-or-later */
-window.OcservEasySettings = function ({ t, element, field, array, writable, options, errors, confirm }) {
+window.OcservEasySettings = function ({ t, element, field, array, writable, errors, confirm }) {
   function renderSettings(state, content) {
     var s = state.settings,
       inputs = {};
     function textInput(key, label, help, attributes) {
       var input = element(
         "input",
-        Object.assign({ value: s[key] || "" }, attributes || {}),
+        Object.assign({ value: s[key] || "", maxLength: 512 }, attributes || {}),
       );
       inputs[key] = input;
       return field(label, input, help);
@@ -156,6 +156,14 @@ window.OcservEasySettings = function ({ t, element, field, array, writable, opti
           t("默认域名", "Default domain"),
           t("可留空。", "Optional."),
         ),
+        flag("split_dns", t("仅 VPN 域名使用隧道 DNS", "Use tunnel DNS for the VPN domain"),
+          t("需要填写默认域名；客户端须支持 DNS 分流。", "Requires a default domain and client support for split DNS.")),
+        flag("ping_leases", t("分配地址前检查占用", "Check addresses before assignment"),
+          t("通常保持关闭；启用后会增加地址分配检查。", "Usually disabled; enabling adds an address availability check.")),
+        textInput("server_cert", t("服务端证书路径", "Server certificate path"),
+          t("路由器上的 PEM 证书绝对路径。", "Absolute path to the PEM certificate on the router."), {required:true}),
+        textInput("server_key", t("服务端私钥路径", "Server private key path"),
+          t("填写路径，不在页面上传或显示私钥内容。", "Enter the path; private key contents are never displayed."), {required:true}),
         textInput(
           "ip6addr",
           t("VPN IPv6 地址池", "VPN IPv6 pool"),
@@ -178,7 +186,7 @@ window.OcservEasySettings = function ({ t, element, field, array, writable, opti
       text: t("保存并应用", "Save and apply"),
       disabled:
         !writable() ||
-        options.firewall_writable === false ||
+        !state.permissions.settings ||
         !state.settings_supported ||
         state.firewall_sync === false ||
         !!(state.guard && state.guard.enabled),
@@ -203,7 +211,8 @@ window.OcservEasySettings = function ({ t, element, field, array, writable, opti
       Object.keys(inputs).forEach(function (key) {
         var input = inputs[key];
         values[key] =
-          input.type === "checkbox" ? (input.checked ? "1" : "0") : input.value;
+          input.type === "checkbox" ? (input.checked ? "1" : "0") :
+            input.type === "number" && input.value !== "" ? String(input.valueAsNumber) : input.value;
       });
       values.dns = dns.value
         .split(/\r?\n/)

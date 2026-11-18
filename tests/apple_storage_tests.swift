@@ -6,6 +6,14 @@ struct StorageTests {
         let pin = "pin-sha256:" + Data(repeating: 0, count: 32).base64EncodedString()
         let valid = VPNProfile(name: "Fixture", server: "https://vpn.example.com", username: "fixture", pin: pin)
         let data = try ProfileFile.encoded([valid])
+        let another = VPNProfile(name: "Second", server: valid.server, username: "second", pin: pin)
+        precondition(ProfileFile.upsert(valid, in: [valid, another]) == [valid, another])
+        let portable = try PublicConnection.parse(Data("[VPN]\nVersion=1\nServer=https://vpn.example.com\nTrust=pin\nServerPin=\(pin)\n".utf8))
+        precondition(portable.pin == pin)
+        for raw in ["[VPN]\nServer=https://vpn.example.com", "[VPN]\nVersion=1\nServer=https://vpn.example.com\nTrust=ca\nCABase64=invalid"] {
+            do { _ = try PublicConnection.parse(Data(raw.utf8)); preconditionFailure("unsupported public profile accepted") }
+            catch { }
+        }
         precondition(data.count < ProfileFile.maxBytes)
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: directory) }

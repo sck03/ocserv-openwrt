@@ -5,8 +5,8 @@ options:
 settings:
   base:
     SWIFT_VERSION: '5.0'
-    MARKETING_VERSION: '0.1.6'
-    CURRENT_PROJECT_VERSION: '7'
+    MARKETING_VERSION: '0.2.0'
+    CURRENT_PROJECT_VERSION: '8'
     CODE_SIGN_STYLE: Manual
     ARCHS: 'arm64 x86_64'
     ONLY_ACTIVE_ARCH: NO
@@ -15,7 +15,7 @@ targets:
   Lansyra:
     type: application
     platform: macOS
-    sources: [App]
+    sources: [App, ../../client/apple-app]
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: $(VPN_BUNDLE_ID)

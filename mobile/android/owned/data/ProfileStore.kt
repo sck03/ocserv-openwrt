@@ -20,17 +20,16 @@ import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.flowOn
-import kotlinx.serialization.encodeToString
-import kotlinx.serialization.json.Json
 import java.util.UUID
 import java.io.File
 
-private val Context.profileDataStore: DataStore<Preferences> by preferencesDataStore(name = "opentunnel_profiles")
+private val Context.profileDataStore: DataStore<Preferences> by preferencesDataStore(name = "lansyra_profiles_v4")
 
 /** Each mutation reads the latest metadata and preserves all unchanged ciphertext. */
 class ProfileStore private constructor(context: Context) {
     private val store = context.applicationContext.profileDataStore
     private val key = stringPreferencesKey("profiles.json")
+    private val selectedKey = stringPreferencesKey("profiles.selected")
     private val codec = ProfileCodec(SecretBox::encrypt, SecretBox::decrypt)
     private val operations = Mutex()
     private val certificates = CertificateFiles(File(context.filesDir, "certificates")) { source ->
@@ -38,7 +37,6 @@ class ProfileStore private constructor(context: Context) {
             "Certificate provider is unavailable"
         }
     }
-    private val json = Json { encodeDefaults = true }
     private val _storageError = kotlinx.coroutines.flow.MutableStateFlow<String?>(null)
     val storageError: kotlinx.coroutines.flow.StateFlow<String?> = _storageError
 
@@ -50,21 +48,39 @@ class ProfileStore private constructor(context: Context) {
         emit(emptyList())
     }.flowOn(Dispatchers.IO)
 
-    suspend fun allProfiles(): List<VpnProfile> = codec.decode(store.data.first()[key].orEmpty()).map { it.profile }
+    val activeProfile: Flow<VpnProfile> = store.data.map { prefs ->
+        ProfilePolicy.selected(codec.decode(prefs[key].orEmpty()).map { it.profile }, prefs[selectedKey].orEmpty()) ?: VpnProfile()
+    }.catch { error ->
+        if (error is CancellationException) throw error
+        _storageError.value = "Selected profile is unavailable; connection is blocked."
+        emit(VpnProfile())
+    }.flowOn(Dispatchers.IO)
 
-    suspend fun connectionProfile(id: String): VpnProfile {
-        val current = codec.decode(store.data.first()[key].orEmpty())
-        val selected = if (id.isEmpty()) current.firstOrNull() else current.firstOrNull { it.profile.id == id }
+    suspend fun select(id: String) = operation {
+        store.edit { prefs ->
+            val profiles = codec.decode(prefs[key].orEmpty()).map { it.profile }
+            require(profiles.any { it.id == id }) { "Selected profile is unavailable" }
+            prefs[selectedKey] = id
+        }
+    }
+
+    suspend fun connectionProfile(): VpnProfile {
+        val prefs = store.data.first()
+        val current = codec.decode(prefs[key].orEmpty())
+        val id = ProfilePolicy.selected(current.map { it.profile }, prefs[selectedKey].orEmpty())?.id
+        val selected = current.firstOrNull { it.profile.id == id }
         return codec.unlock(checkNotNull(selected) { "Selected profile is unavailable" })
     }
 
-    suspend fun openConnection(id: String): Pair<VpnProfile, CertificateFiles.Lease> {
+    suspend fun openConnection(): Pair<VpnProfile, CertificateFiles.Lease> {
         var retained: CertificateFiles.Lease? = null
         try {
             return withContext(Dispatchers.IO) {
                 operations.withLock {
-                    val current = codec.decode(store.data.first()[key].orEmpty())
-                    val selected = if (id.isEmpty()) current.firstOrNull() else current.firstOrNull { it.profile.id == id }
+                    val prefs = store.data.first()
+                    val current = codec.decode(prefs[key].orEmpty())
+                    val id = ProfilePolicy.selected(current.map { it.profile }, prefs[selectedKey].orEmpty())?.id
+                    val selected = current.firstOrNull { it.profile.id == id }
                     val profile = codec.unlock(checkNotNull(selected) { "Selected profile is unavailable" })
                     certificates.reconcile(current.map { it.profile })
                     profile to certificates.retain(profile.copy(password = "", tokenString = "")).also { retained = it }
@@ -99,25 +115,47 @@ class ProfileStore private constructor(context: Context) {
         ProfilePolicy.reorder(current, ids) { it.profile.id }
     }
 
-    suspend fun exportJson(): String = json.encodeToString(allProfiles().map(ProfilePolicy::portable))
+    suspend fun exportConnection(): String = operation {
+        val prefs = store.data.first()
+        val profiles = codec.decode(prefs[key].orEmpty()).map { it.profile }
+        val profile = checkNotNull(ProfilePolicy.selected(profiles, prefs[selectedKey].orEmpty())) { "Select a profile" }
+        certificates.reconcile(profiles)
+        certificates.retain(profile).use {
+            val ca = if (profile.caCertPath.isEmpty()) null else File(profile.caCertPath).inputStream().use { input -> ConnectionFile.read(input, 65536) }
+            ConnectionFile(profile, ca).encode()
+        }
+    }
 
     suspend fun pinCertificate(id: String, server: String, fingerprint: String) = mutate { current ->
         val updated = ProfilePolicy.pin(current.map { it.profile }, id, server, fingerprint)
         current.zip(updated) { stored, profile -> stored.copy(profile = profile) }
     }
 
-    suspend fun importJson(raw: String): Int {
-        require(raw.toByteArray(Charsets.UTF_8).size <= ProfilePolicy.MAX_BYTES) { "Profile import is too large" }
-        val imported = json.decodeFromString<List<VpnProfile>>(raw).map {
-            ProfilePolicy.portable(if (it.id.isBlank()) it.copy(id = UUID.randomUUID().toString()) else it)
+    suspend fun reserveHotp(id: String, server: String, expected: String, next: String) = mutate { current ->
+        require(next == dev.opentunnel.vpn.core.HotpCounter.next(expected)) { "Invalid HOTP reservation" }
+        val index = current.indexOfFirst { it.profile.id == id }
+        val stored = checkNotNull(current.getOrNull(index)) { "Profile was removed" }
+        require(stored.profile.softwareTokenMode == 3 && ProfilePolicy.origin(stored.profile.server) == ProfilePolicy.origin(server)) {
+            "HOTP profile changed"
         }
-        ProfilePolicy.validate(imported)
-        mutate { current ->
-            val merged = current.associateBy { it.profile.id }.toMutableMap()
-            imported.forEach { merged[it.id] = codec.update(it, merged[it.id]) }
-            merged.values.toList()
-        }
-        return imported.size
+        require(codec.unlock(stored).tokenString == expected) { "HOTP token changed" }
+        current.toMutableList().apply { set(index, codec.update(stored.profile.copy(tokenString = next), stored)) }
+    }
+
+    suspend fun importConnection(raw: String): VpnProfile = operation {
+        val imported = ConnectionFile.parse(raw)
+        val candidate = imported.profile.copy(id = UUID.randomUUID().toString())
+        var staged: CertificateFiles.Lease? = null
+        var saved = candidate
+        try {
+            mutateLocked(candidate.id) { current ->
+                val prepared = certificates.stage(candidate, imported.ca).also { staged = it }.profile
+                val entry = codec.update(prepared, null)
+                saved = entry.profile
+                current + entry
+            }
+        } finally { staged?.close() }
+        saved
     }
 
     suspend fun delete(id: String) = mutate { it.filter { stored -> stored.profile.id != id } }
@@ -130,9 +168,9 @@ class ProfileStore private constructor(context: Context) {
     }
 
     private suspend fun mutate(transform: (List<StoredProfile>) -> List<StoredProfile>) =
-        operation { mutateLocked(transform) }
+        operation { mutateLocked(transform = transform) }
 
-    private suspend fun mutateLocked(transform: (List<StoredProfile>) -> List<StoredProfile>) {
+    private suspend fun mutateLocked(select: String? = null, transform: (List<StoredProfile>) -> List<StoredProfile>) {
         var committed = emptyList<VpnProfile>()
         store.edit { prefs ->
             val current = codec.decode(prefs[key].orEmpty())
@@ -140,6 +178,12 @@ class ProfileStore private constructor(context: Context) {
             val updated = transform(current)
             prefs[key] = codec.encode(updated)
             committed = updated.map { it.profile }
+            if (select != null) {
+                require(committed.any { it.id == select }) { "Selected profile is unavailable" }
+                prefs[selectedKey] = select
+            }
+            if (committed.none { it.id == prefs[selectedKey] })
+                prefs[selectedKey] = committed.firstOrNull()?.id.orEmpty()
         }
         certificates.reconcile(committed)
         _storageError.value = null

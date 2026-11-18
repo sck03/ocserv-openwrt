@@ -50,14 +50,9 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     private var appsJob: Job? = null
     private val trafficVisible = MutableStateFlow(false)
 
-    private val rxRingBuffer = LongRingBuffer(18000)
-    private val txRingBuffer = LongRingBuffer(18000)
-
-    private val _rxHistory = MutableStateFlow<List<Long>>(emptyList())
-    val rxHistory: StateFlow<List<Long>> = _rxHistory.asStateFlow()
-
-    private val _txHistory = MutableStateFlow<List<Long>>(emptyList())
-    val txHistory: StateFlow<List<Long>> = _txHistory.asStateFlow()
+    private val historyBuffer = dev.opentunnel.vpn.core.SpeedHistory()
+    private val _speedHistory = MutableStateFlow(dev.opentunnel.vpn.core.SpeedSnapshot())
+    val speedHistory = _speedHistory.asStateFlow()
 
     private var lastStage: dev.opentunnel.vpn.core.ConnectionStage? = null
     private var lastConnectedAt = 0L
@@ -67,7 +62,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     private val trafficCollector = dev.opentunnel.vpn.core.AppTrafficCollector(
         statsProvider = dev.opentunnel.vpn.core.AndroidTrafficStatsProvider(application),
         dispatcher = Dispatchers.IO,
-        sampleIntervalMs = 1000L,
+        sampleIntervalMs = 5000L,
     )
 
     val appTrafficSummary: StateFlow<dev.opentunnel.vpn.data.AppTrafficSummary> = trafficCollector.summary
@@ -171,10 +166,8 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     fun clearSpeedHistory() {
-        rxRingBuffer.clear()
-        txRingBuffer.clear()
-        _rxHistory.value = emptyList()
-        _txHistory.value = emptyList()
+        historyBuffer.clear(status.value.connectedAtElapsed)
+        _speedHistory.value = dev.opentunnel.vpn.core.SpeedSnapshot()
     }
 
     init {
@@ -219,14 +212,12 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             }
         }
 
-        viewModelScope.launch {
+        viewModelScope.launch(Dispatchers.Default) {
             stats.collect { st ->
-                if (status.value.stage == dev.opentunnel.vpn.core.ConnectionStage.CONNECTED) {
-                    rxRingBuffer.add(st.rxRate)
-                    txRingBuffer.add(st.txRate)
-
-                    if (_rxHistory.subscriptionCount.value > 0) _rxHistory.value = rxRingBuffer.toSnapshot()
-                    if (_txHistory.subscriptionCount.value > 0) _txHistory.value = txRingBuffer.toSnapshot()
+                val active = status.value
+                if (active.stage == dev.opentunnel.vpn.core.ConnectionStage.CONNECTED) {
+                    historyBuffer.sample(st.sampleTimestamp, st.rxRate, st.txRate, active.connectedAtElapsed)
+                    if (_speedHistory.subscriptionCount.value > 0) _speedHistory.value = historyBuffer.snapshot()
                 }
             }
         }
@@ -273,21 +264,13 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         profileOperation { repository.reorderProfiles(profiles.map { it.id }) }
     }
 
-    fun deleteProfile(profileId: String) {
-        profileOperation { repository.deleteProfile(profileId) }
-    }
-
     fun selectProfile(profileId: String) {
         profileOperation { repository.setActiveProfile(profileId) }
     }
 
-    fun exportProfiles(onResult: (String) -> Unit) {
-        profileOperation { onResult(repository.exportProfilesJson()) }
-    }
+    suspend fun exportConnection(): String = repository.exportConnection()
 
-    fun importProfiles(jsonStr: String, onResult: (Int) -> Unit) {
-        profileOperation { onResult(repository.importProfilesJson(jsonStr)) }
-    }
+    suspend fun importConnection(raw: String): VpnProfile = repository.importConnection(raw)
 
     suspend fun forgetPinnedCertificate(profileId: String, server: String) {
         repository.pinCertificate(profileId, server, "")
@@ -461,45 +444,5 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     override fun onCleared() {
         trafficCollector.destroy()
         super.onCleared()
-    }
-}
-
-/**
- * Thread-safe fixed-capacity circular ring buffer backed by a primitive LongArray.
- * Snapshots use primitive storage and are only published while a chart observes them.
- */
-class LongRingBuffer(private val capacity: Int) {
-    private val buffer = LongArray(capacity)
-    private var head = 0
-    private var count = 0
-
-    @Synchronized
-    fun add(value: Long) {
-        if (count < capacity) {
-            buffer[(head + count) % capacity] = value
-            count++
-        } else {
-            buffer[head] = value
-            head = (head + 1) % capacity
-        }
-    }
-
-    @Synchronized
-    fun clear() {
-        head = 0
-        count = 0
-    }
-
-    @Synchronized
-    fun toSnapshot(): List<Long> {
-        if (count == 0) return emptyList()
-        val result = LongArray(count)
-        for (i in 0 until count) {
-            result[i] = buffer[(head + i) % capacity]
-        }
-        return object : AbstractList<Long>() {
-            override val size: Int get() = result.size
-            override fun get(index: Int): Long = result[index]
-        }
     }
 }

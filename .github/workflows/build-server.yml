@@ -124,24 +124,7 @@ jobs:
             python -m playwright install --with-deps chromium
             browser_channel=chromium
           fi
-          for proxy in OpenClash Nikki Momo; do
-            python tests/server_preview.py --port 22981 --proxy "${proxy,,}" > "test-results/server-preview-$proxy.log" 2>&1 &
-            preview_pid=$!
-            trap 'kill "$preview_pid" 2>/dev/null || true' EXIT
-            for attempt in $(seq 1 50); do
-              if curl -fsS http://127.0.0.1:22981/ >/dev/null 2>&1; then break; fi
-              sleep 0.2
-            done
-            curl -fsS http://127.0.0.1:22981/ >/dev/null || { cat "test-results/server-preview-$proxy.log"; exit 1; }
-            python tests/server_ui_tests.py --browser-channel "$browser_channel" --proxy "$proxy" --output "test-results/server-ui/$proxy"
-            if [[ "$proxy" == OpenClash ]]; then
-              python tests/server_polling_tests.py --browser-channel "$browser_channel"
-              python tests/server_table_tests.py --browser-channel "$browser_channel"
-            fi
-            kill "$preview_pid"
-            wait "$preview_pid" || true
-            trap - EXIT
-          done
+          python tests/server_browser_tests.py --browser-channel "$browser_channel" --all-proxies
       - uses: actions/upload-artifact@v7.0.2
         if: always()
         with:

@@ -2,6 +2,17 @@
 
 ## 运行模块
 
+公共 `.vpn` 与管理接口的字段、版本和平台能力见 [CONNECTION-PROFILE.md](CONNECTION-PROFILE.md)。公共连接信息与平台私有设置分离，新增字段先定义支持范围，再接通校验、持久化、执行和界面。
+
+本轮新增的职责边界：
+
+- `client/system_proxy` 单独处理系统代理与绕过匹配；`client/connection_file.h` 同时供 Windows、Linux 的公共文件解析使用。
+- Linux `profile_settings` 负责克隆原连接、导入及受管 CA，保留界面未管理的 NetworkManager 字段。
+- Apple `RouteSettings` 负责双栈路由与 DNS，`apple-app/ConnectionFile` 供 iOS/macOS 共用，不持有会话状态。
+- Android `HotpCounter` 在生成验证码前预留下次计数；`SpeedHistory` 管理有界、带会话归属的时间序列，`MainPagerScreen` 在图表页面订阅快照。
+- Android `Strings` 集中维护中文、英文和波斯文；配置选择保存在配置所属 DataStore，与删除在同一事务提交。
+- 服务端 `client_profile` 统一导出能力，`package_version` 缓存安装包元数据；HTTP 权限与接口版本由控制器发布和校验。
+
 | 模块 | 负责内容 | 边界 |
 |---|---|---|
 | Windows `application`、`ui`、`dialogs` | 界面、交互、托盘、事件消费；偏好保存后台合并；网络通知去重 | 不从 UI 线程访问活动的 OpenConnect 对象；偏好保存结果通过窗口消息回传 |
@@ -54,7 +65,7 @@ Windows 协议修改保持为独立 OpenConnect 补丁。下载源码不变，�
 - Windows：`profiles.json` schema 3，整体不超过 8 MiB；`preferences.json` schema 1，上限 16 KiB。偏好写入不读取配置；组合读取时校正已删除的选择/自动连接引用。DPAPI 绑定配置 ID、当前用户和服务器来源。失败保留对应原文件。
 - Windows 界面只加载不透明凭据；连接工作线程解密当前配置。CA 安装、配置保存与孤立证书清理共用一个租约。
 - macOS：schema 2，最多 128 项且整体不超过 1 MiB；钥匙串账户绑定配置 ID、来源和随机版本引用。同一来源、相同密码复用引用，配置不变时不写文件；密码或来源变化才创建新版本。替换失败清理新项，提交成功后才清理旧项；进程中断可能留下孤立钥匙串项，避免不安全的全局扫描清理。
-- Android：schema 3，最多 128 个配置，持久化 JSON 不超过 1 MiB；元数据与密文分开，列表不解密，未变项不重新加密。AES-GCM AAD 绑定 ID、来源与凭据种类；排序只提交 ID 并在事务内重排最新对象。编辑时空密码/令牌保留原值，关闭保存密码/软件令牌可清除；来源变化清除凭据与信任。延迟指纹写入和忘记证书都显式检查 ID 和来源。移除运行时未消费的高级字段，DPD 仅在覆盖开关开启时设置。
+- Android：schema 4，最多 128 个配置，持久化 JSON 不超过 1 MiB；元数据与密文分开，列表不解密，未变项不重新加密。AES-GCM AAD 绑定 ID、来源与凭据种类；排序只提交 ID 并在事务内重排最新对象。编辑时空密码/令牌保留原值，关闭保存密码/软件令牌可清除；来源变化清除凭据与信任。延迟指纹写入和忘记证书都显式检查 ID 和来源。移除运行时未消费的高级字段，DPD 仅在覆盖开关开启时设置。
 - Android `CertificateFiles` 将文件选择器 URI 有界复制到私有目录，每份最多 1 MiB、权限 0600；配置持久引用、暂存和活动连接共同持有文件。`ProfileStore` 的唯一实例串行提交与清理，原生连接退出后才释放最后的引用。失败导入清理新文件，导出和导入不携带本机文件路径；保存、删除和忘记证书成功后界面才完成操作，失败保留草稿。
 - Android 应用统计由 `AppTrafficCollector` 管理采样需求，`AndroidTrafficStatsProvider` 只负责系统查询；页面可见且前台、未手动暂停时才启动采样。应用列表复用 UID，按缓存时限刷新；查询、重置和排序在后台执行，返回页面重建速率基线。
 - 本轮不迁移旧客户端 schema；全新创建配置或导入公共连接信息。固定证书指纹仍必须通过证书有效期检查，不能以公钥相同绕过过期/尚未生效检查。

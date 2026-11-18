@@ -6,7 +6,6 @@ import android.app.usage.NetworkStatsManager
 import android.content.Context
 import android.content.Intent
 import android.net.ConnectivityManager
-import android.net.TrafficStats
 import android.net.Uri
 import android.os.Build
 import android.os.Process
@@ -32,19 +31,22 @@ fun openUsageAccessSettings(context: Context) {
 
 /** Android queries are confined to this adapter; the collector chooses the IO dispatcher. */
 class AndroidTrafficStatsProvider(private val context: Context) : TrafficStatsProvider {
+    // A fixed window avoids querying years of history and avoids a rolling
+    // start removing counters while this collector is alive.
+    private val windowStart = (System.currentTimeMillis() - 3_600_000L).coerceAtLeast(0L)
+    private val unsupported = mutableSetOf<Int>()
     override fun hasPermission() = hasUsageStatsPermission(context)
     override fun getElapsedRealtime() = SystemClock.elapsedRealtime()
-    override fun getUidRxBytes(uid: Int) = TrafficStats.getUidRxBytes(uid).coerceAtLeast(0L)
-    override fun getUidTxBytes(uid: Int) = TrafficStats.getUidTxBytes(uid).coerceAtLeast(0L)
-
-    override fun getAllUidStats(): Map<Int, UidTrafficBytes> {
+    override fun getAllUidStats(): Map<Int, UidTrafficBytes>? {
         val results = mutableMapOf<Int, UidTrafficBytes>()
-        val manager = context.getSystemService(Context.NETWORK_STATS_SERVICE) as? NetworkStatsManager
-        if (hasPermission() && manager != null) {
+        val manager = context.getSystemService(Context.NETWORK_STATS_SERVICE) as? NetworkStatsManager ?: return null
+        if (!hasPermission()) return null
+        try {
             val now = System.currentTimeMillis()
             for (type in listOf(ConnectivityManager.TYPE_WIFI, ConnectivityManager.TYPE_MOBILE, ConnectivityManager.TYPE_ETHERNET)) {
-                runCatching {
-                    val stats = manager.querySummary(type, null, 0L, now)
+                if (type in unsupported) continue
+                try {
+                    val stats = manager.querySummary(type, null, windowStart, now)
                     try {
                         val bucket = NetworkStats.Bucket()
                         while (stats.hasNextBucket()) {
@@ -54,12 +56,16 @@ class AndroidTrafficStatsProvider(private val context: Context) : TrafficStatsPr
                             results[bucket.uid] = UidTrafficBytes(previous.rxBytes + bucket.rxBytes, previous.txBytes + bucket.txBytes)
                         }
                     } finally { stats.close() }
+                } catch (error: IllegalArgumentException) {
+                    if (type != ConnectivityManager.TYPE_ETHERNET) throw error
+                    unsupported.add(type)
                 }
             }
-        }
-        val uid = Process.myUid()
-        val current = results[uid] ?: UidTrafficBytes(0, 0)
-        results[uid] = UidTrafficBytes(maxOf(current.rxBytes, getUidRxBytes(uid)), maxOf(current.txBytes, getUidTxBytes(uid)))
+            val connectivity = context.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
+            if (ConnectivityManager.TYPE_ETHERNET in unsupported &&
+                connectivity?.getNetworkCapabilities(connectivity.activeNetwork)?.hasTransport(android.net.NetworkCapabilities.TRANSPORT_ETHERNET) == true)
+                return null
+        } catch (_: Exception) { return null }
         return results
     }
 }

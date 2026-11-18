@@ -795,7 +795,7 @@ test("a malformed hash can be reset without treating the old record as valid",fu
     check(backend.data().users[1].enabled and not backend.data().users[1].needs_password)
 end)
 test("backend default plain auth and no hash disclosure",function()
-    reset();local data=backend.data();check(data.auth=="plain" and data.supported and data.running and data.users[1].password==nil)
+    reset();local data=backend.data();check(data.api_version==1 and data.settings_supported and data.supported and data.running and data.users[1].password==nil)
 end)
 test("configuration snapshots reject files changed after UCI loading or final field reads",function()
     local uci=package.loaded["luci.model.uci"]
@@ -1081,13 +1081,13 @@ end)
 test("address profiles work without a CA and normalize a LAN address",function()
     reset();S.files["/etc/ocserv/ca.pem"]=nil
     local profile,name=backend.export("address","192.168.19.253:4443")
-    check(name=="Lansyra.vpn" and profile=="[VPN]\nServer=https://192.168.19.253:4443\n")
+    check(name=="Lansyra.vpn" and profile=="[VPN]\nVersion=1\nServer=https://192.168.19.253:4443\nProtocol=anyconnect\nTrust=prompt\n")
 end)
 test("pinned profiles support a public hostname or IPv6 without the initial CA",function()
     reset();S.files["/etc/ocserv/ca.pem"]=nil
     for _,url in ipairs({"vpn.example.com:4443","[2001:db8::1]:4443"}) do
         local profile,name=backend.export("pin",url)
-        check(name=="Lansyra.vpn" and profile=="[VPN]\nServer=https://"..url.."\nServerPin="..test_pin.."\n")
+        check(name=="Lansyra.vpn" and profile=="[VPN]\nVersion=1\nServer=https://"..url.."\nProtocol=anyconnect\nTrust=pin\nServerPin="..test_pin.."\n")
         check(not profile:find("CABase64",1,true) and not profile:find(old_hash,1,true))
     end
     check(contains_command("certtool --pubkey-info --load-certificate /etc/ocserv/server-cert.pem"))
@@ -1249,6 +1249,27 @@ test("full online snapshots fit their own cache budget including escaped display
     end)
     json.stringify=stringify
     if not ok then error(err) end
+end)
+test("public export capability contract rejects unsupported target policies",function()
+    reset()
+    local profile=backend.export("pin","vpn.example.com","ios")
+    check(profile:find("Version=1\n",1,true) and profile:find("Trust=pin\n",1,true))
+    expect("unsupported_client_profile",function()backend.export("profile","vpn.example.com","macos")end)
+    expect("unsupported_client_profile",function()backend.export("pin","vpn.example.com","linux")end)
+    request({action="client_profile",server="vpn.example.com",cert_mode="address",platform="linux"})
+    check(backend.data().client_profile.platform=="linux")
+end)
+test("installed package version and advanced fields have one runtime contract",function()
+    reset()
+    S.files["/lib/apk/db/installed"]="P:unrelated\nV:1.0\n\nP:luci-app-ocserv-easy\nV:9.2.1-r3\n"
+    check(backend.data().ui_version=="9.2.1-r3")
+    local settings=fixture_settings()
+    settings.split_dns="1";settings.default_domain="vpn.example.com";settings.ping_leases="1"
+    request({action="settings",settings=settings,allow_restart=true})
+    check(backend.data().settings.split_dns=="1" and S.candidate:find("ping-leases = true",1,true))
+    expect("unsupported_client_dns",function()backend.export("pin","vpn.example.com","android")end)
+    settings.default_domain=""
+    expect("split_dns_requires_domain",function()request({action="settings",settings=settings,allow_restart=true})end)
 end)
 TEST_PREVIEW={reset=reset,backend=backend,request=request,state=function()return S end}
 if not TEST_KEEP_SANDBOX then io.open=original_io_open end

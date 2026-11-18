@@ -1,5 +1,6 @@
 import SwiftUI
 import NetworkExtension
+import UniformTypeIdentifiers
 
 @main
 struct LansyraApp: App {
@@ -108,7 +109,7 @@ final class VPNModel: ObservableObject {
             config.providerBundleIdentifier = tunnelID
             config.serverAddress = url.absoluteString
             config.providerConfiguration = ["pin": fingerprint, "username": username]
-            config.includeAllNetworks = true
+            config.includeAllNetworks = false
             config.excludeLocalNetworks = false
             active.protocolConfiguration = config
             active.localizedDescription = "岚序 Lansyra"
@@ -136,21 +137,26 @@ struct ConnectionView: View {
     @AppStorage("username") private var username = ""
     @AppStorage("pin") private var pin = ""
     @State private var password = ""
+    @State private var importing = false
+    @State private var importBusy = false
+    @State private var importError: String?
 
     var body: some View {
-        NavigationView {
+        NavigationStack {
             Form {
                 Section(header: Text("服务器")) {
+                    Button("导入 .vpn 公共配置…") { importing = true }
                     TextField("vpn.example.com:4443", text: $server)
                         .keyboardType(.URL).textInputAutocapitalization(.never).disableAutocorrection(true)
                     TextField("用户名", text: $username).textInputAutocapitalization(.never).disableAutocorrection(true)
                     SecureField("密码（不保存）", text: $password)
-                }
+                }.disabled(vpn.busy || vpn.connected || vpn.disconnecting)
                 Section(header: Text("服务器证书"), footer: Text("向管理员核实完整公钥指纹。指纹不匹配时拒绝提交账号密码。")) {
                     TextField("pin-sha256:…", text: $pin)
                         .textInputAutocapitalization(.never).disableAutocorrection(true)
                 }
                 Section {
+                    if importBusy { ProgressView("正在读取公共配置…") }
                     Text(vpn.status).accessibilityIdentifier("vpnStatus")
                     if vpn.connected {
                         Button("断开连接", role: .destructive) { vpn.disconnect() }
@@ -163,8 +169,26 @@ struct ConnectionView: View {
                         }.disabled(vpn.busy || vpn.disconnecting)
                     }
                 }
-                Section(footer: Text("支持 ocserv 用户名/密码认证和全隧道。首次连接需允许系统添加 VPN 配置。")) { EmptyView() }
-            }.navigationTitle("岚序 Lansyra")
-        }.navigationViewStyle(.stack)
+                Section(footer: Text("支持 ocserv 账号认证；路由和 DNS 随服务器配置应用。首次连接需允许系统添加 VPN 配置。")) { EmptyView() }
+            }.disabled(importBusy).navigationTitle("岚序 Lansyra")
+                .fileImporter(isPresented: $importing, allowedContentTypes: [UTType(filenameExtension: "vpn") ?? .data]) { result in
+                    guard !importBusy else { return }
+                    importBusy = true
+                    Task {
+                        defer { importBusy = false }
+                        do {
+                            let url = try result.get()
+                            let value = try await Task.detached {
+                                return try PublicConnection.read(url)
+                            }.value
+                            guard !vpn.connected && !vpn.disconnecting else { return }
+                            server = value.server; pin = value.pin; username = ""; password = ""
+                        } catch { importError = error.localizedDescription }
+                    }
+                }
+                .alert("无法导入配置", isPresented: Binding(get: { importError != nil }, set: { if !$0 { importError = nil } })) {
+                    Button("关闭") { importError = nil }
+                } message: { Text(importError ?? "") }
+        }
     }
 }

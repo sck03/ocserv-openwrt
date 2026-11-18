@@ -3,6 +3,11 @@
   "use strict";
   window.OcservEasyMessages = function (t) {
     var errors = {
+      interface_mismatch: t("页面与服务接口版本不一致，请刷新页面或重新安装完整套装。", "Page and service versions differ. Reload or reinstall the complete bundle."),
+      unsupported_client_profile: t("目标客户端不支持所选证书方式，请重新选择客户端和导出方式。", "The target client does not support this certificate method."),
+      split_dns_requires_domain: t("启用 DNS 分流前请填写默认域名。", "Enter a default domain before enabling split DNS."),
+      invalid_certificate_path: t("请填写有效的证书和私钥绝对路径。", "Enter valid absolute certificate and private key paths."),
+      unsupported_client_dns: t("此客户端不支持 DNS 分流，请调整服务设置或选择其他客户端。", "This client does not support split DNS."),
       file_too_large: t(
         "配置超过大小上限，原配置已保留。请减少配置内容后重试。",
         "The configuration exceeds its size limit. Previous settings were preserved.",

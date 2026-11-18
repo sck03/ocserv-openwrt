@@ -10,6 +10,7 @@
 #include "ProtocolValidation.h"
 #import "ServerAddress.h"
 #import "NetworkSettingsOperation.h"
+#import "RouteSettings.h"
 #include <openssl/x509.h>
 
 @interface PacketTunnelProvider : NEPacketTunnelProvider
@@ -248,8 +249,6 @@ static void Reconnected(void *data) {
         }
         // The packaged OpenSSL has no iOS root store. Trust only the explicitly supplied pin.
         openconnect_set_system_trust(self.vpn, 0);
-        openconnect_set_reqmtu(self.vpn, 1400);
-        openconnect_set_dpd(self.vpn, 30);
         openconnect_set_reconnected_handler(self.vpn, Reconnected);
         if (openconnect_set_protocol(self.vpn, "anyconnect") ||
             openconnect_parse_url(self.vpn, server.UTF8String)) {
@@ -386,7 +385,9 @@ static void Reconnected(void *data) {
 }
 
 - (NSError *)configureTunnel {
-    return [self configureTunnelForGeneration:self.generation];
+    @autoreleasepool {
+        return [self configureTunnelForGeneration:self.generation];
+    }
 }
 
 - (NSError *)configureTunnelForGeneration:(NSUInteger)generation {
@@ -405,7 +406,6 @@ static void Reconnected(void *data) {
     settings.MTU = @(info->mtu);
     settings.IPv4Settings = [[NEIPv4Settings alloc] initWithAddresses:@[ @(info->addr) ]
                                                           subnetMasks:@[ @(info->netmask) ]];
-    settings.IPv4Settings.includedRoutes = @[ [NEIPv4Route defaultRoute] ];
     // Capture IPv6 even when the server assigns none, so it cannot bypass the tunnel.
     NSArray<NSString *> *parts = info->netmask6 ? [@(info->netmask6) componentsSeparatedByString:@"/"] : @[];
     NSString *v6 = info->addr6 ? @(info->addr6) : (parts.count == 2 ? parts[0] : @"fd00::2");
@@ -417,15 +417,42 @@ static void Reconnected(void *data) {
         return VPNError(8, @"服务器 IPv6 前缀无效");
     settings.IPv6Settings = [[NEIPv6Settings alloc] initWithAddresses:@[ v6 ]
                                                  networkPrefixLengths:@[ @(prefixLength) ]];
-    settings.IPv6Settings.includedRoutes = @[ [NEIPv6Route defaultRoute] ];
     NSMutableArray *dns = [NSMutableArray array];
     for (int i = 0; i < 3; i++)
-        if (info->dns[i])
+        if (info->dns[i] && ((info->addr6 && *info->addr6) || (info->netmask6 && *info->netmask6) || !strchr(info->dns[i], ':')))
             [dns addObject:@(info->dns[i])];
     if (!dns.count)
         return VPNError(8, @"服务器未提供 DNS");
     settings.DNSSettings = [[NEDNSSettings alloc] initWithServers:dns];
-    settings.DNSSettings.matchDomains = @[ @"" ];
+    NSMutableArray<NSString *> *domains = [NSMutableArray array];
+    NSCharacterSet *invalidDomain = [[NSCharacterSet characterSetWithCharactersInString:@"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-."] invertedSet];
+    for (struct oc_split_include *suffix = info->split_dns; suffix; suffix = suffix->next) {
+        if (!suffix->route || domains.count >= 128) return VPNError(8, @"服务器 DNS 分流域名无效");
+        NSString *domain = @(suffix->route);
+        if (!domain.length || domain.length > 253 || [domain rangeOfCharacterFromSet:invalidDomain].location != NSNotFound)
+            return VPNError(8, @"服务器 DNS 分流域名无效");
+        [domains addObject:domain];
+    }
+    settings.DNSSettings.matchDomains = domains.count ? domains : @[ @"" ];
+    settings.DNSSettings.matchDomainsNoSearch = domains.count > 0;
+    if (info->domain && *info->domain) {
+        NSString *domain = @(info->domain);
+        if (domain.length > 253 || [domain rangeOfCharacterFromSet:invalidDomain].location != NSNotFound)
+            return VPNError(8, @"服务器搜索域名无效");
+        settings.DNSSettings.searchDomains = @[domain];
+    }
+    NSMutableArray *included = [NSMutableArray array], *excluded = [NSMutableArray array];
+    for (struct oc_split_include *route = info->split_includes; route; route = route->next) {
+        if (!route->route || included.count >= 4096) return VPNError(8, @"服务器路由无效或过多");
+        [included addObject:@(route->route)];
+    }
+    for (struct oc_split_include *route = info->split_excludes; route; route = route->next) {
+        if (!route->route || excluded.count >= 4096) return VPNError(8, @"服务器路由无效或过多");
+        [excluded addObject:@(route->route)];
+    }
+    NSError *routeError = nil;
+    if (!VPNApplyRoutes(settings, included, excluded,
+        (info->addr6 && *info->addr6) || (info->netmask6 && *info->netmask6), &routeError)) return routeError;
     VPNNetworkSettingsOperation *operation;
     @synchronized(self) {
         if (!ContextIsCurrent(self, generation))

@@ -27,7 +27,6 @@ import dev.opentunnel.vpn.core.VpnBus
 import dev.opentunnel.vpn.data.AppLanguage
 import dev.opentunnel.vpn.data.Repository
 import dev.opentunnel.vpn.util.BatteryOptimizationHelper
-import dev.opentunnel.vpn.util.LocationResolver
 import dev.opentunnel.vpn.util.Strings
 import dev.opentunnel.vpn.util.SystemCaBundle
 import dev.opentunnel.vpn.widget.TunnelWidget
@@ -64,12 +63,10 @@ class OpenTunnelVpnService : VpnService(), TunnelHost {
     private val mainHandler = Handler(Looper.getMainLooper())
 
     private var statsJob: Job? = null
-    private var locationJob: Job? = null
     private var networkCallback: ConnectivityManager.NetworkCallback? = null
     private var lastNetworkId: Long = -1L
     private var reconnectOnNetworkChange = true
     private var showStatsInNotification = true
-    private var enableGeoIpLookup = false
 
     /** Cached language preference so notifications can be localised without a suspend call. */
     private var appLanguage: AppLanguage = AppLanguage.SYSTEM
@@ -121,7 +118,6 @@ class OpenTunnelVpnService : VpnService(), TunnelHost {
     override fun onDestroy() {
         stopNetworkMonitoring()
         statsJob?.cancel()
-        locationJob?.cancel()
         sessions.cancelStart()
         startupJob?.cancel()
         runner?.requestDisconnect()
@@ -158,7 +154,6 @@ class OpenTunnelVpnService : VpnService(), TunnelHost {
                 check(NativeLibrary.isAvailable) { NativeLibrary.MISSING_MESSAGE }
                 reconnectOnNetworkChange = settings.reconnectOnNetworkChange
                 showStatsInNotification = settings.showStatsInNotification
-                enableGeoIpLookup = settings.enableGeoIpLookup
                 appLanguage = settings.appLanguage
                 val tunnel = TunnelRunner(this@OpenTunnelVpnService, profile, settings, lease)
                 if (!sessions.attach(ticket, tunnel)) return@launch
@@ -212,7 +207,6 @@ class OpenTunnelVpnService : VpnService(), TunnelHost {
     private fun stopSelfSafely() {
         stopNetworkMonitoring()
         statsJob?.cancel(); statsJob = null
-        locationJob?.cancel(); locationJob = null
         releaseWakeLock()
         ServiceCompat.stopForeground(this, ServiceCompat.STOP_FOREGROUND_REMOVE)
         TunnelWidget.notifyAll(this)
@@ -329,50 +323,8 @@ class OpenTunnelVpnService : VpnService(), TunnelHost {
                         // Ask once for battery-opt exemption so Doze never
                         // throttles the tunnel after the first screen-off.
                         requestBatteryOptExemptionIfNeeded()
-
-                        if (stageChanged) {
-                            locationAttemptCount = 0
-                            locationJob?.cancel()
-                        }
-
-                        if (status.info.locationName == null &&
-                            enableGeoIpLookup
-                        ) {
-                            startLocationLookup()
-                        }
                     }
                 }
-        }
-    }
-
-    private var locationAttemptCount = 0
-
-    private fun startLocationLookup() {
-        if (locationAttemptCount >= MAX_LOCATION_RETRIES) return
-        if (locationJob?.isActive == true) return
-        locationJob = scope.launch {
-            VpnBus.info("Resolving connection location\u2026")
-            delay(800L)
-            val loc = LocationResolver.resolve()
-            if (loc != null) {
-                locationAttemptCount = 0
-                VpnBus.updateInfo { info ->
-                    info.copy(
-                        outboundIp = loc.ip.ifBlank { info.ipv4 ?: info.ipv6 },
-                        locationName = "${loc.country}, ${loc.city}",
-                        locationFlag = loc.flagEmoji,
-                    )
-                }
-                VpnBus.info("Location: ${loc.displayLine}")
-                TunnelWidget.notifyAll(this@OpenTunnelVpnService)
-            } else {
-                locationAttemptCount++
-                VpnBus.info("Could not resolve connection location (attempt $locationAttemptCount/$MAX_LOCATION_RETRIES)")
-                if (locationAttemptCount < MAX_LOCATION_RETRIES) {
-                    delay(5_000L)
-                    startLocationLookup()
-                }
-            }
         }
     }
 
@@ -464,14 +416,18 @@ class OpenTunnelVpnService : VpnService(), TunnelHost {
         }
     }
 
+    // Called by the native worker before generating a code, never by the UI.
+    override fun reserveHotp(profileID: String, server: String, expected: String, next: String): Boolean =
+        kotlinx.coroutines.runBlocking(Dispatchers.IO) {
+            try { repository.reserveHotp(profileID, server, expected, next); true }
+            catch (_: Exception) { VpnBus.error("HOTP counter could not be saved; authentication was stopped."); false }
+        }
+
     override fun onTunnelFinished(source: TunnelRunner, error: String?) {
         val completion = sessions.finish(source) ?: return
         // This must also release a lease after the old service's scope was canceled.
         mainHandler.post {
             if (!sessions.idle(completion)) return@post
-            locationAttemptCount = 0
-            locationJob?.cancel()
-            locationJob = null
             if (error != null) {
                 VpnBus.setError(error)
                 Notifications.postActionRequired(this@OpenTunnelVpnService, "VPN connection failed; see the diagnostic log.")
@@ -493,9 +449,6 @@ class OpenTunnelVpnService : VpnService(), TunnelHost {
 
         /** Grace period before a hard kill when stopTunnel() is called. */
         private const val FORCE_STOP_AFTER_MS = 12_000L
-
-        /** Maximum consecutive geo-IP lookup failures before giving up. */
-        private const val MAX_LOCATION_RETRIES = 3
 
         fun connect(context: Context) {
             val intent = Intent(context, OpenTunnelVpnService::class.java).setAction(ACTION_CONNECT)

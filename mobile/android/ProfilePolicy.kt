@@ -8,6 +8,10 @@ import java.util.UUID
 /** Shared by import, persistence and delayed certificate updates. */
 internal object ProfilePolicy {
     const val MAX_BYTES = 1024 * 1024
+    fun selected(profiles: List<VpnProfile>, id: String): VpnProfile? =
+        if (id.isEmpty()) profiles.firstOrNull() else checkNotNull(profiles.firstOrNull { it.id == id }) {
+            "Selected profile is unavailable"
+        }
     fun <T> reorder(current: List<T>, ids: List<String>, id: (T) -> String): List<T> {
         require(ids.size <= 128 && ids.distinct().size == ids.size) { "Invalid profile order" }
         val remaining = current.associateBy(id).toMutableMap()
@@ -28,6 +32,13 @@ internal object ProfilePolicy {
             require(profile.trustedCertificate.isEmpty() || CertificatePolicy.isFullPin(profile.trustedCertificate)) { "Invalid certificate pin" }
             require(profile.mtu == 0 || profile.mtu in 576..1500) { "Invalid MTU" }
             require(!profile.overrideDpdTimeout || profile.dpdSeconds in 1..86400) { "Invalid DPD interval" }
+            require(profile.softwareTokenMode in listOf(0, 2, 3)) { "Unsupported software token" }
+            if (profile.softwareTokenMode == 3 && profile.tokenString.isNotEmpty())
+                dev.opentunnel.vpn.core.HotpCounter.next(profile.tokenString)
+            require(profile.customDnsServers.size <= 3 && profile.customDnsServers.all {
+                dev.opentunnel.vpn.util.Net.isValidIp(it) && '/' !in it
+            }) { "Use at most three DNS IP addresses" }
+            require(profile.trustedCertificate.isEmpty() || profile.caCertPath.isEmpty()) { "Choose a CA or a pin, not both" }
         }
     }
 

@@ -204,7 +204,8 @@ window.OcservEasyGuard = function ({ t, element, array, errors, showReader, butt
       },
       g.enabled ? "cbi-button-reset" : "cbi-button-apply",
     );
-    toggle.disabled = !writable() || switching || (!g.enabled && !g.available);
+    toggle.disabled = !writable() || !state.permissions.guard || switching || (!g.enabled && !g.available);
+    if (!state.permissions.guard) toggle.title = errors.forbidden;
     var children = [
       element("div", { className: "easy-heading" }, [
         element("h3", {
