@@ -2,6 +2,36 @@
 
 本页记录岚序（Lansyra）全新安装版本的验证证据与实机边界。以前的打包和系统升级记录见[历史版本](https://github.com/sck03/ocserv-openwrt/blob/ba903fe/docs/VALIDATION.md)。
 
+## 2026-11-18 公共配置契约、平台能力与资源优化
+
+应用提交为 [`d6d060f`](https://github.com/sck03/ocserv-openwrt/commit/d6d060f)。Windows 更新为 0.8.0，macOS / Linux 为 0.2.0，Android / iOS 为 0.3.0，管理页为 0.8.0-r1，ocserv 为 1.6.0-r3。五个平台统一导入有版本号的公共 `.vpn`，Windows / Linux 共用 C++ 编解码，Apple 共用 Swift 编解码；管理接口与配置渲染均使用显式版本契约。不提供旧数据或旧接口迁移；Android 私有配置为 schema 4。字段、大小预算和平台能力见[公共连接配置](CONNECTION-PROFILE.md)。
+
+管理页按目标客户端筛选证书方式，后端再次验证能力；补齐 DNS 分流、租约探测及证书路径设置，页面版本与资源缓存键读取已安装包元数据。Android 不支持的 DNS 分流会明确拒绝；Apple 只接受 AnyConnect + Pin，Linux 使用系统认证助手并支持 CA / 首次确认。指定 CA 的验证失败不能退化成手动放行。
+
+Android 修复私网路由被便利性绕过覆盖、配置删除与当前选择不同步、HOTP 计数器持久化顺序、自动 MTU 和 DTLS 重试间隔；应用流量按可见性每 5 秒采样，历史曲线采用有界原生数组与会话快照，删除 GeoIP、无效延迟采样及不支持的 STOKEN 入口。界面拆分页面职责，补齐中文、导入导出、自定义 DNS 和指纹编辑。Windows 提取系统代理策略并处理绕过列表，按 DPI 重排控件和回收字体；Linux 编辑复用 NetworkManager 配置并保留未展示的 DNS、路由和代理设置。Apple 网络设置处理双栈包含/排除路由、VPN DNS 和 DNS 分流，macOS 保留配置顺序并提供删除确认。
+
+| 验证 | 结果与证据 |
+| --- | --- |
+| Windows x64 / x86 | [完整构建及原生回归通过](https://github.com/sck03/ocserv-openwrt/actions/runs/44230940827)，覆盖配置、UI、DPAPI、系统代理、DPI、回环认证与资源回收；x64 另执行隔离网络与隧道检查 |
+| Android | [三架构完整构建通过](https://github.com/sck03/ocserv-openwrt/actions/runs/44230962524)，包含 Gradle 单元测试、APK 签名与 16 KiB 对齐检查；本地纯 Kotlin/JVM 策略 73 项通过 |
+| macOS | [Universal 构建任务通过](https://github.com/sck03/ocserv-openwrt/actions/runs/44230953291)，产物包含未签名应用与系统扩展；该工作流的首次 Linux 包审计失败见下文 |
+| iOS | [未签名完整构建通过](https://github.com/sck03/ocserv-openwrt/actions/runs/44230966702)，包含共享地址、网络设置与数据包检查 |
+| Linux amd64 / arm64 | [修正审计后的完整构建通过](https://github.com/sck03/ocserv-openwrt/actions/runs/44232679299)，每个架构四组 CTest 通过，Debian 13 / Ubuntu 26.04 四组安装启动验证通过 |
+| OpenWrt 服务端 | [25.12.6 六架构完整构建通过](https://github.com/sck03/ocserv-openwrt/actions/runs/44230945819)，包含包审计、安装恢复 51、卸载 18、证书及隔离网络检查 |
+| 自动回归 | [通过](https://github.com/sck03/ocserv-openwrt/actions/runs/44232676869)，覆盖源码、服务端、真实浏览器、Linux 与 Apple 存储 |
+
+首次 Linux 构建与四组 CTest 已通过，包审计因白名单遗漏新安装的 `CONNECTION-PROFILE.md` 而失败。[`dfba9dc`](https://github.com/sck03/ocserv-openwrt/commit/dfba9dc) 仅补齐该测试白名单；随后双架构构建、包审计及四组安装验证全部通过，运行代码与 `d6d060f` 相同。本节之后的收尾提交仅更新验证文档。
+
+本地服务端逻辑 128、隔离事务 107、控制器/API 13 项通过，进程、会话、代理、维护及构建打包检查通过。浏览器共 118 项通过：OpenClash / Nikki / Momo 各 22，列表 20，轮询生命周期 32，无浏览器脚本错误。测试入口为每组建立独立后端，修复模拟状态和请求观察的竞态，保存桌面与窄屏截图。Windows 本地与 CI 确认配置 94、代理 7 项及连续 20 次 DPI 切换；CI 资源夹具处理 600,000 个事件、1,000 轮清空，x64 句柄保持 118、x86 保持 135。
+
+客户端及六架构服务端套装保存在 `dist/2026-11-18-refactor/`，精简报告、截图、CI 任务状态和摘要凭据保存在 `artifacts/verification/2026-11-18-runtime-contracts/`。31 份 CI 附件均通过 GitHub SHA-256 与 ZIP CRC 核验，运行包另核对包内摘要及嵌套 ZIP CRC；清理后再次验证全部 106 个保留的 CI 文件。
+
+清理生成目录、测试输出、重复附件及一次性工具，共删除 294 个文件、236,209,919 字节（约 225.3 MiB）。42 个既有发行包及其资料在清理前后逐个 SHA-256 一致；锁定依赖源码、开发工具、许可证与精简证据保留。
+
+临时 Kotlin 编译缓存的直接删除被自动审批策略拒绝（`blocked by policy`），已按用户要求统一移动到 `artifacts/待手动删除-20261118-runtime-contracts/kotlin-tests/`：15 个文件、69,241,897 字节（约 66.0 MiB），移动前后逐个 SHA-256 一致，可手动删除整个 `待手动删除-20261118-runtime-contracts` 目录。
+
+本轮没有连接真实路由器或手机，也未测量真实设备吞吐、耗电或长期 VPN 稳定性；上述策略和资源回收检查不能替代实机验收。macOS / iOS 产物未签名，Android 为 debug APK。仅推送源码并生成 Actions 测试产物，没有发布 Release 或部署生产设备。
+
 ## 2026-11-18 卸载恢复、证书文件与客户端采样
 
 应用提交为 [`18af54b`](https://github.com/sck03/ocserv-openwrt/commit/18af54b)。管理页更新为 0.7.1-r1、Android 0.2.7、macOS 0.1.6，ocserv 为 1.6.0-r2。卸载复用项目的有时限进程执行器，消除对系统 `timeout` 的依赖；独立备份带齐执行模块，APK 删除期间保留 Lua/nixio，网络事务及文件清理完成后才释放临时依赖。安装、管理和卸载共用防火墙规则定义。
