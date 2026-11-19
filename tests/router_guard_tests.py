@@ -28,6 +28,7 @@ def main():
     host = urllib.parse.urlsplit(args.url).hostname
     api = RouterAPI(args.url, args.username, password)
     before = api.data()
+    before['guard'] = api.api('guard-status')
     if not before['guard']['available'] or before['guard']['phase'] != 'disabled' or not before['running']:
         raise RuntimeError('A running VPN and configured proxy must pass the isolation preflight')
     checks, errors = [], []

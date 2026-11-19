@@ -9,6 +9,7 @@ int main(int argc, char **argv) {
     assert(argc == 2);
     g_autofree char *temporary = g_dir_make_tmp("lansyra-profile-tests-XXXXXX", nullptr);
     assert(temporary && g_setenv("XDG_CONFIG_HOME", temporary, TRUE));
+    assert(g_tls_backend_supports_tls(g_tls_backend_get_default()) && "Install glib-networking for CA parsing");
     const std::string corpus = std::string(argv[1]) + "/";
     for (const char *name : {"pinned", "prompt", "ambiguous", "ca", "ca-chain", "ca-der", "ca-junk", "ca-private", "ca-broken"}) {
         const auto path = corpus + name + ".vpn.fixture";

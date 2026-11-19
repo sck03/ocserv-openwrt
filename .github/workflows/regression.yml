@@ -64,7 +64,7 @@ jobs:
       - uses: actions/checkout@v7.0.1
         with:
           persist-credentials: false
-      - run: sudo apt-get update && sudo apt-get install -y cmake ninja-build pkg-config libgtk-3-dev libnm-dev libsecret-1-dev dbus-x11
+      - run: sudo apt-get update && sudo apt-get install -y cmake ninja-build pkg-config libgtk-3-dev libnm-dev libsecret-1-dev glib-networking dbus-x11
       - run: cmake -S desktop/linux -B build/linux -G Ninja -DCMAKE_BUILD_TYPE=Debug && cmake --build build/linux && ctest --test-dir build/linux --output-on-failure
   apple-storage:
     runs-on: macos-15

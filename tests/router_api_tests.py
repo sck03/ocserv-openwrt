@@ -34,7 +34,7 @@ class RouterAPI:
     def request(self, path, values=None):
         body = urllib.parse.urlencode(values).encode() if values is not None else None
         try:
-            response = self.opener.open(self.url + path, body, timeout=130 if body else 20)
+            response = self.opener.open(self.url + path, body, timeout=130 if body else 90 if path.endswith(('/guard-status', '/proxy-status')) else 30)
         except urllib.error.HTTPError as error:
             response = error
         with response:
@@ -107,7 +107,9 @@ def main():
 
     try:
         assert baseline['api_version'] == 5 and baseline['supported']
-        assert baseline['certificates_ready'] and not baseline['installation_pending']
+        trust = api.api('client-status')
+        assert trust['api_version'] == 5 and trust['revision'] == baseline['revision']
+        assert trust['certificates_ready'] and not baseline['installation_pending']
         passed('installed versions, certificate readiness and API contract')
         reject('interface_mismatch', lambda: api.api('action', {'api_version': 1, 'action': 'service'}))
         reject('stale_revision', lambda: api.api('action', {
