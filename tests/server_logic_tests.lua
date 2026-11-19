@@ -697,6 +697,42 @@ test("frequent online snapshots avoid repeated occtl and explicit refresh stays 
     request(edit("FixturePassword"));count=#S.commands
     backend.status();check(#S.commands==count+1)
 end)
+test("independent query modules reuse 4096-session snapshots across 240 polls",function()
+    reset()
+    for id=1,4096 do
+        S.online[id]={ID=id,Username=string.format("user-%04d",id),Groupname="staff",
+            ["Remote IP"]="192.0.2.1",IPv4="10.77.0.2",["Last connected at"]="now",State="connected"}
+    end
+    local peers={}
+    for index=1,8 do peers[index]=package.preload["luci.model.ocserv_easy.query_cache"]() end
+    local sessions=require "luci.model.ocserv_easy.occtl"
+    local original_time=os.time
+    local json=require "luci.jsonc"
+    local stringify,parse=json.stringify,json.parse
+    local time,hits=1000,0
+    os.time=function()return time end
+    json.stringify,json.parse=TEST_JSON_ENCODE,TEST_JSON_DECODE
+    local ok,err=pcall(function()
+        for round=1,30 do
+            time=1000+(round-1)*3
+            for _,peer in ipairs(peers) do
+                local commands,writes=#S.commands,#S.disk_events
+                local value=peer.get("online","fixture",5,sessions.online,false,sessions.cache_limit)
+                check(not value.online_error and #value.online==4096 and value.online[4096].id=="4096")
+                if #S.commands==commands then
+                    hits=hits+1
+                    check(#S.disk_events==writes,"a cache hit wrote runtime files")
+                end
+            end
+        end
+        check(#S.commands==15 and hits==225,"independent readers did not share the completed snapshot")
+        TEST_CACHE_REUSE={readers=8,rounds=30,requests=240,query_calls=#S.commands,cache_hits=hits,
+            sessions=4096,cache_bytes=#S.files["/var/run/ocserv-easy/query-online.json"]}
+    end)
+    json.stringify,json.parse=stringify,parse
+    os.time=original_time
+    if not ok then error(err) end
+end)
 test("malformed online replies never become an empty or partial successful list",function()
     for _,rows in ipairs({{error="unavailable"}, {[2]={ID=2,Username="user"}},
         {{ID=1,Username="valid"},false}, {{ID=0,Username="user"}},
