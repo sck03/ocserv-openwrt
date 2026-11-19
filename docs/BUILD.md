@@ -171,4 +171,4 @@ python3 scripts/package-server.py /tmp/sdk-25.12
 
 `python tests/linux_source_tests.py` 检查实际 Linux 源码 ZIP 是否包含全部 CMake 源文件和测试输入，避免源码包遗漏新增模块。
 
-接口 v4 的自动回归同时运行 Windows 随包 JScript 校验、Linux 实际连接控制器的取消/激活测试，以及 Apple 诊断过滤和超时测试。Android 构建复制并执行 `StorageObservationTest`，与配置/路由/证书测试共用项目锁定的 Kotlin 和 Coroutines 依赖。缺少 Android SDK 时只能验证源码生成，不能把 Gradle 配置成功计为 APK 编译通过。
+管理 API v5 的自动回归同时运行 Windows 随包 JScript 校验、Linux 实际连接控制器的取消/激活测试，以及 Apple 诊断过滤和超时测试。Android 构建复制并执行 `StorageObservationTest`，与配置/路由/证书测试共用项目锁定的 Kotlin 和 Coroutines 依赖。缺少 Android SDK 时只能验证源码生成，不能把 Gradle 配置成功计为 APK 编译通过。
