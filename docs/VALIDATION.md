@@ -16,6 +16,10 @@ Chrome 三种代理各通过 25 项页面检查，4096 会话表格通过 20 项
 
 清理工具的 Windows 回归通过 13 项，包括预览、受保护路径、已跟踪源码、目录占用，以及删除失败后归集到同一目录。当前版本不包含本轮真实路由器部署、手机切网/耗电或 Apple 签名扩展连接的验收。
 
+实现提交 [`108fe4e`](https://github.com/sck03/ocserv-openwrt/commit/108fe4e9c3ff05925858bd7007a40fd1d8fda1d4) 的五组工作流均通过：[自动回归](https://github.com/sck03/ocserv-openwrt/actions/runs/44504067563)、[Windows x86/x64 构建及原生运行](https://github.com/sck03/ocserv-openwrt/actions/runs/44504637515)、[Android 三架构 APK 与单元测试](https://github.com/sck03/ocserv-openwrt/actions/runs/44504637206)、[macOS Universal 与 Linux 两架构及四组安装检查](https://github.com/sck03/ocserv-openwrt/actions/runs/44504637030)、[OpenWrt 六架构套装](https://github.com/sck03/ocserv-openwrt/actions/runs/44504637485)。发布 Releases 任务按本次参数跳过，产物保留在工作流附件；未部署真实设备。
+
+本地分项检查合计 685 项通过，跳过的 Linux 专属检查由上述 CI 补充。精简证据归档至 `artifacts/verification/2026-11-19-refactor`；随后删除约 28.93 MiB 的构建与测试临时文件，确认两个目标目录已移除，无需手动删除的残留。发行包、备份、私有配置和锁定源码归档保留。
+
 ## 2026-11-19 接续复核、跨请求缓存与分支整理
 
 原会话的修复已完整包含在 [`fb70ebd`](https://github.com/sck03/ocserv-openwrt/commit/fb70ebd)：DNS 与平台能力统一校验、LuCI 服务重启入口、Windows 网关信任更新、Linux CA 模式切换，以及 Android 准备取消与会话释放通知。该提交的[自动回归](https://github.com/sck03/ocserv-openwrt/actions/runs/44300684226) 三个任务全部通过。继续采用当前管理接口 v2、设置契约 2 和各平台独立存储 schema，不增加旧数据或旧接口迁移。
