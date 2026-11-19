@@ -66,7 +66,8 @@ fun SplitTunnelNetworksScreen(
     onBack: () -> Unit,
 ) {
     val lang = settings.appLanguage
-    val isPersian = lang == dev.opentunnel.vpn.data.AppLanguage.PERSIAN
+    val isPersian = dev.opentunnel.vpn.util.Strings.isRtl(lang)
+    val isChinese = dev.opentunnel.vpn.util.Strings.isChinese(lang)
     val context = LocalContext.current
 
     var newEntryText by remember { mutableStateOf("") }
