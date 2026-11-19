@@ -168,3 +168,7 @@ python3 scripts/package-server.py /tmp/sdk-25.12
 安装 `lupa==2.8` 后，事务回归运行 `python tests/guard_integration.py`，命令执行边界回归运行 `python tests/process_tests.py`；网络隔离验证在 Linux 网络命名空间运行 sudo python3 tests/vpn_guard_tests.py。SDK/架构检查不替代 OPL 定制固件验收，不用官方模块替换 Flippy 内核模块。
 
 `python tests/server_config_tests.py` 使用 Lua 5.1 和 `sh` 在临时目录比较管理页与实际启动脚本生成的配置，覆盖默认 IPv4、公网地址变更、IPv6 开关切换及双栈分流。Windows 可使用 MSYS2 的 `sh`，将其加入测试进程 PATH；测试不启动 VPN、不改主机网络。
+
+`python tests/linux_source_tests.py` 检查实际 Linux 源码 ZIP 是否包含全部 CMake 源文件和测试输入，避免源码包遗漏新增模块。
+
+接口 v4 的自动回归同时运行 Windows 随包 JScript 校验、Linux 实际连接控制器的取消/激活测试，以及 Apple 诊断过滤和超时测试。Android 构建复制并执行 `StorageObservationTest`，与配置/路由/证书测试共用项目锁定的 Kotlin 和 Coroutines 依赖。缺少 Android SDK 时只能验证源码生成，不能把 Gradle 配置成功计为 APK 编译通过。

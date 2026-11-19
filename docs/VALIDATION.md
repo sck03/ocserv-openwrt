@@ -8,9 +8,22 @@
 
 Windows 完整网络计划先校验再执行，新增恶意 DNS、地址、掩码、接口、MTU 和路由数量用例；断开不依赖新 DNS/路由。Linux 新增实际连接控制器的取消、空激活结果与过时代次测试。Android 共用存储观察恢复策略，IO 错误最多重试三次，支持手动重载；图标缓存采用 4 MiB 字节限额。iOS 补齐诊断 JSON 导出，与 macOS 共用字段过滤及 1 秒等待上限，新增超时、重复回调与敏感字段过滤测试。
 
-本地服务逻辑 140、隔离事务 107、控制器权限/版本/导出错误 17、真实证书用途校验 7 项通过。Windows 随包脚本 42、C++ 路由覆盖 43、清理工具 13 项通过。浏览器新增不可用 Pin、导出错误恢复与同内容标签往返检查；完整结果和 CI 运行号在本节验收完成后补充。
+本地服务逻辑 140、隔离事务 107、控制器权限/版本/导出错误 17、真实证书用途校验 7 项通过。Windows 随包脚本 42、C++ 路由覆盖 43、清理工具 13 项通过。Chrome 完整回归通过 140 项，新增不可用 Pin、导出错误恢复与同内容标签往返检查，无浏览器脚本错误。连同构建规则、会话查询、维护和打包等本地分项，共 641 项通过；新增的源码包回归逐项核对 Linux CMake 输入均存在于实际 ZIP 中。
 
 Android 锁定源码生成成功，Gradle 9.9.1 启动成功，本机因缺少 Android SDK 未执行完整 Android 编译。Linux 安装/卸载与 Apple 检查需对应平台运行器。本轮没有真实 VPN 服务器、手机切网/耗电、路由器吞吐或已签名 Apple 扩展的设备验收，不把合成回归等同于这些指标。
+
+本地日志和摘要已归档到 `artifacts/verification/2026-11-19-audit-refactor`。清理工具实际删除约 64.5 MiB 的生成工程、测试产物和 Python 字节码，确认四个目标目录均已移除，无需手动删除的残留；保留发行包、备份、私有配置及锁定源码归档。
+
+实现提交为 `e1ab06d`，Android 编译修正为 `830df98`，对应源码打包完善为 `cb68589`。以下验证均通过，之后的提交仅整理说明和证据；各平台运行代码与对应验证提交一致：
+
+- [自动回归](https://github.com/sck03/ocserv-openwrt/actions/runs/44543392280)：便携回归、Linux 5 个 CTest 目标、Apple 存储及新增诊断过滤/超时/重复回调测试。
+- [Windows x86/x64](https://github.com/sck03/ocserv-openwrt/actions/runs/44539768053)：完整编译、原生运行及隔离网络回归。
+- [Android](https://github.com/sck03/ocserv-openwrt/actions/runs/44542027332)：三架构原生库、Kotlin 编译、JUnit（含存储观察恢复）、APK 签名及 16 KiB 对齐检查。首轮发现 IP 分流页面缺少中文判断声明，修正后完整重跑通过。
+- [macOS / Linux](https://github.com/sck03/ocserv-openwrt/actions/runs/44543442731)：macOS Universal 应用与扩展、Linux amd64/arm64，以及 Debian 13 / Ubuntu 26.04 四组安装启动检查；对应源码包已包含新增测试。
+- [iOS](https://github.com/sck03/ocserv-openwrt/actions/runs/44539754035)：应用及隧道扩展未签名归档编译通过，包含新增诊断导出入口。
+- [OpenWrt](https://github.com/sck03/ocserv-openwrt/actions/runs/44539774743)：六架构套装、完整服务端回归及对应源码包。
+
+本次只推送源码和生成工作流附件，没有发布 Releases 或部署设备。源码打包检查发现并补齐了 Linux 新测试清单，后续以实际 ZIP 的 CMake 输入完整性回归防止遗漏。
 
 ## 2026-11-19 接口 v3、连接控制与按需查询重构
 
