@@ -2,7 +2,7 @@
 
 当前维护版本使用管理 API v5，配置读取与证书/隔离探测分开；不兼容旧管理接口。公共 `.vpn` 仍为 Version 1，CA 严格使用 PEM。模块边界见 [架构说明](docs/ARCHITECTURE.md)，平台支持与格式见 [公共配置契约](docs/CONNECTION-PROFILE.md)，验证范围见 [验证记录](docs/VALIDATION.md)。
 
-岚序（Lansyra）提供 Windows 10/11 原生客户端 0.9.0、macOS 13+ Universal 客户端 0.2.0 和 Linux amd64/arm64 桌面客户端 0.3.0，以及 Android 0.4.0 / iOS 0.3.0 移动客户端。配套 ocserv 1.6.0-r6 服务端和中文管理页 0.10.0-r1。Windows 提供 x86/x64 便携包；Linux 支持 Debian 13 / Ubuntu 26.04，macOS 实际连接需要有效的 Apple 系统扩展签名。桌面安装方式见[桌面客户端说明](docs/DESKTOP.md)。服务端支持 **OpenWrt 25.12 / APK** 的六个目标，具体架构见 [OpenWrt 多架构说明](docs/OPENWRT.md)。
+岚序（Lansyra）提供 Windows 10/11 原生客户端 0.9.0、macOS 13+ Universal 客户端 0.2.0 和 Linux amd64/arm64 桌面客户端 0.3.0，以及 Android 0.4.0 / iOS 0.3.0 移动客户端。配套 ocserv 1.6.0-r7 服务端和中文管理页 0.11.0-r1。Windows 提供 x86/x64 便携包；Linux 支持 Debian 13 / Ubuntu 26.04，macOS 实际连接需要有效的 Apple 系统扩展签名。桌面安装方式见[桌面客户端说明](docs/DESKTOP.md)。服务端支持 **OpenWrt 25.12 / APK** 的六个目标，具体架构见 [OpenWrt 多架构说明](docs/OPENWRT.md)。
 
 客户端界面名称统一为 **岚序 Lansyra**，Windows 程序为 `Lansyra.exe`，Linux 包和命令为 `lansyra`，Android / iOS 默认安装 ID 为 `io.github.sck03.lansyra`，macOS 为 `io.github.sck03.lansyra.macos`。本轮按未部署项目重构，不迁移旧客户端数据：Windows 使用 schema 3 与独立偏好文件，Android 使用 schema 4，macOS 使用 schema 2。请创建新配置或导入公共连接信息后重新填写凭据；Apple 签名描述文件须匹配应用标识。模块和存储契约见[架构说明](docs/ARCHITECTURE.md)。
 
@@ -27,7 +27,7 @@ Windows 客户端提供服务器配置列表、VPN 信息、独立日志、服�
 
 客户端的 **配置 → 导出配置** 可将所选名称、地址、协议及指纹或公共 CA 保存为 `.vpn`。服务端管理页的 **客户端配置** 默认导出固定服务器公钥指纹，支持自签证书通过域名或 IPv6 接入。导出不包含账号、密码、令牌、脚本或私钥。配置位于程序旁的 `data/`，加密凭据绑定当前 Windows 用户及服务器。
 
-0.10.0 管理页使用接口 v5 与设置契约 3，隔离恢复记录为 schema 4，按成套全新安装使用。CA 分发会校验实际服务端证书链、TLS 服务端用途和连接地址；更换外部证书后不会继续分发不匹配的初始 CA。Windows / Android 编辑器保留本次新输入，清除来自旧服务器的凭据；Windows HOTP 在生成验证码前持久预留计数，失败停止认证。
+0.11.0 管理页使用接口 v5 与设置契约 3，隔离恢复记录为 schema 4，按成套全新安装使用。CA 分发会校验实际服务端证书链、TLS 服务端用途和连接地址；更换外部证书后不会继续分发不匹配的初始 CA。Windows / Android 编辑器保留本次新输入，清除来自旧服务器的凭据；Windows HOTP 在生成验证码前持久预留计数，失败停止认证。
 
 状态轮询返回小摘要，仅在账号页且在线内容版本变化时获取列表；摘要缓存命中无需解码完整会话列表；TTL 刷新但内容未变时不重新传输在线列表。Pin、CA 与地址模式分别报告能力和不可用原因。Windows / Linux 的连接控制独立于界面，Android 共用配置解析结果，并按界面、通知和小组件的实际需求请求统计。验证证据和实机边界见[验证记录](docs/VALIDATION.md)。
 

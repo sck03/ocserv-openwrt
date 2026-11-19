@@ -21,7 +21,7 @@ def audit(package):
     assert architecture == subprocess.check_output(["dpkg", "--print-architecture"], text=True).strip()
     depends = field("Depends")
     for dependency in ("libc6", "libstdc++6", "libgtk-3-0", "libglib2.0-0", "libnm0", "libsecret-1-0",
-                       "network-manager (>= 1.42)", "network-manager-openconnect-gnome"):
+                       "network-manager (>= 1.42)", "network-manager-openconnect-gnome", "glib-networking"):
         assert dependency in depends, f"Missing runtime dependency: {dependency}"
 
     payload = subprocess.check_output(["dpkg-deb", "--fsys-tarfile", package])
