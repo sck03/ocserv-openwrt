@@ -116,7 +116,7 @@
         });
         return {
             element: root,
-            update: function (data) { items = data; filter(); }
+            update: function (data) { if (items === data) return; items = data; filter(); }
         };
     };
 })();

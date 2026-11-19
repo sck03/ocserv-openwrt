@@ -5,18 +5,19 @@ import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
-import androidx.datastore.preferences.core.emptyPreferences
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.core.stringSetPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import dev.opentunnel.vpn.ui.theme.ThemeMode
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.flow.map
-import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.Dispatchers
 
 private val Context.dataStore: DataStore<Preferences> by preferencesDataStore(name = "lansyra_settings_v1")
 
@@ -50,12 +51,9 @@ class Repository private constructor(context: Context) {
     }
 
     private val settingsError = MutableStateFlow<String?>(null)
-    // Display-only fallback. Connection APIs below always read the strict DataStore.
-    private val prefs: Flow<Preferences> = store.data.map { it.also { settingsError.value = null } }.catch { error ->
-        if (error is CancellationException) throw error
-        settingsError.value = "Settings storage is unavailable; connection is blocked."
-        emit(emptyPreferences())
-    }
+    private val recovery = StorageObservation { it is java.io.IOException && it !is androidx.datastore.core.CorruptionException }
+    private val observations = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    fun reloadStorage() { profileStore.reload(); recovery.reload() }
 
     // ── multi-profile ───────────────────────────────────────────────────────
 
@@ -96,13 +94,14 @@ class Repository private constructor(context: Context) {
 
     // ── settings ─────────────────────────────────────────────────────────────
 
-    val settings: Flow<AppSettings> = combine(prefs, activeProfile) { p, profile ->
-        decodeSettings(p).copy(activeProfileId = profile.id)
-    }.catch { error ->
-        if (error is CancellationException) throw error
-        settingsError.value = "Settings are invalid; connection is blocked."
-        emit(AppSettings())
-    }
+    // One decode/subscription shared by the service and the UI. Strict connection
+    // snapshots still read DataStore directly and never consume this fallback.
+    val settings: Flow<AppSettings> = recovery.observe(combine(store.data, activeProfile) { p, profile ->
+        decodeSettings(p).copy(activeProfileId = profile.id).also { settingsError.value = null }
+    }) {
+        settingsError.value = "Settings storage is unavailable; connection is blocked."
+        AppSettings()
+    }.stateIn(observations, SharingStarted.WhileSubscribed(5000), AppSettings())
 
     private fun decodeSettings(p: Preferences): AppSettings {
         val defaults = AppSettings()

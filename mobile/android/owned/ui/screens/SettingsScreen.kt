@@ -185,7 +185,7 @@ fun SettingsScreen(
                 SwitchRow(
                     icon = Icons.Rounded.Router,
                     title = Strings.bypassLocal(lang),
-                    subtitle = Strings.bypassLocalSub(lang),
+                    subtitle = Strings.bypassLocalSub(lang) + " · " + Strings.nextConnection(lang),
                     checked = settings.bypassLocalNetworks,
                     hapticEnabled = settings.hapticFeedbackEnabled,
                     onCheckedChange = onBypassLocalNetworks,
@@ -209,8 +209,8 @@ fun SettingsScreen(
                 if (onOpenSplitNetworks != null) {
                     SettingRow(
                         icon = Icons.Rounded.Public,
-                        title = if (Strings.isRtl(lang)) "تونل‌سازی شبکه‌ها و سایت‌ها" else "Network & Site Split Tunneling",
-                        subtitle = if (Strings.isRtl(lang)) "مسیریابی بر اساس رنج IP یا پسوند دامنه‌ها" else "Route traffic by IP ranges or domain suffixes",
+                        title = if (Strings.isChinese(lang)) "IP 网络分流" else if (Strings.isRtl(lang)) "تونل‌سازی شبکه‌های IP" else "IP Network Split Tunneling",
+                        subtitle = (if (Strings.isChinese(lang)) "按 IPv4/IPv6 地址或 CIDR 网段分流" else if (Strings.isRtl(lang)) "مسیریابی با IP یا CIDR" else "Route traffic by numeric IP/CIDR") + " · " + Strings.nextConnection(lang),
                         hapticEnabled = settings.hapticFeedbackEnabled,
                         onClick = onOpenSplitNetworks,
                     )
@@ -261,7 +261,7 @@ fun SettingsScreen(
                 SwitchRow(
                     icon = Icons.Rounded.BugReport,
                     title = Strings.verboseLogging(lang),
-                    subtitle = Strings.verboseLoggingSub(lang),
+                    subtitle = Strings.verboseLoggingSub(lang) + " · " + Strings.nextConnection(lang),
                     checked = settings.verboseLogging,
                     hapticEnabled = settings.hapticFeedbackEnabled,
                     onCheckedChange = onVerboseLogging,

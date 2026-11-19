@@ -67,7 +67,7 @@ function action()
         logic.require(type(raw)=="string" and #raw<=65536,"bad_request")
         logic.require(not logic.json_has_null(raw),"bad_request")
         local request=require("luci.jsonc").parse(raw)
-        logic.require(type(request)=="table" and request.api_version==3,"interface_mismatch")
+        logic.require(type(request)=="table" and request.api_version==4,"interface_mismatch")
         local packages=request.action=="guard" and {"firewall","dhcp"} or request.action=="settings" and {"firewall"} or {}
         if request.action=="guard" then
             for _,name in ipairs(require("luci.model.ocserv_easy.proxy_registry").names(true)) do packages[#packages+1]=name end
@@ -87,8 +87,8 @@ function download()
     http.header("X-Content-Type-Options","nosniff")
     if not ok then
         http.status(400,"Invalid export")
-        http.prepare_content("text/plain; charset=utf-8")
-        http.write("Cannot export. Check the server address and certificate. Pin export requires a single server certificate; use first-connection confirmation for custom virtual hosts. / 无法导出，请检查地址和证书。指纹导出要求使用单一服务端证书；自定义多证书或虚拟主机可选择首次连接确认证书。")
+        http.prepare_content("application/json")
+        http.write_json({ok=false,error=type(content)=="table" and type(content.code)=="string" and content.code or "internal_error"})
         return
     end
     http.header("Content-Disposition",'attachment; filename="'..filename..'"')

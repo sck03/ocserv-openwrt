@@ -30,6 +30,7 @@ jobs:
         run: |
           python tests/build_config_tests.py
           python tests/client_build_tests.py
+          node client/tests/script_tests.js
           python tests/mobile_build_tests.py
           python tests/server_integration.py
           python tests/guard_integration.py
@@ -74,3 +75,5 @@ jobs:
       - run: |
           swiftc -import-objc-header client/apple/ServerAddress.h -framework Foundation -framework Security client/apple-app/ConnectionFile.swift desktop/macos/App/ProfilePersistence.swift tests/apple_storage_tests.swift -o /tmp/apple-storage-tests
           /tmp/apple-storage-tests client/tests/public-profiles
+          swiftc -parse-as-library -framework Foundation -framework NetworkExtension client/apple-app/TunnelDiagnostics.swift tests/apple_diagnostics_tests.swift -o /tmp/apple-diagnostics-tests
+          /tmp/apple-diagnostics-tests

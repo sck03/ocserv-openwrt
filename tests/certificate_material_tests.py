@@ -83,6 +83,17 @@ class CertificateMaterialTests(unittest.TestCase):
         self.assertEqual(value, (self.directory / 'ca.pem').read_text())
         self.assertTrue(self.verify('192.0.2.1', None)[0])
 
+    def test_client_only_eku_is_rejected(self):
+        extensions = self.directory / 'client-only.ext'
+        extensions.write_text('basicConstraints=critical,CA:FALSE\n'
+                              'subjectAltName=DNS:vpn.example.test\n'
+                              'extendedKeyUsage=clientAuth\n')
+        subprocess.run([shutil.which('openssl'), 'x509', '-req', '-days', '2',
+                        '-in', 'a-server.csr', '-CA', 'a-ca.pem', '-CAkey', 'a-ca.key',
+                        '-CAcreateserial', '-extfile', str(extensions), '-out', 'server.pem'],
+                       cwd=self.directory, check=True, capture_output=True, timeout=30)
+        self.assertEqual(self.verify('vpn.example.test', None), (False, 'ca_certificate_mismatch'))
+
     def test_unrelated_ca_is_rejected(self):
         shutil.copyfile(self.directory / 'b-ca.pem', self.directory / 'ca.pem')
         self.assertEqual(self.verify('vpn.example.test', None), (False, 'ca_certificate_mismatch'))

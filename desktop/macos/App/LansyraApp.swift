@@ -409,23 +409,14 @@ final class DesktopVPN: NSObject, ObservableObject, OSSystemExtensionRequestDele
         let export = exportGeneration, request = epoch
         // A complete client report already exists if the extension is paused or stops.
         guard let session = manager?.connection as? NETunnelProviderSession, connected else { return }
-        try? session.sendProviderMessage(Data("diagnostics".utf8)) { [weak self] data in
-            Task { @MainActor in
-                guard let self, self.exportGeneration == export, self.epoch == request, let data,
-                      let value = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                      let id = value["session_id"] as? String, UUID(uuidString: id) != nil,
-                      let generation = value["generation"] as? NSNumber,
-                      let phase = value["state"] as? String,
-                      ["idle", "connecting", "authenticating", "connected", "reconnecting", "suspended", "disconnecting", "failed"].contains(phase) else { return }
-                var report = snapshot
-                var tunnel: [String: Any] = ["session_id": id, "generation": generation, "state": phase]
-                if let dropped = value["dropped_to_core"] as? NSNumber, dropped.doubleValue >= 0 {
-                    tunnel["dropped_to_core"] = dropped
-                }
-                report["tunnel"] = tunnel
-                do { try JSONSerialization.data(withJSONObject: report, options: [.prettyPrinted, .sortedKeys]).write(to: url, options: .atomic) }
-                catch { self.show(error) }
-            }
+        Task { @MainActor [weak self] in
+            guard let tunnel = await TunnelDiagnostics.collect(session), let self,
+                  self.exportGeneration == export, self.epoch == request,
+                  session === self.manager?.connection, self.connected else { return }
+            var report = snapshot
+            report["tunnel"] = tunnel
+            do { try JSONSerialization.data(withJSONObject: report, options: [.prettyPrinted, .sortedKeys]).write(to: url, options: .atomic) }
+            catch { self.show(error) }
         }
     }
 }

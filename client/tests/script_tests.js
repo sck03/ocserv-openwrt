@@ -56,6 +56,31 @@ function test(name, check) {
     check(); ++passed;
     console.log('PASS ' + name);
 }
+for (const [name, value] of [
+    ['INTERNAL_IP4_DNS', '198.18.0.1&ver'], ['INTERNAL_IP4_NBNS', '198.18.0.1|ver'],
+    ['INTERNAL_IP4_ADDRESS', '198.18.0.2%PATH%'], ['INTERNAL_IP4_NETMASK', '255.0.255.0'],
+    ['INTERNAL_IP4_MTU', '1400\r\nver'], ['TUNIDX', '42&ver'], ['VPNGATEWAY', 'vpn.example.test'],
+    ['INTERNAL_IP6_ADDRESS', '2001:db8:::1'], ['INTERNAL_IP6_NETMASK', '2001:db8::/129'],
+    ['CISCO_SPLIT_INC', '4097'], ['CISCO_SPLIT_INC_0_ADDR', '999.0.0.1'],
+    ['CISCO_SPLIT_INC_0_MASK', '255.255.0.0'], ['CISCO_SPLIT_INC_0_MASKLEN', '24&ver'],
+    ['CISCO_SPLIT_EXC', '-1'], ['CISCO_IPV6_SPLIT_INC', '1&ver']
+]) test('rejects invalid ' + name + ' before executing commands', () => {
+    const result = execute({ [name]: value });
+    assert.equal(result.exitCode, 1);
+    assert.deepEqual(result.commands, []);
+});
+test('invalid reconnect DNS cannot prevent disconnection cleanup', () => {
+    const storage = {text: ''};
+    execute({}, () => 0, storage);
+    const result = execute({reason: 'disconnect', INTERNAL_IP4_DNS: '1.2.3.4&ver'}, () => 0, storage);
+    assert.equal(result.exitCode, 0);
+    assert(result.commands.some(c => c.includes('delete address')));
+    assert(!result.commands.some(c => c.includes('&ver')));
+});
+test('accepts compressed and embedded IPv4 IPv6 addresses', () => {
+    for (const address of ['::1', '2001:db8::1', '::ffff:192.0.2.1', '1:2:3:4:5:6:7:8'])
+        assert.equal(execute({INTERNAL_IP4_DNS: address}).exitCode, 0);
+});
 test('connect configures address, routes and DNS without changing the default route', () => {
     const result = execute();
     assert.equal(result.exitCode, 0);

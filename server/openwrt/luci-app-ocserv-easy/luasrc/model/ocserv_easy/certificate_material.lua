@@ -35,7 +35,8 @@ function M.ca(rendered, hostname)
         ca:find("-----END CERTIFICATE-----", 1, true) and not ca:find("PRIVATE KEY", 1, true), "ca_unavailable")
     logic.require(leaf and not leaf:find("PRIVATE KEY", 1, true), "ca_certificate_mismatch")
     -- Explicit trust anchors only; do not accept an unrelated system root.
-    local arguments = {"/usr/bin/certtool", "--verify", "--load-ca-certificate", ca_path, "--infile", certificate}
+    local arguments = {"/usr/bin/certtool", "--verify", "--verify-purpose", "1.3.6.1.5.5.7.3.1",
+        "--load-ca-certificate", ca_path, "--infile", certificate}
     if hostname then arguments[#arguments+1] = "--verify-hostname"; arguments[#arguments+1] = hostname end
     local code = run(arguments, 8)
     logic.require(code == 0, "ca_certificate_mismatch")

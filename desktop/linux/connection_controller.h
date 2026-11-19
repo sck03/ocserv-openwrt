@@ -30,6 +30,8 @@ public:
     bool restore(bool retry);
 
 private:
+    friend struct ConnectionControllerTest;
+    void activation_finished(uint64_t token, NMActiveConnection *connection);
     void transition(const char *phase);
     void clear_active();
     void deactivate();

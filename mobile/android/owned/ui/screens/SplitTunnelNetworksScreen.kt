@@ -77,7 +77,7 @@ fun SplitTunnelNetworksScreen(
             TopAppBar(
                 title = {
                     Text(
-                        text = if (isPersian) "تونل‌سازی شبکه‌های IP" else "IP Network Split Tunneling",
+                        text = if (isChinese) "IP 网络分流" else if (isPersian) "تونل‌سازی شبکه‌های IP" else "IP Network Split Tunneling",
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Bold,
                     )
@@ -87,7 +87,7 @@ fun SplitTunnelNetworksScreen(
                         dev.opentunnel.vpn.util.HapticHelper.performClick(context, settings.hapticFeedbackEnabled)
                         onBack()
                     }) {
-                        Icon(Icons.Rounded.ArrowBack, contentDescription = "Back")
+                        Icon(Icons.Rounded.ArrowBack, contentDescription = if (isChinese) "返回" else if (isPersian) "بازگشت" else "Back")
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
@@ -100,7 +100,7 @@ fun SplitTunnelNetworksScreen(
                             onClearAll()
                         }) {
                             Text(
-                                text = if (isPersian) "پاکسازی همه" else "Clear All",
+                                text = if (isChinese) "清空" else if (isPersian) "پاکسازی همه" else "Clear All",
                                 color = MaterialTheme.colorScheme.error,
                             )
                         }
@@ -128,15 +128,15 @@ fun SplitTunnelNetworksScreen(
                     ) {
                         Column(modifier = Modifier.weight(1f)) {
                             Text(
-                                text = if (isPersian) "فعال‌سازی تونل‌سازی شبکه" else "Enable Network Split Tunneling",
+                                text = if (isChinese) "启用 IP 网络分流" else if (isPersian) "فعال‌سازی تونل‌سازی شبکه" else "Enable Network Split Tunneling",
                                 style = MaterialTheme.typography.titleSmall,
                                 fontWeight = FontWeight.Bold,
                             )
                             Text(
-                                text = if (isPersian)
-                                    "مدیریت ترافیک با آدرس IP یا شبکه CIDR"
+                                text = if (isChinese) "按 IPv4、IPv6 地址或 CIDR 网段分流，下次连接生效。" else if (isPersian)
+                                    "مدیریت ترافیک با IP/CIDR؛ اعمال در اتصال بعدی"
                                 else
-                                    "Route traffic by numeric IPv4/IPv6 addresses or CIDR networks",
+                                    "Route by numeric IPv4/IPv6 or CIDR; applies on the next connection",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
@@ -154,7 +154,7 @@ fun SplitTunnelNetworksScreen(
 
             if (settings.splitTunnelNetworksEnabled) {
                 item {
-                    SectionCard(title = if (isPersian) "حالت تونل‌سازی" else "Split Tunnel Mode") {
+                    SectionCard(title = if (isChinese) "分流模式" else if (isPersian) "حالت تونل‌سازی" else "Split Tunnel Mode") {
                         Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                                 FilterChip(
@@ -163,7 +163,7 @@ fun SplitTunnelNetworksScreen(
                                         dev.opentunnel.vpn.util.HapticHelper.performClick(context, settings.hapticFeedbackEnabled)
                                         onChangeMode(SplitTunnelMode.EXCLUDE_SELECTED)
                                     },
-                                    label = { Text(if (isPersian) "استثناء کردن شبکه‌های انتخابی" else "Bypass selected networks") },
+                                    label = { Text(if (isChinese) "绕过选定网络" else if (isPersian) "استثناء کردن شبکه‌های انتخابی" else "Bypass selected networks") },
                                 )
                                 FilterChip(
                                     selected = settings.splitTunnelNetworksMode == SplitTunnelMode.INCLUDE_SELECTED,
@@ -171,15 +171,15 @@ fun SplitTunnelNetworksScreen(
                                         dev.opentunnel.vpn.util.HapticHelper.performClick(context, settings.hapticFeedbackEnabled)
                                         onChangeMode(SplitTunnelMode.INCLUDE_SELECTED)
                                     },
-                                    label = { Text(if (isPersian) "فقط شبکه‌های انتخابی" else "Only include selected") },
+                                    label = { Text(if (isChinese) "仅代理选定网络" else if (isPersian) "فقط شبکه‌های انتخابی" else "Only include selected") },
                                 )
                             }
                             Text(
                                 text = if (settings.splitTunnelNetworksMode == SplitTunnelMode.EXCLUDE_SELECTED) {
-                                    if (isPersian) "همه ترافیک به جز شبکه‌های IP فهرست‌شده از VPN می‌گذرد."
+                                    if (isChinese) "除列表中的 IP 网络外，其余流量经过 VPN。" else if (isPersian) "همه ترافیک به جز شبکه‌های IP فهرست‌شده از VPN می‌گذرد."
                                     else "All traffic routes through VPN except listed IP networks."
                                 } else {
-                                    if (isPersian) "فقط شبکه‌های IP فهرست‌شده از VPN می‌گذرند."
+                                    if (isChinese) "仅列表中的 IP 网络经过 VPN。" else if (isPersian) "فقط شبکه‌های IP فهرست‌شده از VPN می‌گذرند."
                                     else "Only listed IP networks route through VPN."
                                 },
                                 style = MaterialTheme.typography.bodySmall,
@@ -190,7 +190,7 @@ fun SplitTunnelNetworksScreen(
                 }
 
                 item {
-                    SectionCard(title = if (isPersian) "افزودن آدرس IP یا شبکه CIDR" else "Add IP Address or CIDR Network") {
+                    SectionCard(title = if (isChinese) "添加 IP 地址或 CIDR 网段" else if (isPersian) "افزودن آدرس IP یا شبکه CIDR" else "Add IP Address or CIDR Network") {
                         Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
@@ -202,7 +202,7 @@ fun SplitTunnelNetworksScreen(
                                     onValueChange = { newEntryText = it },
                                     modifier = Modifier.weight(1f),
                                     placeholder = {
-                                        Text(if (isPersian) "مثال: 192.168.1.0/24 یا 2001:db8::/64" else "e.g. 192.168.1.0/24 or 2001:db8::/64")
+                                        Text(if (isChinese) "例如：192.168.1.0/24 或 2001:db8::/64" else if (isPersian) "مثال: 192.168.1.0/24 یا 2001:db8::/64" else "e.g. 192.168.1.0/24 or 2001:db8::/64")
                                     },
                                     singleLine = true,
                                     isError = newEntryText.isNotBlank() && dev.opentunnel.vpn.util.Net.parseCidr(newEntryText) == null,
@@ -219,14 +219,14 @@ fun SplitTunnelNetworksScreen(
                                     enabled = dev.opentunnel.vpn.util.Net.parseCidr(newEntryText) != null,
                                     shape = RoundedCornerShape(12.dp),
                                 ) {
-                                    Icon(Icons.Rounded.Add, contentDescription = "Add")
+                                    Icon(Icons.Rounded.Add, contentDescription = if (isChinese) "添加" else if (isPersian) "افزودن" else "Add")
                                 }
                             }
                             Text(
-                                text = if (isPersian)
-                                    "فقط IP/CIDR پشتیبانی می‌شود. قوانین دامنه قدیمی را حذف کنید."
+                                text = if (isChinese) "仅支持数字 IP 和 CIDR，不支持域名或通配符。" else if (isPersian)
+                                    "فقط IP/CIDR پشتیبانی می‌شود؛ نه دامنه یا wildcard."
                                 else
-                                    "Use numeric IP/CIDR rules. Domain and wildcard rules are unsupported; remove any saved by older versions.",
+                                    "Use numeric IP/CIDR rules. Domains and wildcards are unsupported.",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
@@ -236,7 +236,7 @@ fun SplitTunnelNetworksScreen(
 
                 item {
                     Text(
-                        text = if (isPersian) "شبکه‌های IP اضافه‌شده (${settings.splitTunnelNetworks.size})"
+                        text = if (isChinese) "已添加 IP 网络（${settings.splitTunnelNetworks.size}）" else if (isPersian) "شبکه‌های IP اضافه‌شده (${settings.splitTunnelNetworks.size})"
                         else "Added IP Networks (${settings.splitTunnelNetworks.size})",
                         style = MaterialTheme.typography.titleSmall,
                         fontWeight = FontWeight.Bold,
@@ -260,7 +260,7 @@ fun SplitTunnelNetworksScreen(
                                 contentAlignment = Alignment.Center,
                             ) {
                                 Text(
-                                    text = if (isPersian) "هنوز شبکه IP اضافه نشده است" else "No IP networks added yet",
+                                    text = if (isChinese) "尚未添加 IP 网络" else if (isPersian) "هنوز شبکه IP اضافه نشده است" else "No IP networks added yet",
                                     style = MaterialTheme.typography.bodyMedium,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 )
@@ -303,7 +303,7 @@ fun SplitTunnelNetworksScreen(
                                 }) {
                                     Icon(
                                         Icons.Rounded.Delete,
-                                        contentDescription = "Remove",
+                                        contentDescription = if (isChinese) "移除" else if (isPersian) "حذف" else "Remove",
                                         tint = MaterialTheme.colorScheme.error.copy(alpha = 0.8f),
                                     )
                                 }

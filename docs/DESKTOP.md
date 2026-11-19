@@ -7,7 +7,7 @@ macOS 0.2.0 支持 macOS 13+，同一应用包含 Apple Silicon 和 Intel；Linu
 | macOS | SwiftUI、菜单栏、Network Extension 系统扩展；复用 iOS 的数据包与地址校验 | ocserv 用户名/密码、管理员预先核实的 pin-sha256；可选系统钥匙串 | Universal `.app.zip` |
 | Linux | GTK 3、NetworkManager OpenConnect 插件；系统处理权限、路由和 DNS | 系统 OpenConnect 认证窗口，支持其认证分组、验证码及证书确认；可选系统钥匙串 | amd64 / arm64 `.deb` |
 
-两端提供服务器配置、连接/取消、明确的连接状态、可选登录后连接、最多三次网络失败重试及诊断导出。取消会使旧操作失效，异步完成的旧连接会被清理。认证、证书和配置问题不自动重试。
+两端提供服务器配置、连接/取消、明确的连接状态、可选登录后连接、最多三次网络失败重试及诊断导出。取消会使旧操作失效，异步完成的旧连接会被清理；Linux 激活取消后即使只返回空结果，也回到空闲并允许再次连接。认证、证书和配置问题不自动重试。
 
 当前界面名称统一为 **岚序 Lansyra**。macOS 本轮使用 schema 2 配置和带版本的钥匙串引用，不迁移旧配置，请新建或导入公共连接信息。Linux 由 NetworkManager 管理系统连接。macOS 使用 `io.github.sck03.lansyra.macos` 及匹配的 Apple 描述文件；Linux 使用 `lansyra` DEB。
 
@@ -81,3 +81,5 @@ bash scripts/build-linux.sh
 Windows 配置保存、导入、导出、删除和退出刷新在后台执行，处理期间窗口继续响应绘制和会话事件；一次只允许一个配置操作。macOS 的配置文件和钥匙串访问由串行存储 actor 执行，读取或保存期间禁用冲突操作。Linux 无法写入偏好时明确提示，重试选项会回到原值。各平台均不隐式迁移其他产品或旧格式数据。
 
 自动构建、隔离窗口及协议测试不替代 macOS 签名扩展加载、真实 Linux VPN 转发和设备网络切换验收。实际运行证据以[验证记录](VALIDATION.md)注明的提交和平台为准。
+
+macOS 与 iOS 共用诊断响应白名单和 1 秒超时。迟到、重复或跨连接代次的响应不会覆盖新会话报告；扩展无响应时仍保留已生成的客户端快照。

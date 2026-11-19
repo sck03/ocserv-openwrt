@@ -171,7 +171,7 @@ with sync_playwright() as pw:
         checks.append('export methods follow target client capabilities without an unpinned fallback')
         def unrelated_ca(route):
             response=route.fetch(); payload=response.json()
-            payload['data'].update(ca_available=False,ca_error='ca_certificate_mismatch')
+            payload['data']['client_trust']['profile'] = {'available': False, 'error': 'ca_certificate_mismatch'}
             payload['data']['client_profile']={'platform':'linux','cert_mode':'profile'}
             route.fulfill(response=response,json=payload)
         page.route('**/easy/data',unrelated_ca)
@@ -187,10 +187,34 @@ with sync_playwright() as pw:
         expect(page.get_by_role('button',name='保存客户端设置',exact=True)).to_be_enabled()
         page.unroute('**/easy/data',unrelated_ca)
         checks.append('unrelated CA cannot be saved or distributed, while explicit pin remains available')
+        def ambiguous_pin(route):
+            response=route.fetch(); payload=response.json()
+            payload['data']['certificates_ready']=True
+            payload['data']['client_trust']['pin']={'available':False,'error':'pin_unavailable'}
+            payload['data']['client_profile']={'platform':'ios','cert_mode':'pin'}
+            route.fulfill(response=response,json=payload)
+        page.route('**/easy/data',ambiguous_pin)
+        page.get_by_role('button',name='刷新',exact=True).click()
+        expect(page.get_by_label('目标客户端',exact=True)).to_have_value('ios')
+        expect(page.get_by_role('button',name='下载 .vpn 连接配置',exact=True)).to_be_disabled()
+        expect(page.get_by_role('button',name='保存客户端设置',exact=True)).to_be_disabled()
+        page.unroute('**/easy/data',ambiguous_pin)
+        checks.append('existing certificate files do not enable an unavailable Pin export')
+        page.get_by_role('button',name='刷新',exact=True).click()
+        expect(page.get_by_label('目标客户端',exact=True)).to_have_value('windows')
+        page.get_by_label('证书验证方式',exact=True).select_option('profile')
+        page.route('**/easy/download',lambda route: route.fulfill(status=400,content_type='application/json',body='{"ok":false,"error":"ca_certificate_mismatch"}'))
+        page.get_by_role('button',name='下载 .vpn 连接配置',exact=True).click()
+        expect(page.get_by_text('公共 CA 无法验证当前服务端证书',exact=False).first).to_be_visible()
+        expect(page.get_by_role('button',name='下载 .vpn 连接配置',exact=True)).to_be_enabled()
+        page.unroute('**/easy/download')
+        checks.append('export errors appear inline and release the download button')
         def missing_certificates(route):
             response=route.fetch()
             payload=response.json()
-            payload['data'].update(certificates_ready=False,ca_available=False,installation_pending=True)
+            payload['data'].update(certificates_ready=False,installation_pending=True)
+            payload['data']['client_trust']['pin'] = {'available': False, 'error': 'pin_unavailable'}
+            payload['data']['client_trust']['profile'] = {'available': False, 'error': 'ca_unavailable'}
             payload['data']['client_profile']={'cert_mode':'pin','platform':'windows'}
             route.fulfill(response=response,json=payload)
         page.route('**/easy/data',missing_certificates)

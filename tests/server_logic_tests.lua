@@ -642,7 +642,7 @@ test("a malformed hash can be reset without treating the old record as valid",fu
     check(backend.data().users[1].enabled and not backend.data().users[1].needs_password)
 end)
 test("backend default plain auth and no hash disclosure",function()
-    reset();local data=backend.data();check(data.api_version==3 and data.settings_supported and data.supported and data.running and data.users[1].password==nil)
+    reset();local data=backend.data();check(data.api_version==4 and data.settings_supported and data.supported and data.running and data.users[1].password==nil)
 end)
 test("configuration snapshots reject files changed after UCI loading or final field reads",function()
     local uci=package.loaded["luci.model.uci"]
@@ -874,9 +874,9 @@ test("client settings persist normalized LAN addresses and verification mode wit
     expect("invalid_url",function()request({action="client_profile",server="http://vpn.example.com",cert_mode="pin"})end)
 end)
 test("certificate readiness permits external server certificates without a bootstrap CA",function()
-    reset();check(backend.data().certificates_ready and backend.data().ca_available)
+    reset();check(backend.data().certificates_ready and backend.data().client_trust.profile.available)
     S.files["/etc/ocserv/ca.pem"]=nil
-    check(backend.data().certificates_ready and not backend.data().ca_available)
+    check(backend.data().certificates_ready and not backend.data().client_trust.profile.available)
     S.files["/etc/ocserv/server-key.pem"]=""
     check(not backend.data().certificates_ready)
     S.files["/etc/ocserv/easy-install-pending"]="incomplete"
@@ -1164,14 +1164,14 @@ test("CA distribution must validate the active server certificate",function()
     S.ca_verify_code=1
     request({action="settings",settings=settings,allow_restart=true})
     local data=backend.data()
-    check(not data.ca_available and data.ca_error=="ca_certificate_mismatch")
+    check(not data.client_trust.profile.available and data.client_trust.profile.error=="ca_certificate_mismatch")
     expect("ca_certificate_mismatch",function()backend.export("profile","vpn.example.test","windows")end)
     expect("ca_certificate_mismatch",function()request({action="client_profile",server="vpn.example.test",platform="windows",cert_mode="profile"})end)
     check(backend.data().revision==data.revision)
     S.ca_verify_code=0;S.files["/etc/ocserv/ca.pem"]="-----BEGIN CERTIFICATE-----\nMATCHING CA\n-----END CERTIFICATE-----\n"
-    check(backend.data().ca_available)
+    check(backend.data().client_trust.profile.available)
     check(backend.export("profile","vpn.example.test","windows"))
-    check(contains_command("--verify --load-ca-certificate /etc/ocserv/ca.pem --infile /etc/ocserv/external-cert.pem"))
+    check(contains_command("--verify --verify-purpose 1.3.6.1.5.5.7.3.1 --load-ca-certificate /etc/ocserv/ca.pem --infile /etc/ocserv/external-cert.pem"))
 end)
 test("summary cache hits never decode the full online snapshot",function()
     reset()
@@ -1222,6 +1222,30 @@ test("a cache waiter reuses the query completed by another owner",function()
     local ok,result=pcall(function()return cache.get("test","identity",300,function()error("duplicate query")end)end)
     nixio.open,nixio.poll=open,poll
     check(ok and result.value=="shared" and waits==1 and closed)
+end)
+test("unchanged online contents retain their version across expiry and row ordering",function()
+    reset()
+    local clock=nixio.sysinfo;local time=100
+    nixio.sysinfo=function()return {uptime=time}end
+    S.online={{ID=2,Username="two"},{ID=1,Username="one"}}
+    local first=backend.status()
+    local marker=S.files["/var/run/ocserv-easy/query-online.generation"]
+    time=106;S.online={{ID=1,Username="one"},{ID=2,Username="two"}}
+    local second=backend.summary()
+    check(first.online_version==second.online_version and second.online_count==2)
+    check(marker~=S.files["/var/run/ocserv-easy/query-online.generation"])
+    check(backend.status().online_version==second.online_version)
+    time=112;S.online[2].Username="changed"
+    check(backend.summary().online_version~=second.online_version)
+    nixio.sysinfo=clock
+end)
+test("pin capability describes the same restrictions as the export operation",function()
+    reset()
+    S.files["/etc/ocserv/ocserv.conf.local"]="server-cert = /etc/ocserv/another.pem\n"
+    local data=backend.data()
+    check(data.certificates_ready and not data.client_trust.pin.available)
+    check(data.client_trust.pin.error=="pin_unavailable" and data.client_trust.address.available)
+    expect("pin_unavailable",function()backend.export("pin","vpn.example.test","windows")end)
 end)
 TEST_PREVIEW={reset=reset,backend=backend,request=request,state=function()return S end}
 if not TEST_KEEP_SANDBOX then io.open=original_io_open end

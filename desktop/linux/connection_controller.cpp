@@ -143,28 +143,35 @@ void ConnectionController::activate() {
             GError *failure = nullptr;
             auto *connection = nm_client_activate_connection_finish(NM_CLIENT(object), result, &failure);
             --self->pending_;
-            if (connection) {
-                self->active_ = connection;
-                g_signal_connect(connection, "state-changed", G_CALLBACK(active_changed), self);
-                if (NM_IS_VPN_CONNECTION(connection))
-                    g_signal_connect(connection, "vpn-state-changed", G_CALLBACK(vpn_changed), self);
-                if (!self->request_.accepts(operation->token))
-                    self->deactivate();
-                else if (nm_active_connection_get_state(connection) == NM_ACTIVE_CONNECTION_STATE_DEACTIVATED)
-                    self->ended(connection);
-                else if (NM_IS_VPN_CONNECTION(connection))
-                    vpn_changed(NM_VPN_CONNECTION(connection),
-                                nm_vpn_connection_get_vpn_state(NM_VPN_CONNECTION(connection)),
-                                NM_VPN_CONNECTION_STATE_REASON_NONE, self);
-            } else if (self->request_.accepts(operation->token)) {
-                self->state_.error = "configuration";
-                self->ended();
-            }
+            self->activation_finished(operation->token, connection);
             g_clear_error(&failure);
             delete operation;
             self->changed_();
         },
         operation);
+}
+void ConnectionController::activation_finished(uint64_t token, NMActiveConnection *connection) {
+    if (connection) {
+        active_ = connection;
+        g_signal_connect(connection, "state-changed", G_CALLBACK(active_changed), this);
+        if (NM_IS_VPN_CONNECTION(connection))
+            g_signal_connect(connection, "vpn-state-changed", G_CALLBACK(vpn_changed), this);
+        if (!request_.accepts(token))
+            deactivate();
+        else if (nm_active_connection_get_state(connection) == NM_ACTIVE_CONNECTION_STATE_DEACTIVATED)
+            ended(connection);
+        else if (NM_IS_VPN_CONNECTION(connection))
+            vpn_changed(NM_VPN_CONNECTION(connection),
+                        nm_vpn_connection_get_vpn_state(NM_VPN_CONNECTION(connection)),
+                        NM_VPN_CONNECTION_STATE_REASON_NONE, this);
+    } else if (request_.accepts(token)) {
+        state_.error = "configuration";
+        ended();
+    } else if (!request_.wanted && !active_ && !pending_) {
+        // Cancellation owns the final state even when activation fails
+        // without ever returning a connection to deactivate.
+        ended();
+    }
 }
 void ConnectionController::active_changed(NMActiveConnection *connection, guint state, guint, gpointer data) {
     auto *self = static_cast<ConnectionController *>(data);

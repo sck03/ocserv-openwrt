@@ -1,26 +1,31 @@
 /* SPDX-License-Identifier: GPL-3.0-or-later */
 window.OcservEasyExport = function ({ t, element, field, options, mutationButton, button, complete, notice, errorText }) {
-  function download(kind, server, platform) {
-    var form = element(
-      "form",
-      { method: "POST", action: options.base + "/download", target: "_blank" },
-      [
-        element("input", {
-          type: "hidden",
-          name: "token",
-          value: options.token,
-        }),
-        element("input", { type: "hidden", name: "kind", value: kind }),
-        element("input", { type: "hidden", name: "server", value: server }),
-        element("input", { type: "hidden", name: "platform", value: platform || "windows" }),
-      ],
-    );
-    document.body.appendChild(form);
-    form.submit();
-    form.remove();
+  async function download(kind, server, platform) {
+    var controller = new AbortController();
+    var timer = setTimeout(function () { controller.abort(); }, 15000);
+    try {
+      var response = await fetch(options.base + "/download", {
+        method: "POST", credentials: "same-origin", cache: "no-store", signal: controller.signal,
+        body: new URLSearchParams({token: options.token, kind: kind, server: server, platform: platform || "windows"}),
+      });
+      var type = response.headers.get("Content-Type") || "";
+      if (type.includes("application/json")) {
+        var error = await response.json();
+        throw {code: error.error || "network_error"};
+      }
+      if (!response.ok || !type.includes("application/octet-stream")) throw {code: "session_expired"};
+      var url = URL.createObjectURL(await response.blob());
+      var link = element("a", {href: url, download: kind === "ca" ? "ca.pem" : "Lansyra.vpn"});
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      setTimeout(function () { URL.revokeObjectURL(url); }, 1000);
+    } catch (error) {
+      notice(errorText(controller.signal.aborted ? {code: "request_timeout"} : error), true);
+    } finally { clearTimeout(timer); }
   }
   function renderExport(state, content) {
-    var targets = state.client_targets;
+    var targets = state.client_targets, trustModes = state.client_trust;
     var platform = element("select", {}, targets.map(function (target) {
       return element("option", {value: target.id, text: target.label});
     }));
@@ -43,7 +48,7 @@ window.OcservEasyExport = function ({ t, element, field, options, mutationButton
           "固定服务器指纹（推荐）",
           "Pin the server public key (recommended)",
         ),
-        disabled: !state.certificates_ready,
+        disabled: !trustModes.pin.available,
       }),
       element("option", {
         value: "address",
@@ -55,7 +60,7 @@ window.OcservEasyExport = function ({ t, element, field, options, mutationButton
       element("option", {
         value: "profile",
         text: t("附带公共 CA 证书", "Include the public CA certificate"),
-        disabled: !state.ca_available,
+        disabled: !trustModes.profile.available,
       }),
     ]);
     trust.value = (state.client_profile || {}).cert_mode || "pin";
@@ -79,15 +84,22 @@ window.OcservEasyExport = function ({ t, element, field, options, mutationButton
         });
       },
     );
-    var readOnly = save.disabled;
+    var readOnly = save.disabled, downloading = false;
+    async function runDownload(kind, address, target) {
+      if (downloading) return;
+      downloading = true; updateDownload(); ca.disabled = true;
+      try { await download(kind, address, target); }
+      finally { downloading = false; updateDownload(); ca.disabled = !trustModes.profile.available; }
+    }
     function updateDownload() {
       var target = targets.find(function (item) { return item.id === platform.value; });
-      var reason = !target ? "unsupported_client_profile" :
-        trust.value === "profile" && !state.ca_available ? state.ca_error || "ca_unavailable" : null;
+      var capability = trustModes[trust.value];
+      var reason = !target || !target.modes.includes(trust.value) ? "unsupported_client_profile" :
+        !capability || !capability.available ? (capability && capability.error) || "ca_unavailable" : null;
       compatibility.hidden = !reason;
       compatibility.textContent = reason ? errorText({code: reason}) : "";
       var option = trust.selectedOptions[0];
-      profile.disabled = !!reason || !option || option.disabled;
+      profile.disabled = downloading || !!reason || !option || option.disabled;
       save.disabled = readOnly || profile.disabled;
     }
     function selectPlatform() {
@@ -95,8 +107,7 @@ window.OcservEasyExport = function ({ t, element, field, options, mutationButton
       if (!target) { updateDownload(); return; }
       Array.from(trust.options).forEach(function (option) {
         option.disabled = !target.modes.includes(option.value) ||
-          (option.value === "pin" && !state.certificates_ready) ||
-          (option.value === "profile" && !state.ca_available);
+          !trustModes[option.value].available;
       });
       if (!target.modes.includes(trust.value)) trust.value = target.modes[0];
       updateDownload();
@@ -157,13 +168,13 @@ window.OcservEasyExport = function ({ t, element, field, options, mutationButton
     form.addEventListener("submit", function (event) {
       event.preventDefault();
       if (profile.disabled) return;
-      download(trust.value, server.value.trim(), platform.value);
+      runDownload(trust.value, server.value.trim(), platform.value);
     });
     var ca = button(t("下载 ca.pem", "Download ca.pem"), function () {
-      download("ca", "");
+      runDownload("ca", "");
     });
-    ca.disabled = !state.ca_available;
-    if (state.ca_error) ca.title = errorText({code: state.ca_error});
+    ca.disabled = !trustModes.profile.available;
+    if (trustModes.profile.error) ca.title = errorText({code: trustModes.profile.error});
     content.appendChild(
       element("section", { className: "easy-card" }, [
         element("h3", {
@@ -185,7 +196,7 @@ window.OcservEasyExport = function ({ t, element, field, options, mutationButton
           ),
         }),
         ca,
-        state.ca_error ? element("p", {className: "easy-notice error", text: errorText({code: state.ca_error})}) : null,
+        trustModes.profile.error ? element("p", {className: "easy-notice error", text: errorText({code: trustModes.profile.error})}) : null,
       ]),
     );
     content.appendChild(

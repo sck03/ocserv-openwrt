@@ -29,6 +29,9 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
 
     private val repository = Repository.get(application)
 
+    val storageError = repository.storageError.stateIn(viewModelScope, SharingStarted.Eagerly, null)
+    fun reloadStorage() = repository.reloadStorage()
+
     val status = VpnBus.status
     val stats = VpnBus.stats
     val logs = VpnBus.logs
@@ -325,14 +328,10 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
 
     // ── split tunnelling ──────────────────────────────────────────────────────
 
-    fun loadInstalledApps() = loadApps(false)
-
-    fun refreshInstalledApps() = loadApps(true)
-
-    private fun loadApps(forceRefresh: Boolean) {
+    fun loadInstalledApps() {
         if (appsJob?.isActive == true) return
         appsJob = viewModelScope.launch(Dispatchers.IO) {
-            _installedApps.value = InstalledApps.load(getApplication(), forceRefresh)
+            _installedApps.value = InstalledApps.load(getApplication())
         }
     }
 
@@ -398,10 +397,6 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         } else {
             dev.opentunnel.vpn.data.SortDirection.DESCENDING
         }
-    }
-
-    fun setTrafficSortDirection(direction: dev.opentunnel.vpn.data.SortDirection) {
-        _trafficSortDirection.value = direction
     }
 
     fun setTrafficFilterMode(mode: dev.opentunnel.vpn.data.TrafficFilterMode) {

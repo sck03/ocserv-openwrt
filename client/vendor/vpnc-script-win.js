@@ -119,6 +119,93 @@ function isLoopback(address)
     return /^127\./.test(address) || address === "::1";
 }
 
+// Validate the complete network plan before any command or recovery write.
+// Only numeric network values may reach the command builder.
+function integer(value, low, high) {
+    return /^\d+$/.test(value) && Number(value) >= low && Number(value) <= high;
+}
+function ipv4(value) {
+    var parts = value.split(".");
+    if (parts.length !== 4) return false;
+    for (var i = 0; i < parts.length; i++)
+        if (!/^(0|[1-9]\d{0,2})$/.test(parts[i]) || Number(parts[i]) > 255) return false;
+    return true;
+}
+function ipv6(value) {
+    if (!/^[0-9a-f:.]+$/i.test(value)) return false;
+    if (value.indexOf(".") !== -1) {
+        var colon = value.lastIndexOf(":");
+        if (colon < 0 || !ipv4(value.substring(colon + 1))) return false;
+        value = value.substring(0, colon + 1) + "0:0";
+    }
+    var halves = value.split("::"), count = 0;
+    if (halves.length > 2) return false;
+    for (var i = 0; i < halves.length; i++) {
+        if (!halves[i]) continue;
+        var groups = halves[i].split(":");
+        for (var j = 0; j < groups.length; j++)
+            if (!/^[0-9a-f]{1,4}$/i.test(groups[j])) return false;
+        count += groups.length;
+    }
+    return halves.length === 2 ? count < 8 : count === 8;
+}
+function maskLength(value) {
+    if (!ipv4(value)) return -1;
+    var parts = value.split("."), length = 0, zero = false;
+    for (var i = 0; i < 4; i++) for (var bit = 7; bit >= 0; bit--) {
+        if ((Number(parts[i]) >> bit) & 1) {
+            if (zero) return -1;
+            length++;
+        } else zero = true;
+    }
+    return length;
+}
+function validateNetwork() {
+    var reason = env("reason");
+    if (!/^(connect|prepare-connect|reconnect|disconnect)$/.test(reason)) return;
+    function require(value, valid, name) {
+        if (!valid(value)) throw new Error("Invalid VPN network field: " + name);
+    }
+    function field(name, valid, optional) {
+        var value = env(name);
+        if (!optional || value) require(value, valid, name);
+    }
+    field("TUNIDX", function(v) { return integer(v, 1, 4294967295); });
+    field("INTERNAL_IP4_ADDRESS", ipv4, reason !== "connect" && reason !== "disconnect");
+    field("INTERNAL_IP6_ADDRESS", ipv6, true);
+    // Invalid new DNS/routes must not block cleanup of an existing connection.
+    if (reason === "disconnect") return;
+    field("VPNGATEWAY", function(v) { return ipv4(v) || ipv6(v); });
+    field("INTERNAL_IP4_NETMASK", function(v) { return maskLength(v) >= 0; }, true);
+    field("INTERNAL_IP4_MTU", function(v) { return integer(v, 576, 65535); }, true);
+    field("INTERNAL_IP6_NETMASK", function(v) {
+        var parts = v.split("/");
+        return parts.length === 2 && ipv6(parts[0]) && integer(parts[1], 0, 128);
+    }, true);
+    var lists = ["INTERNAL_IP4_DNS", "INTERNAL_IP4_NBNS"];
+    for (var n = 0; n < lists.length; n++) {
+        var raw = env(lists[n]);
+        if (!raw) continue;
+        var addresses = raw.split(" ");
+        if (addresses.length > 16) throw new Error("Too many VPN name servers");
+        for (var j = 0; j < addresses.length; j++)
+            require(addresses[j], n === 0 ? function(v) { return ipv4(v) || ipv6(v); } : ipv4, lists[n]);
+    }
+    for (var family = 4; family <= 6; family += 2) for (var kind = 0; kind < 2; kind++) {
+        var prefix = (family === 4 ? "CISCO_SPLIT_" : "CISCO_IPV6_SPLIT_") + (kind ? "EXC" : "INC");
+        var count = env(prefix);
+        if (!count) continue;
+        require(count, function(v) { return integer(v, 0, 4096); }, prefix);
+        for (var i = 0; i < Number(count); i++) {
+            var key = prefix + "_" + i;
+            field(key + "_ADDR", family === 4 ? ipv4 : ipv6);
+            field(key + "_MASKLEN", function(v) { return integer(v, 0, family === 4 ? 32 : 128); });
+            if (family === 4)
+                field(key + "_MASK", function(v) { return maskLength(v) === Number(env(key + "_MASKLEN")); });
+        }
+    }
+}
+
 function routeCommand(action, route) {
     if (route[0] === "6")
         return "netsh interface ipv6 " + action + " route " + route[1] + " " + route[2] + " store=active";
@@ -201,6 +288,7 @@ function excludedRoutes(gw4, gw6) {
                 env(prefix + "_" + i + (family === 4 ? "_MASK" : "_MASKLEN")), family === 4 ? gw4 : gw6, "e");
     }
 }
+validateNetwork();
 failureCleanup = function() { releaseRoutes(); };
 
 // --------------------------------------------------------------

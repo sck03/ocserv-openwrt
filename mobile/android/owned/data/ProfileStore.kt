@@ -16,7 +16,6 @@ import kotlinx.coroutines.withContext
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.collect
@@ -46,15 +45,14 @@ class ProfileStore private constructor(context: Context) {
     private val observations = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     // One upstream subscription and one decode per changed JSON document.
     // Selection changes reuse metadata and never unlock any credential.
-    private val metadata = flow {
+    private val recovery = StorageObservation { it is java.io.IOException && it !is androidx.datastore.core.CorruptionException }
+    fun reload() = recovery.reload()
+    private val metadata = recovery.observe(flow {
         val projection = ProfileProjection { raw -> codec.decode(raw).map { it.profile } }
         store.data.collect { prefs ->
             emit(projection.snapshot(prefs[key].orEmpty(), prefs[selectedKey].orEmpty()))
         }
-    }.catch { error ->
-        if (error is CancellationException) throw error
-        emit(ProfileMetadata(error = "Profile storage is unavailable; connection is blocked."))
-    }.stateIn(observations, SharingStarted.WhileSubscribed(5000), ProfileMetadata())
+    }) { ProfileMetadata(error = "Profile storage is unavailable; connection is blocked.") }.stateIn(observations, SharingStarted.WhileSubscribed(5000), ProfileMetadata())
     val storageError = metadata.map { it.error }.distinctUntilChanged()
     val profiles: Flow<List<VpnProfile>> = metadata.map { it.profiles }.distinctUntilChanged()
     val activeProfile: Flow<VpnProfile> = metadata.map { it.selected }.distinctUntilChanged()

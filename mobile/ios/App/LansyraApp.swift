@@ -13,6 +13,7 @@ final class VPNModel: ObservableObject {
     @Published var busy = true
     @Published var connected = false
     @Published var disconnecting = false
+    @Published var exporting = false
     private var manager: NETunnelProviderManager?
     private var observer: NSObjectProtocol?
     private var epoch: UInt64 = 0
@@ -70,6 +71,23 @@ final class VPNModel: ObservableObject {
                     }
             }
         }
+    }
+
+    func diagnostics() async throws -> Data {
+        exporting = true
+        defer { exporting = false }
+        let request = epoch
+        let connection = manager?.connection
+        var report: [String: Any] = ["schema": 1, "product": "Lansyra", "platform": "iOS",
+            "version": Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "",
+            "created_utc": ISO8601DateFormatter().string(from: Date()),
+            "generation": request, "state": TunnelDiagnostics.state(connection?.status ?? .disconnected)]
+        if let session = connection as? NETunnelProviderSession, connected,
+           let tunnel = await TunnelDiagnostics.collect(session), epoch == request,
+           session === manager?.connection, connected {
+            report["tunnel"] = tunnel
+        }
+        return try JSONSerialization.data(withJSONObject: report, options: [.prettyPrinted, .sortedKeys])
     }
 
     func disconnect() {
@@ -140,6 +158,9 @@ struct ConnectionView: View {
     @State private var importing = false
     @State private var importBusy = false
     @State private var importError: String?
+    @State private var diagnosticDocument = DiagnosticDocument()
+    @State private var exporting = false
+    @State private var exportError: String?
 
     var body: some View {
         NavigationStack {
@@ -169,6 +190,16 @@ struct ConnectionView: View {
                         }.disabled(vpn.busy || vpn.disconnecting)
                     }
                 }
+                Section(footer: Text("诊断文件仅包含版本、连接状态和隧道计数，不包含服务器地址、账号或密码。")) {
+                    Button(vpn.exporting ? "正在收集诊断…" : "导出诊断 JSON…") {
+                        Task {
+                            do {
+                                diagnosticDocument = DiagnosticDocument(data: try await vpn.diagnostics())
+                                exporting = true
+                            } catch { exportError = error.localizedDescription }
+                        }
+                    }.disabled(vpn.exporting)
+                }
                 Section(footer: Text("支持 ocserv 账号认证；路由和 DNS 随服务器配置应用。首次连接需允许系统添加 VPN 配置。")) { EmptyView() }
             }.disabled(importBusy).navigationTitle("岚序 Lansyra")
                 .fileImporter(isPresented: $importing, allowedContentTypes: [UTType(filenameExtension: "vpn") ?? .data]) { result in
@@ -186,9 +217,28 @@ struct ConnectionView: View {
                         } catch { importError = error.localizedDescription }
                     }
                 }
+                .fileExporter(isPresented: $exporting, document: diagnosticDocument, contentType: .json,
+                              defaultFilename: "Lansyra-diagnostics") { result in
+                    if case .failure(let error) = result { exportError = error.localizedDescription }
+                }
+                .alert("无法导出诊断", isPresented: Binding(get: { exportError != nil }, set: { if !$0 { exportError = nil } })) {
+                    Button("关闭") { exportError = nil }
+                } message: { Text(exportError ?? "") }
                 .alert("无法导入配置", isPresented: Binding(get: { importError != nil }, set: { if !$0 { importError = nil } })) {
                     Button("关闭") { importError = nil }
                 } message: { Text(importError ?? "") }
         }
+    }
+}
+
+private struct DiagnosticDocument: FileDocument {
+    static var readableContentTypes: [UTType] { [.json] }
+    var data: Data
+    init(data: Data = Data()) { self.data = data }
+    init(configuration: ReadConfiguration) throws {
+        data = configuration.file.regularFileContents ?? Data()
+    }
+    func fileWrapper(configuration: WriteConfiguration) throws -> FileWrapper {
+        FileWrapper(regularFileWithContents: data)
     }
 }

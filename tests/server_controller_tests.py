@@ -11,7 +11,7 @@ lua.execute('package.preload[...] = assert(loadstring(select(2,...)))',
 lua.execute('package.preload[...] = assert(loadstring(select(2,...)))',
             "luci.model.ocserv_easy.proxy_registry", (model / "proxy_registry.lua").read_text(encoding="utf-8"))
 lua.execute('''
-permissions={ocserv=true}; payload={action="settings",api_version=3}; raw="fixture"; calls=0
+permissions={ocserv=true}; payload={action="settings",api_version=4}; raw="fixture"; calls=0
 package.loaded["luci.dispatcher"]={context={authsession="fixture"}}
 package.loaded["luci.util"]={ubus=function(_,_,request)return {access=permissions[request.object]==true}end}
 package.loaded["luci.http"]={
@@ -43,6 +43,16 @@ raw='{"password":"null","enabled":false}'
 action();assert(reply.ok and calls==3)
 payload.api_version=1;action();assert(reply.error=="interface_mismatch" and calls==3)
 payload.api_version=2;action();assert(reply.error=="interface_mismatch" and calls==3)
+payload.api_version=3;action();assert(reply.error=="interface_mismatch" and calls==3)
 payload.api_version=nil;action();assert(reply.error=="interface_mismatch" and calls==3)
 ''')
-print(json.dumps({"passed": 14, "boundary": "Actual LuCI controller; simulated session ACL and backend"}))
+lua.execute("""
+local backend=package.loaded["luci.model.ocserv_easy.backend"]
+backend.export=function()error({code="ca_certificate_mismatch"})end
+package.loaded["luci.controller.ocserv_easy"].download()
+assert(response_code==400 and reply.ok==false and reply.error=="ca_certificate_mismatch")
+backend.export=function()error("sensitive raw failure")end
+package.loaded["luci.controller.ocserv_easy"].download()
+assert(reply.error=="internal_error")
+""")
+print(json.dumps({"passed": 17, "boundary": "Actual LuCI controller; simulated session ACL and backend"}))

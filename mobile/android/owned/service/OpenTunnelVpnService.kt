@@ -89,6 +89,7 @@ class OpenTunnelVpnService : VpnService(), TunnelHost {
         observePrompts()
         scope.launch {
             repository.settings.collect {
+                reconnectOnNetworkChange = it.reconnectOnNetworkChange
                 appLanguage = it.appLanguage
                 showStatsInNotification = it.showStatsInNotification
                 notificationStatistics.value = it.showStatsInNotification
@@ -258,7 +259,7 @@ class OpenTunnelVpnService : VpnService(), TunnelHost {
             it.setReferenceCounted(false)
             it.acquire(6 * 60 * 60 * 1000L)   // 6 hours max, released in stopSelfSafely() / onDestroy()
         }
-        VpnBus.info("WakeLock acquired — tunnel will stay active during screen-off (max 6h)")
+        VpnBus.info("WakeLock acquired; renewed while the tunnel is active")
         wakeRenewal?.cancel()
         wakeRenewal = scope.launch {
             while (isActive) {

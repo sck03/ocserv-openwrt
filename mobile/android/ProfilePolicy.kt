@@ -51,9 +51,6 @@ internal object ProfilePolicy {
         return profiles.map { if (it.id == id && origin(it.server) == origin(server)) it.copy(trustedCertificate = pin) else it }
     }
 
-    fun portable(profile: VpnProfile): VpnProfile = profile.copy(username = "", password = "", tokenString = "",
-        caCertPath = "", userCertPath = "", privateKeyPath = "")
-
     fun updated(previous: VpnProfile?, candidate: VpnProfile, fields: Set<ProfileField> = emptySet()): VpnProfile {
         val normalized = if (candidate.overrideDpdTimeout) candidate else candidate.copy(dpdSeconds = 0)
         return if (previous != null && origin(previous.server) != origin(candidate.server))

@@ -50,8 +50,5 @@ class ProfilePolicyTest {
         assertThrows(IllegalArgumentException::class.java) {
             ProfilePolicy.validate(listOf(previous.copy(dpdSeconds = 0)))
         }
-        val portable = ProfilePolicy.portable(a.copy(username = "user", password = "secret", tokenString = "token",
-            caCertPath = "private-ca", userCertPath = "private-cert", privateKeyPath = "private-key"))
-        assertEquals(a, portable)
     }
 }

@@ -1,8 +1,9 @@
 package dev.opentunnel.vpn.data
 
 import android.content.Context
+import android.content.ComponentCallbacks2
+import android.content.res.Configuration
 import android.content.pm.ApplicationInfo
-import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.util.LruCache
 import android.os.SystemClock
@@ -31,18 +32,33 @@ data class InstalledApp(
  */
 object InstalledApps {
 
-    private const val ICON_PX = 128
-    private val iconCache = LruCache<String, ImageBitmap>(220)
+    private const val ICON_PX = 96
+    private const val ICON_BUDGET = 4 * 1024 * 1024
+    private val iconCache = object : LruCache<String, ImageBitmap>(ICON_BUDGET) {
+        override fun sizeOf(key: String, value: ImageBitmap) = value.width * value.height * 4
+    }
+    private var callbacksRegistered = false
+    @Synchronized private fun registerMemoryCallbacks(context: Context) {
+        if (callbacksRegistered) return
+        context.applicationContext.registerComponentCallbacks(object : ComponentCallbacks2 {
+            override fun onConfigurationChanged(config: Configuration) { iconCache.evictAll() }
+            override fun onLowMemory() { iconCache.evictAll() }
+            override fun onTrimMemory(level: Int) {
+                if (level >= ComponentCallbacks2.TRIM_MEMORY_RUNNING_LOW) iconCache.evictAll()
+            }
+        })
+        callbacksRegistered = true
+    }
 
     private var cachedList: List<InstalledApp>? = null
     private val loadMutex = Mutex()
     private var lastLoadTime = 0L
     private const val CACHE_TTL_MS = 5 * 60 * 1000L
 
-    suspend fun load(context: Context, forceRefresh: Boolean = false): List<InstalledApp> = withContext(Dispatchers.IO) {
+    suspend fun load(context: Context): List<InstalledApp> = withContext(Dispatchers.IO) {
         loadMutex.withLock {
         val now = SystemClock.elapsedRealtime()
-        if (!forceRefresh && cachedList != null && (now - lastLoadTime < CACHE_TTL_MS)) {
+        if (cachedList != null && (now - lastLoadTime < CACHE_TTL_MS)) {
             return@withLock cachedList!!
         }
 
@@ -93,6 +109,7 @@ object InstalledApps {
     }
 
     suspend fun icon(context: Context, packageName: String): ImageBitmap? {
+        registerMemoryCallbacks(context)
         iconCache.get(packageName)?.let { return it }
         return withContext(Dispatchers.IO) {
             runCatching {
@@ -103,9 +120,4 @@ object InstalledApps {
         }
     }
 
-    /** Best-effort label for a package that may since have been uninstalled. */
-    fun labelFor(context: Context, packageName: String): String = runCatching {
-        val pm = context.packageManager
-        pm.getApplicationLabel(pm.getApplicationInfo(packageName, 0)).toString()
-    }.getOrDefault(packageName)
 }

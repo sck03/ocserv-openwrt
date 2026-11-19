@@ -39,6 +39,7 @@ function M.online()
             ip = text(row["Remote IP"]), vpn_ip = ipv4 ~= "" and ipv4 or text(row.IPv6),
             since = text(row["Last connected at"]), state = text(row.State, 32)}
     end)
+    table.sort(rows, function(a,b) return tonumber(a.id) < tonumber(b.id) end)
     return ok and {online = rows} or {online = {}, online_error = true}
 end
 

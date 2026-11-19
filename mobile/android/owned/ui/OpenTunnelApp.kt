@@ -89,6 +89,8 @@ fun OpenTunnelApp(
         }
     }
 
+    val storageError by viewModel.storageError.collectAsStateWithLifecycle()
+
     val layoutDirection = if (dev.opentunnel.vpn.util.Strings.isRtl(settings.appLanguage)) {
         androidx.compose.ui.unit.LayoutDirection.Rtl
     } else {
@@ -102,10 +104,16 @@ fun OpenTunnelApp(
             modifier = Modifier.fillMaxSize(),
             color = MaterialTheme.colorScheme.background,
         ) {
+            androidx.compose.foundation.layout.Column(Modifier.fillMaxSize().safeDrawingPadding()) {
+                if (storageError != null) {
+                    androidx.compose.material3.TextButton(onClick = viewModel::reloadStorage) {
+                        androidx.compose.material3.Text(dev.opentunnel.vpn.util.Strings.storageRetry(settings.appLanguage))
+                    }
+                }
             NavHost(
                 navController = navController,
                 startDestination = Routes.HOME,
-                modifier = Modifier.safeDrawingPadding(),
+                modifier = Modifier.weight(1f),
                 enterTransition = {
                     slideInHorizontally(tween(SLIDE_MS, easing = FastOutSlowInEasing)) { it / 5 } +
                         fadeIn(tween(SLIDE_MS, easing = FastOutSlowInEasing))
@@ -264,6 +272,8 @@ fun OpenTunnelApp(
                         onBack = { navController.popBackStack() },
                     )
                 }
+            }
+
             }
 
             PromptHost(

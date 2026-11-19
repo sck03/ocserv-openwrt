@@ -1,4 +1,4 @@
-"""Exercise v3 summary/list demand and stale-response ownership in a real browser."""
+"""Exercise v4 summary/list demand and stale-response ownership in a real browser."""
 import argparse
 import json
 from pathlib import Path
@@ -18,7 +18,7 @@ with sync_playwright() as pw:
     errors = []
     page.on('pageerror', lambda error: errors.append(str(error)))
     snapshot = page.request.get(args.url + 'easy/data').json()
-    rows = [{'id': '7', 'name': 'online-fixture', 'ip': '192.0.2.1', 'vpn_ip': '10.77.0.7', 'since': 'now', 'state': 'connected'}]
+    rows = [{'id': '7', 'name': snapshot['data']['users'][0]['name'], 'ip': '192.0.2.1', 'vpn_ip': '10.77.0.7', 'since': 'now', 'state': 'connected'}]
     snapshot['data']['online'] = rows
     status = {'ok': True, 'data': {key: snapshot['data'].get(key, False)
                                   for key in ('running', 'online', 'online_error', 'guard', 'recovery_pending')}}
@@ -38,7 +38,13 @@ with sync_playwright() as pw:
         with page.expect_response('**/easy/status'):
             page.clock.run_for(3000)
     assert not requests
-    checks.append('unchanged summary generations do not transfer online rows again')
+    checks.append('unchanged summary versions do not transfer online rows again')
+    expect(page.locator('.easy-presence').first).to_have_text('在线')
+    page.get_by_role('tab', name='服务设置', exact=True).click()
+    page.get_by_role('tab', name='账号与在线用户', exact=True).click()
+    expect(page.locator('.easy-presence').first).to_have_text('在线')
+    assert not requests
+    checks.append('unchanged list reuse preserves online badges after a tab round trip')
 
     rows[0]['ip'] = '192.0.2.2'
     page.clock.run_for(3000)

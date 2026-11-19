@@ -20,8 +20,6 @@ object Strings {
     fun text(language: AppLanguage, chinese: String, english: String): String = if (isChinese(language)) chinese else english
 
     // ── Screen Titles & Navigation ──────────────────────────────────────────
-    fun appName(): String = "岚序 Lansyra"
-    fun homeTitle(lang: AppLanguage): String = "岚序 Lansyra"
     fun profileManagementTitle(lang: AppLanguage): String = if (isChinese(lang)) "连接配置" else if (isRtl(lang)) "مدیریت پروفایل‌ها" else "Profile Management"
     fun editProfileTitle(lang: AppLanguage, name: String): String = if (isChinese(lang)) (if (name.isBlank()) "新建配置" else "编辑“$name”") else
         if (isRtl(lang)) {
@@ -52,11 +50,6 @@ object Strings {
     fun mtuLabel(lang: AppLanguage): String = if (isChinese(lang)) "MTU" else if (isRtl(lang)) "مقدار ${ltr("MTU")}" else "MTU"
     fun tlsChannel(lang: AppLanguage): String = if (isChinese(lang)) "TLS 通道" else if (isRtl(lang)) "کانال ${ltr("TLS")}" else "TLS channel"
     fun dtlsChannel(lang: AppLanguage): String = if (isChinese(lang)) "DTLS 通道" else if (isRtl(lang)) "کانال ${ltr("DTLS")}" else "DTLS channel"
-    fun locationLabel(lang: AppLanguage): String = if (isChinese(lang)) "出口位置" else if (isRtl(lang)) "موقعیت خروجی" else "Location"
-    fun pingLabel(lang: AppLanguage): String = if (isChinese(lang)) "延迟" else if (isRtl(lang)) "پینگ" else "Ping"
-    fun logsSubtitle(lang: AppLanguage): String = if (isChinese(lang)) "已脱敏的连接事件与诊断" else if (isRtl(lang)) "گزارش زنده تمام رویدادهای ${ltr("openconnect")}" else "Everything openconnect reports, live"
-    fun settingsSubtitle(lang: AppLanguage): String = if (isChinese(lang)) "外观、连接与诊断" else if (isRtl(lang)) "ظاهر، اتصال مجدد و عیب‌یابی" else "Appearance, reconnection, diagnostics"
-
     // ── Connect Orb Labels ──────────────────────────────────────────────────
     fun orbConnect(lang: AppLanguage): String = if (isChinese(lang)) "连接" else if (isRtl(lang)) "اتصال" else "CONNECT"
     fun orbConnected(lang: AppLanguage): String = if (isChinese(lang)) "已连接" else if (isRtl(lang)) "متصل" else "CONNECTED"
@@ -66,12 +59,7 @@ object Strings {
 
     // ── Profile Management ──────────────────────────────────────────────────
     fun addProfile(lang: AppLanguage): String = if (isChinese(lang)) "添加配置" else if (isRtl(lang)) "افزودن پروفایل" else "Add profile"
-    fun activeProfileBadge(lang: AppLanguage): String = if (isChinese(lang)) "已选择" else if (isRtl(lang)) "فعال" else "ACTIVE"
     fun noProfilesYet(lang: AppLanguage): String = if (isChinese(lang)) "尚无连接配置" else if (isRtl(lang)) "هیچ پروفایلی ثبت نشده است" else "No profiles yet"
-    fun tapToAddProfile(lang: AppLanguage): String = if (isChinese(lang)) "添加服务器，或导入管理员提供的 .vpn 配置" else
-        if (isRtl(lang)) "برای افزودن پروفایل ${ltr("VPN")} دکمه + را لمس کنید" else "Tap + to add a VPN profile with any gateway"
-    fun exportProfiles(lang: AppLanguage): String = if (isChinese(lang)) "导出公共配置" else if (isRtl(lang)) "پشتیبان‌گیری (خروجی JSON)" else "Export Profiles"
-    fun importProfiles(lang: AppLanguage): String = if (isChinese(lang)) "导入公共配置" else if (isRtl(lang)) "بازیابی (ورودی JSON)" else "Import Profiles"
     fun deleteProfileConfirm(lang: AppLanguage, name: String): String = if (isChinese(lang)) "删除配置“$name”？" else
         if (isRtl(lang)) "آیا از حذف پروفایل «$name» اطمینان دارید؟" else "Are you sure you want to delete profile \"$name\"?"
     fun delete(lang: AppLanguage): String = if (isChinese(lang)) "删除" else if (isRtl(lang)) "حذف" else "Delete"
@@ -79,7 +67,6 @@ object Strings {
     fun save(lang: AppLanguage): String = if (isChinese(lang)) "保存" else if (isRtl(lang)) "ذخیره" else "Save"
 
     // ── ProfileScreen Fields ─────────────────────────────────────────────────
-    fun serverSection(lang: AppLanguage): String = if (isChinese(lang)) "服务器" else if (isRtl(lang)) "مشخصات سرور" else "Server"
     fun profileName(lang: AppLanguage): String = if (isChinese(lang)) "配置名称" else if (isRtl(lang)) "نام پروفایل" else "Profile name"
     fun serverAddress(lang: AppLanguage): String = if (isChinese(lang)) "服务器地址" else if (isRtl(lang)) "آدرس سرور (گیت‌وی)" else "Server address"
     fun serverCredentials(lang: AppLanguage): String = if (isChinese(lang)) "更换主机或端口会清除旧凭据；本次重新填写的内容会保留。" else
@@ -93,15 +80,9 @@ object Strings {
     fun username(lang: AppLanguage): String = if (isChinese(lang)) "用户名" else if (isRtl(lang)) "نام کاربری" else "Username"
     fun password(lang: AppLanguage): String = if (isChinese(lang)) "密码" else if (isRtl(lang)) "رمز عبور" else "Password"
     fun authGroup(lang: AppLanguage): String = if (isChinese(lang)) "认证分组（可选）" else if (isRtl(lang)) "گروه احراز هویت (اختیاری)" else "Auth group (optional)"
-    fun disableCredentialCaching(lang: AppLanguage): String = if (isChinese(lang)) "不缓存凭据" else if (isRtl(lang)) "ذخیره نکردن مشخصات ورود" else "Disable credential caching"
-    fun disableCredentialCachingSub(lang: AppLanguage): String = if (isChinese(lang)) "不保存用户名、分组或密码" else
-        if (isRtl(lang)) "عدم ذخیره‌سازی نام کاربری، گروه یا رمز عبور" else "Never cache login names, user groups, or passwords"
-    fun clearSavedPasswords(lang: AppLanguage): String = if (isChinese(lang)) "清除已保存密码" else if (isRtl(lang)) "پاک کردن رمز عبور ذخیره‌شده" else "Clear saved passwords"
     fun advancedOptions(lang: AppLanguage): String = if (isChinese(lang)) "高级设置" else if (isRtl(lang)) "تنظیمات پیشرفته" else "Advanced options"
     fun hideAdvancedOptions(lang: AppLanguage): String = if (isChinese(lang)) "收起高级设置" else if (isRtl(lang)) "پنهان‌سازی تنظیمات پیشرفته" else "Hide advanced options"
-    fun batchMode(lang: AppLanguage): String = if (isChinese(lang)) "自动填写凭据" else if (isRtl(lang)) "حالت ${ltr("Batch mode")}" else "Batch mode"
     fun reportedOs(lang: AppLanguage): String = if (isChinese(lang)) "向服务器报告的系统" else if (isRtl(lang)) "سیستم‌عامل گزارش‌شده (${ltr("Reported OS")})" else "Reported OS"
-    fun csdWrapper(lang: AppLanguage): String = if (isChinese(lang)) "CSD 脚本" else if (isRtl(lang)) "اسکریپت سفارشی ${ltr("CSD wrapper")}" else "Custom CSD wrapper"
     fun splitTunnelMode(lang: AppLanguage): String = if (isChinese(lang)) "分流方式" else if (isRtl(lang)) "حالت تونل‌سازی جداگانه" else "Split tunnel mode"
     fun splitTunnelNetworks(lang: AppLanguage): String = if (isChinese(lang)) "网段分流" else if (isRtl(lang)) "شبکه‌های تونل‌سازی جداگانه" else "Split tunnel networks"
     fun disableXmlPost(lang: AppLanguage): String = if (isChinese(lang)) "禁用 XML POST" else if (isRtl(lang)) "غیرفعال‌سازی ${ltr("XML POST")}" else "Disable XML POST"
@@ -146,8 +127,6 @@ object Strings {
     fun themeLight(lang: AppLanguage): String = if (isChinese(lang)) "浅色" else if (isRtl(lang)) "روشن" else "Light"
     fun appLanguageLabel(lang: AppLanguage): String = if (isChinese(lang)) "语言" else if (isRtl(lang)) "زبان برنامه" else "App Language"
     fun langSystem(lang: AppLanguage): String = if (isChinese(lang)) "跟随系统" else if (isRtl(lang)) "پیش‌فرض سیستم" else "System Default"
-    fun langEnglish(lang: AppLanguage): String = if (isChinese(lang)) "English" else if (isRtl(lang)) "English (انگلیسی)" else "English"
-    fun langPersian(lang: AppLanguage): String = if (isChinese(lang)) "فارسی" else if (isRtl(lang)) "فارسی (Persian)" else "فارسی (Persian)"
     fun dynamicColorTitle(lang: AppLanguage): String = if (isChinese(lang)) "动态配色" else if (isRtl(lang)) "رنگ‌بندی پوسته سیستم" else "Wallpaper colours"
     fun dynamicColorSub(lang: AppLanguage): String = if (isChinese(lang)) "使用系统壁纸配色" else
         if (isRtl(lang)) "هماهنگ‌سازی رنگ‌های برنامه با تصویر پس‌زمینه (${ltr("Material You")})" else "Tint the app with your Material You palette"
@@ -177,16 +156,16 @@ object Strings {
         if (isRtl(lang)) "ارائه ویبره هنگام اسکرول لیست‌ها، تغییر وضعیت اتصال و تاگل‌های اصلی" else "Vibrate on list scrolling, connection status change, and main toggles"
     fun diagnostics(lang: AppLanguage): String = if (isChinese(lang)) "诊断" else if (isRtl(lang)) "عیب‌یابی و لاگ" else "Diagnostics"
     fun verboseLogging(lang: AppLanguage): String = if (isChinese(lang)) "详细日志" else if (isRtl(lang)) "ثبت لاگ‌های تفصیلی (${ltr("Verbose")})" else "Verbose logging"
+    fun storageRetry(lang: AppLanguage): String = if (isChinese(lang)) "无法读取配置，点击重新加载" else if (isRtl(lang)) "خواندن تنظیمات ممکن نیست؛ تلاش مجدد" else "Cannot read settings. Tap to reload."
+    fun nextConnection(lang: AppLanguage): String = if (isChinese(lang)) "下次连接生效" else if (isRtl(lang)) "در اتصال بعدی اعمال می‌شود" else "Applies to the next connection"
     fun verboseLoggingSub(lang: AppLanguage): String = if (isChinese(lang)) "记录脱敏后的 OpenConnect 调试信息" else
         if (isRtl(lang)) "شامل کردن لاگ‌های دیباگ ${ltr("openconnect")} در لاگ اتصال" else "Include openconnect debug output in the connection log"
     fun about(lang: AppLanguage): String = if (isChinese(lang)) "关于" else if (isRtl(lang)) "درباره برنامه" else "About"
 
     // ── Additional UI & File Picker Strings ───────────────────────────────────
-    fun selectFile(lang: AppLanguage): String = if (isChinese(lang)) "选择文件" else if (isRtl(lang)) "انتخاب فایل" else "Select file"
     fun selectProfileTitle(lang: AppLanguage): String = if (isChinese(lang)) "选择连接配置" else if (isRtl(lang)) "انتخاب پروفایل اتصال" else "Select VPN Profile"
     fun manageProfilesAction(lang: AppLanguage): String = if (isChinese(lang)) "管理配置…" else if (isRtl(lang)) "مدیریت پروفایل‌ها…" else "Manage profiles…"
     fun selectAllApps(lang: AppLanguage): String = if (isChinese(lang)) "全选" else if (isRtl(lang)) "انتخاب همه" else "Select all"
-    fun deselectAllApps(lang: AppLanguage): String = if (isChinese(lang)) "取消全选" else if (isRtl(lang)) "لغو همه" else "Deselect all"
     fun logLevelAll(lang: AppLanguage): String = if (isChinese(lang)) "全部" else if (isRtl(lang)) "همه" else "All"
     fun logLevelError(lang: AppLanguage): String = if (isChinese(lang)) "错误" else if (isRtl(lang)) "خطاها" else "Errors"
     fun logLevelInfo(lang: AppLanguage): String = if (isChinese(lang)) "信息" else if (isRtl(lang)) "اطلاعات" else "Info"
@@ -239,20 +218,8 @@ object Strings {
     fun trafficMonitorTitle(lang: AppLanguage): String = if (isChinese(lang)) "应用流量" else
         if (isRtl(lang)) "مصرف شبکه برنامه‌ها" else "App Traffic Monitor"
 
-    fun trafficMonitorSubtitle(lang: AppLanguage): String = if (isChinese(lang)) "系统估算的应用流量，每 5 秒更新" else
-        if (isRtl(lang)) "ترافیک زنده و مصرف کل به تفکیک برنامه‌ها" else "Live bandwidth & data usage per application"
-
-    fun trafficMonitorShortTitle(lang: AppLanguage): String = if (isChinese(lang)) "应用流量" else
-        if (isRtl(lang)) "مصرف برنامه‌ها" else "App Traffic"
-
     fun trafficTotal(lang: AppLanguage): String = if (isChinese(lang)) "累计流量" else
         if (isRtl(lang)) "مجموع مصرف" else "Total Traffic"
-
-    fun trafficDownloadSpeed(lang: AppLanguage): String = if (isChinese(lang)) "下载速率" else
-        if (isRtl(lang)) "سرعت دانلود" else "Download Speed"
-
-    fun trafficUploadSpeed(lang: AppLanguage): String = if (isChinese(lang)) "上传速率" else
-        if (isRtl(lang)) "سرعت آپلود" else "Upload Speed"
 
     fun trafficActiveApps(lang: AppLanguage, count: Int): String = if (isChinese(lang)) "$count 个活跃应用" else
         if (isRtl(lang)) "$count برنامه در حال تبادل داده" else "$count active"
@@ -265,12 +232,6 @@ object Strings {
 
     fun trafficFilterActive(lang: AppLanguage): String = if (isChinese(lang)) "有流量" else
         if (isRtl(lang)) "فقط فعال" else "Active Only"
-
-    fun trafficFilterUser(lang: AppLanguage): String = if (isChinese(lang)) "用户应用" else
-        if (isRtl(lang)) "برنامه‌های نصب‌شده" else "User Apps"
-
-    fun trafficFilterSystem(lang: AppLanguage): String = if (isChinese(lang)) "系统应用" else
-        if (isRtl(lang)) "سیستمی" else "System"
 
     fun trafficSortTotal(lang: AppLanguage): String = if (isChinese(lang)) "累计流量" else
         if (isRtl(lang)) "مجموع مصرف" else "Total Traffic"
@@ -307,9 +268,6 @@ object Strings {
 
     fun trafficSearchPlaceholder(lang: AppLanguage): String = if (isChinese(lang)) "搜索应用名称或包名" else
         if (isRtl(lang)) "جستجوی برنامه یا نام پکیج…" else "Search apps or packages…"
-
-    fun trafficShareLabel(lang: AppLanguage): String = if (isChinese(lang)) "流量占比" else
-        if (isRtl(lang)) "سهم مصرف" else "Traffic Share"
 
     fun trafficVpnRouted(lang: AppLanguage): String = if (isChinese(lang)) "配置为 VPN" else
         if (isRtl(lang)) "تونل ${ltr("VPN")}" else "VPN Tunnel"
@@ -368,14 +326,11 @@ object Strings {
 
     // ── Form Validation Strings ──────────────────────────────────────────────
     fun fieldRequired(lang: AppLanguage): String = if (isChinese(lang)) "请填写此项" else if (isRtl(lang)) "این فیلد اجباری است" else "This field is required"
-    fun invalidServerAddress(lang: AppLanguage): String = if (isChinese(lang)) "服务器地址或端口无效" else if (isRtl(lang)) "آدرس سرور یا پورت نامعتبر است" else "Invalid server address or hostname"
     fun invalidMtuRange(lang: AppLanguage): String = if (isChinese(lang)) "MTU 范围为 576–1500" else if (isRtl(lang)) "مقدار MTU باید بین ۵۷۶ تا ۱۵۰۰ باشد" else "MTU must be between 576 and 1500"
 
     // ── Log Search & Actions ─────────────────────────────────────────────────
     fun searchLogsPlaceholder(lang: AppLanguage): String = if (isChinese(lang)) "搜索日志…" else if (isRtl(lang)) "جستجو در متن لاگ‌ها…" else "Search logs…"
     fun logsCleared(lang: AppLanguage): String = if (isChinese(lang)) "日志已清空" else if (isRtl(lang)) "لاگ‌ها پاک شدند" else "Logs cleared"
-    fun undo(lang: AppLanguage): String = if (isChinese(lang)) "撤销" else if (isRtl(lang)) "بازگردانی" else "Undo"
-
     // ── Actionable Error BottomSheet ─────────────────────────────────────────
     fun actionableErrorTitle(lang: AppLanguage): String = if (isChinese(lang)) "连接失败" else if (isRtl(lang)) "خطا در برقراری اتصال امن" else "Connection Failed"
     fun retryConnection(lang: AppLanguage): String = if (isChinese(lang)) "重试连接" else if (isRtl(lang)) "تلاش مجدد" else "Retry Connection"

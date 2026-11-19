@@ -23,7 +23,7 @@
     onlineList = null,
     onlineError = null;
   var onlineCounts = Object.create(null);
-  var onlineLoadedGeneration = null;
+  var onlineLoadedVersion = null;
   var statusKey = null,
     modalCleanup = null,
     modalTrigger = null;
@@ -323,13 +323,18 @@
       },
     });
   }
+  var presenceRows = null, presenceError = null;
   function updateOnlinePresence() {
-    onlineCounts = Object.create(null);
-    if (!state.online_error)
-      array(state.online).forEach(function (row) {
-        if (typeof row.name !== "string" || !row.name) return;
-        onlineCounts[row.name] = (onlineCounts[row.name] || 0) + 1;
-      });
+    if (presenceRows !== state.online || presenceError !== state.online_error) {
+      presenceRows = state.online;
+      presenceError = state.online_error;
+      onlineCounts = Object.create(null);
+      if (!state.online_error)
+        array(state.online).forEach(function (row) {
+          if (typeof row.name !== "string" || !row.name) return;
+          onlineCounts[row.name] = (onlineCounts[row.name] || 0) + 1;
+        });
+    }
     // Update only visible badges; account actions keep their DOM and focus.
     if (accountList)
       accountList.element
@@ -582,7 +587,6 @@
     accountList = null;
     onlineList = null;
     onlineError = null;
-    onlineCounts = Object.create(null);
     content.replaceChildren();
     if (activeTab === "users") renderUsers();
     else if (activeTab === "settings") renderSettings(state, content);
@@ -770,10 +774,10 @@
     statusRead.cancel();
     onlineRead.cancel();
     return loadRead.run(function (data) {
-      if (data.api_version !== 3 || !data.permissions) throw { code: "interface_mismatch" };
+      if (data.api_version !== 4 || !data.permissions || !data.client_trust) throw { code: "interface_mismatch" };
       backgroundRefresh = false;
       state = data;
-      onlineLoadedGeneration = data.online_generation;
+      onlineLoadedVersion = data.online_version;
       if (preserveDialog && readerOpen) {
         renderStatus();
         renderTab();
@@ -783,9 +787,9 @@
   }
   async function refreshOnline(retry) {
     if (activeTab !== "users" || busy || document.hidden || !state || state.online_error ||
-        (modal && !readerOpen) || (onlineLoadedGeneration === state.online_generation &&
-          state.online_generation !== "uncached")) return;
-    var owner = state, generation = loadGeneration, expected = state.online_generation;
+        (modal && !readerOpen) || (onlineLoadedVersion === state.online_version &&
+          state.online_version !== "uncached")) return;
+    var owner = state, generation = loadGeneration, expected = state.online_version;
     function current() {
       return state === owner && generation === loadGeneration && !busy && !document.hidden &&
         activeTab === "users" && !(modal && !readerOpen);
@@ -793,21 +797,21 @@
     try {
       var consumed = await onlineRead.run(function (data) {
         if (!current()) return false;
-        if (state.online_generation !== expected && data.online_generation !== state.online_generation) return false;
+        if (state.online_version !== expected && data.online_version !== state.online_version) return false;
         state.online = data.online;
         state.online_count = data.online_count;
-        state.online_generation = data.online_generation;
+        state.online_version = data.online_version;
         state.online_error = data.online_error;
-        onlineLoadedGeneration = data.online_error ? null : data.online_generation;
+        onlineLoadedVersion = data.online_error ? null : data.online_version;
         renderStatus();
         return true;
       });
-      if (consumed === false && !retry && current() && state.online_generation !== expected)
+      if (consumed === false && !retry && current() && state.online_version !== expected)
         await refreshOnline(true);
     } catch (_) {
       if (current()) {
         state.online_error = true;
-        onlineLoadedGeneration = null;
+        onlineLoadedVersion = null;
         renderStatus();
       }
     }
@@ -848,11 +852,11 @@
       if (!current) return;
       state.running = current.running;
       state.online_count = current.online_count;
-      state.online_generation = current.online_generation;
+      state.online_version = current.online_version;
       state.online_error = current.online_error;
       if (!current.running) {
         state.online = [];
-        onlineLoadedGeneration = current.online_generation;
+        onlineLoadedVersion = current.online_version;
       }
       if (state.recovery_pending !== current.recovery_pending) {
         state.recovery_pending = current.recovery_pending;
