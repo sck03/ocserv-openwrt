@@ -23,6 +23,20 @@ test("frequent disabled status spawns no detection commands",function()
     check(guard.status(admin).available)
     check(#S.commands>count)
 end)
+test("unchanged active polling only parses the small projection",function()
+    reset();enable()
+    guard.status(admin,false)
+    local json=require "luci.jsonc";local parse=json.parse;local full=0
+    json.parse=function(raw)
+        if raw==S.files[root.."state.json"] then full=full+1 end
+        return parse(raw)
+    end
+    for _=1,20 do check(guard.status(admin,false).phase=="enabled") end
+    json.parse=parse
+    check(full==0,"polling decoded the recovery journal")
+    S.files[root.."state.json"]="invalid"
+    check(guard.status(admin,false).phase=="recovery_failed")
+end)
 test("default is off and detection writes no router configuration",function()
     reset(); local before=clone(S.cfg); check(guard.status(admin).phase=="disabled" and guard.status(admin).available); check(equal(before,S.cfg) and not S.nft)
 end)

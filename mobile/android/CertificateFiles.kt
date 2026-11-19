@@ -77,13 +77,15 @@ class CertificateFiles(
             }
             return target.absolutePath
         }
-        fun import(source: String): String = when {
+        fun import(source: String, caFile: Boolean = false): String = when {
             source.isEmpty() -> ""
-            source.startsWith("content://") -> openContent(source).use(::copy)
+            source.startsWith("content://") -> openContent(source).use { input ->
+                if (caFile) copy(PublicCa.validate(ConnectionFile.read(input, 65536)).inputStream()) else copy(input)
+            }
             else -> file(source).absolutePath
         }
         return try {
-            retain(profile.copy(caCertPath = if (ca == null) import(profile.caCertPath) else copy(ca.inputStream()),
+            retain(profile.copy(caCertPath = if (ca == null) import(profile.caCertPath, true) else copy(PublicCa.validate(ca).inputStream()),
                 userCertPath = import(profile.userCertPath), privateKeyPath = import(profile.privateKeyPath)))
         } catch (error: Throwable) {
             created.forEach { it.delete() }

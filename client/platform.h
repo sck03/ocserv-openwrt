@@ -71,6 +71,7 @@ void erase(std::string &value);
 bool normalize_gateway(const std::wstring &input, std::wstring &normalized, std::wstring *origin = nullptr);
 bool valid_pin(const std::string &pin);
 bool valid_public_certificates(const std::string &raw, std::wstring &error);
+bool valid_public_ca(const std::string &raw, std::wstring &error);
 bool administrator();
 std::wstring read_window_text(HWND window, size_t limit = 32768);
 void copy_text(HWND owner, const std::wstring &value);

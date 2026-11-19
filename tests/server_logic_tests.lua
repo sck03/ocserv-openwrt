@@ -642,7 +642,7 @@ test("a malformed hash can be reset without treating the old record as valid",fu
     check(backend.data().users[1].enabled and not backend.data().users[1].needs_password)
 end)
 test("backend default plain auth and no hash disclosure",function()
-    reset();local data=backend.data();check(data.api_version==4 and data.settings_supported and data.supported and data.running and data.users[1].password==nil)
+    reset();local data=backend.data();check(data.api_version==5 and data.settings_supported and data.supported and data.running and data.users[1].password==nil)
 end)
 test("configuration snapshots reject files changed after UCI loading or final field reads",function()
     local uci=package.loaded["luci.model.uci"]
@@ -874,11 +874,11 @@ test("client settings persist normalized LAN addresses and verification mode wit
     expect("invalid_url",function()request({action="client_profile",server="http://vpn.example.com",cert_mode="pin"})end)
 end)
 test("certificate readiness permits external server certificates without a bootstrap CA",function()
-    reset();check(backend.data().certificates_ready and backend.data().client_trust.profile.available)
+    reset();check(backend.client_status().certificates_ready and backend.client_status().client_trust.profile.available)
     S.files["/etc/ocserv/ca.pem"]=nil
-    check(backend.data().certificates_ready and not backend.data().client_trust.profile.available)
+    check(backend.client_status().certificates_ready and not backend.client_status().client_trust.profile.available)
     S.files["/etc/ocserv/server-key.pem"]=""
-    check(not backend.data().certificates_ready)
+    check(not backend.client_status().certificates_ready)
     S.files["/etc/ocserv/easy-install-pending"]="incomplete"
     check(backend.data().installation_pending)
 end)
@@ -1163,13 +1163,13 @@ test("CA distribution must validate the active server certificate",function()
     S.files[settings.server_cert]="-----BEGIN CERTIFICATE-----\nEXTERNAL CHAIN\n-----END CERTIFICATE-----\n"
     S.ca_verify_code=1
     request({action="settings",settings=settings,allow_restart=true})
-    local data=backend.data()
+    local data=backend.client_status()
     check(not data.client_trust.profile.available and data.client_trust.profile.error=="ca_certificate_mismatch")
     expect("ca_certificate_mismatch",function()backend.export("profile","vpn.example.test","windows")end)
     expect("ca_certificate_mismatch",function()request({action="client_profile",server="vpn.example.test",platform="windows",cert_mode="profile"})end)
     check(backend.data().revision==data.revision)
-    S.ca_verify_code=0;S.files["/etc/ocserv/ca.pem"]="-----BEGIN CERTIFICATE-----\nMATCHING CA\n-----END CERTIFICATE-----\n"
-    check(backend.data().client_trust.profile.available)
+    S.ca_verify_code=0;S.files["/etc/ocserv/ca.pem"]="-----BEGIN CERTIFICATE-----\nTUFUQ0hJTkc=\n-----END CERTIFICATE-----\n"
+    check(backend.client_status().client_trust.profile.available)
     check(backend.export("profile","vpn.example.test","windows"))
     check(contains_command("--verify --verify-purpose 1.3.6.1.5.5.7.3.1 --load-ca-certificate /etc/ocserv/ca.pem --infile /etc/ocserv/external-cert.pem"))
 end)
@@ -1242,10 +1242,28 @@ end)
 test("pin capability describes the same restrictions as the export operation",function()
     reset()
     S.files["/etc/ocserv/ocserv.conf.local"]="server-cert = /etc/ocserv/another.pem\n"
-    local data=backend.data()
+    local data=backend.client_status()
     check(data.certificates_ready and not data.client_trust.pin.available)
     check(data.client_trust.pin.error=="pin_unavailable" and data.client_trust.address.available)
     expect("pin_unavailable",function()backend.export("pin","vpn.example.test","windows")end)
+end)
+test("failed trust probes recover immediately and basic reads spawn no certificate probes",function()
+    reset();S.certtool_code=124
+    check(not backend.client_status().client_trust.pin.available)
+    S.certtool_code=0
+    check(backend.client_status().client_trust.pin.available)
+    S.commands={};backend.data()
+    check(not contains_command("certtool"))
+end)
+test("unsupported configuration remains readable while optional trust reports its reason",function()
+    for _,entry in ipairs({{"auth","radius","plain_auth_required"},{"proxy_arp","1","proxy_arp_managed"}}) do
+        reset();S.db[1][entry[1]]=entry[2]
+        S.files["/etc/config/ocserv"]=serialize(S.db);S.history[S.files["/etc/config/ocserv"]]=clone(S.db)
+        check(not backend.data().settings_supported)
+        local status=backend.client_status()
+        check(not status.client_trust.pin.available and status.client_trust.pin.error==entry[3])
+        expect(entry[3],function()backend.export("pin","vpn.example.test","windows")end)
+    end
 end)
 TEST_PREVIEW={reset=reset,backend=backend,request=request,state=function()return S end}
 if not TEST_KEEP_SANDBOX then io.open=original_io_open end

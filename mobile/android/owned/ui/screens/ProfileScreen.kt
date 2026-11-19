@@ -5,7 +5,6 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.ui.graphics.Color
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -15,7 +14,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
@@ -26,22 +24,16 @@ import androidx.compose.material.icons.rounded.Clear
 import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.ExpandLess
 import androidx.compose.material.icons.rounded.ExpandMore
-import androidx.compose.material.icons.rounded.FolderOpen
 import androidx.compose.material.icons.rounded.Visibility
 import androidx.compose.material.icons.rounded.VisibilityOff
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
-import androidx.compose.material3.Checkbox
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.ExposedDropdownMenuBox
-import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -153,7 +145,7 @@ fun ProfileScreen(
                         privateKeyPath = if (draft.privateKeyPath == submitted.privateKeyPath) saved.privateKeyPath else draft.privateKeyPath)
                     if (unchanged) onBack()
                 } catch (error: CancellationException) { throw error }
-                catch (error: Exception) { operationError = "Could not save. Check the fields, selected files and storage. Your edits are still here." }
+                catch (error: Exception) { operationError = Strings.profileSaveFailed(lang) }
                 finally { busy = false }
             }
         }
@@ -228,7 +220,7 @@ fun ProfileScreen(
         ) {
             operationError?.let { Text(it, color = MaterialTheme.colorScheme.error) }
             // ── Section 1: Essential Connection Information ──────────────────
-            SectionCard(title = if (Strings.isRtl(lang)) "مشخصات سرور و پروتکل" else "Essential Connection") {
+            SectionCard(title = Strings.essentialConnection(lang)) {
                 Column(
                     Modifier.padding(16.dp),
                     verticalArrangement = Arrangement.spacedBy(14.dp),
@@ -238,7 +230,7 @@ fun ProfileScreen(
                         enabled = !busy,
                         onValueChange = { draft = draft.copy(name = it) },
                         label = { Text(Strings.profileName(lang)) },
-                        placeholder = { Text("e.g. Work VPN") },
+                        placeholder = { Text(Strings.profileNameExample(lang)) },
                         singleLine = true,
                         isError = triedSaving && nameError,
                         supportingText = if (triedSaving && nameError) {
@@ -265,7 +257,7 @@ fun ProfileScreen(
                         modifier = Modifier.fillMaxWidth(),
                     )
 
-                    LabelledDropdown(
+                    ProfileDropdown(
                         label = Strings.vpnProtocol(lang),
                         enabled = !busy,
                         options = PROTOCOLS,
@@ -276,7 +268,7 @@ fun ProfileScreen(
             }
 
             // ── Section 2: Credentials & Authentication ─────────────────────
-            SectionCard(title = if (Strings.isRtl(lang)) "احراز هویت و گواهی‌ها" else "Credentials & Security") {
+            SectionCard(title = Strings.credentialsSecurity(lang)) {
                 Column(
                     Modifier.padding(16.dp),
                     verticalArrangement = Arrangement.spacedBy(14.dp),
@@ -307,7 +299,7 @@ fun ProfileScreen(
                         enabled = !busy,
                         onValueChange = { editedFields += ProfileField.PASSWORD; draft = draft.copy(password = it) },
                         label = { Text(Strings.password(lang)) },
-                        supportingText = { Text("Leave blank to keep the saved password. Turn off Save password to remove it.") },
+                        supportingText = { Text(Strings.savedPasswordHint(lang)) },
                         singleLine = true,
                         visualTransformation = if (showPassword) VisualTransformation.None else PasswordVisualTransformation(),
                         keyboardOptions = KeyboardOptions(
@@ -320,14 +312,14 @@ fun ProfileScreen(
                                     IconButton(onClick = { draft = draft.copy(password = "") }, enabled = !busy) {
                                         Icon(
                                             imageVector = Icons.Rounded.Clear,
-                                            contentDescription = "Clear password",
+                                            contentDescription = Strings.clearPassword(lang),
                                         )
                                     }
                                 }
                                 IconButton(onClick = { showPassword = !showPassword }) {
                                     Icon(
                                         imageVector = if (showPassword) Icons.Rounded.VisibilityOff else Icons.Rounded.Visibility,
-                                        contentDescription = if (showPassword) "Hide password" else "Show password",
+                                        contentDescription = if (showPassword) Strings.hidePassword(lang) else Strings.showPassword(lang),
                                     )
                                 }
                             }
@@ -336,7 +328,7 @@ fun ProfileScreen(
                         modifier = Modifier.fillMaxWidth(),
                     )
 
-                    LabelledDropdown(
+                    ProfileDropdown(
                         label = Strings.softwareToken(lang),
                         enabled = !busy,
                         options = SOFTWARE_TOKENS,
@@ -350,24 +342,24 @@ fun ProfileScreen(
                             enabled = !busy,
                             onValueChange = { editedFields += ProfileField.TOKEN; draft = draft.copy(tokenString = it) },
                             label = { Text(Strings.tokenString(lang)) },
-                            supportingText = { Text("Leave blank to keep the saved token. Disable software token to remove it.") },
+                            supportingText = { Text(Strings.savedTokenHint(lang)) },
                             singleLine = true,
                             shape = MaterialTheme.shapes.small,
                             modifier = Modifier.fillMaxWidth(),
                         )
                     }
 
-                    CertificateField(Strings.caCertificate(lang), draft.caCertPath.isNotEmpty(), !busy,
+                    ProfileCertificateField(lang, Strings.caCertificate(lang), draft.caCertPath.isNotEmpty(), !busy,
                         onSelect = { caCertLauncher.launch("*/*") }, onClear = { editedFields += ProfileField.CA; draft = draft.copy(caCertPath = "") })
-                    CertificateField(Strings.userCertificate(lang), draft.userCertPath.isNotEmpty(), !busy,
+                    ProfileCertificateField(lang, Strings.userCertificate(lang), draft.userCertPath.isNotEmpty(), !busy,
                         onSelect = { userCertLauncher.launch("*/*") }, onClear = { editedFields += ProfileField.CERTIFICATE; draft = draft.copy(userCertPath = "") })
-                    CertificateField(Strings.privateKey(lang), draft.privateKeyPath.isNotEmpty(), !busy,
+                    ProfileCertificateField(lang, Strings.privateKey(lang), draft.privateKeyPath.isNotEmpty(), !busy,
                         onSelect = { privateKeyLauncher.launch("*/*") }, onClear = { editedFields += ProfileField.KEY; draft = draft.copy(privateKeyPath = "") })
 
-                    CheckboxLine(
-                        title = "Save password",
+                    ProfileCheckboxLine(
+                        title = Strings.savePassword(lang),
                         enabled = !busy,
-                        subtitle = "Encrypt the password on this device. Turn off to remove the saved password.",
+                        subtitle = Strings.savePasswordHint(lang),
                         checked = draft.savePassword,
                         hapticEnabled = hapticFeedbackEnabled,
                         onCheckedChange = { draft = draft.copy(savePassword = it) },
@@ -394,26 +386,26 @@ fun ProfileScreen(
 
             AnimatedVisibility(visible = showAdvanced) {
                 Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                    SectionCard(title = if (Strings.isRtl(lang)) "تنظیمات کانال انتقال داده" else "Transport & Network") {
+                    SectionCard(title = Strings.transportNetwork(lang)) {
                         Column(Modifier.padding(vertical = 4.dp)) {
-                            ToggleLine(
-                                title = "Use DTLS (UDP)",
+                            ProfileToggleLine(
+                                title = Strings.useDtls(lang),
                                 enabled = !busy,
-                                subtitle = "Fast UDP data channel when network allows",
+                                subtitle = Strings.useDtlsHint(lang),
                                 checked = draft.enableDtls,
                                 onCheckedChange = { draft = draft.copy(enableDtls = it) },
                             )
-                            ToggleLine(
-                                title = "Enable IPv6",
+                            ProfileToggleLine(
+                                title = Strings.enableIpv6(lang),
                                 enabled = !busy,
-                                subtitle = "Turn off if your gateway advertises broken IPv6",
+                                subtitle = Strings.enableIpv6Hint(lang),
                                 checked = draft.enableIpv6,
                                 onCheckedChange = { draft = draft.copy(enableIpv6 = it) },
                             )
-                            ToggleLine(
-                                title = "Allow legacy ciphers",
+                            ProfileToggleLine(
+                                title = Strings.allowLegacyCiphers(lang),
                                 enabled = !busy,
-                                subtitle = "Only for very old gateways with outdated crypto",
+                                subtitle = Strings.legacyCiphersHint(lang),
                                 checked = draft.allowInsecureCrypto,
                                 onCheckedChange = { draft = draft.copy(allowInsecureCrypto = it) },
                             )
@@ -427,11 +419,11 @@ fun ProfileScreen(
                                     enabled = !busy,
                                     onValueChange = { text -> dnsText = text; draft = draft.copy(customDnsServers = text.lines().map(String::trim).filter(String::isNotEmpty)) },
                                     isError = triedSaving && dnsError,
-                                    label = { Text("自定义 DNS / Custom DNS") },
-                                    supportingText = { Text("每行一个 IP，最多三个；留空使用服务器设置。 / Up to three IPs; blank uses the gateway.") },
+                                    label = { Text(Strings.customDns(lang)) },
+                                    supportingText = { Text(Strings.customDnsHint(lang)) },
                                     modifier = Modifier.fillMaxWidth(),
                                 )
-                                NumberField(
+                                ProfileNumberField(
                                     label = "MTU override (576 - 1500)",
                                     enabled = !busy,
                                     value = draft.mtu,
@@ -444,12 +436,12 @@ fun ProfileScreen(
                         }
                     }
 
-                    SectionCard(title = if (Strings.isRtl(lang)) "پارامترهای پیشرفته هندشیک" else "Handshake & Protocol Tuning") {
+                    SectionCard(title = Strings.protocolTuning(lang)) {
                         Column(
                             Modifier.padding(16.dp),
                             verticalArrangement = Arrangement.spacedBy(14.dp),
                         ) {
-                            LabelledDropdown(
+                            ProfileDropdown(
                                 label = Strings.reportedOs(lang),
                                 enabled = !busy,
                                 options = REPORTED_OS,
@@ -457,7 +449,7 @@ fun ProfileScreen(
                                 onSelected = { draft = draft.copy(reportedOs = it) },
                             )
 
-                            CheckboxLine(
+                            ProfileCheckboxLine(
                                 title = Strings.disableXmlPost(lang),
                                 enabled = !busy,
                                 subtitle = Strings.disableXmlPostSub(lang),
@@ -466,7 +458,7 @@ fun ProfileScreen(
                                 onCheckedChange = { draft = draft.copy(disableXmlPost = it) },
                             )
 
-                            CheckboxLine(
+                            ProfileCheckboxLine(
                                 title = Strings.requirePfs(lang),
                                 enabled = !busy,
                                 subtitle = Strings.requirePfsSub(lang),
@@ -475,7 +467,7 @@ fun ProfileScreen(
                                 onCheckedChange = { draft = draft.copy(requirePfs = it) },
                             )
 
-                            CheckboxLine(
+                            ProfileCheckboxLine(
                                 title = Strings.overrideDpdTimeout(lang),
                                 enabled = !busy,
                                 subtitle = Strings.overrideDpdTimeoutSub(lang),
@@ -485,7 +477,7 @@ fun ProfileScreen(
                             )
 
                             if (draft.overrideDpdTimeout) {
-                                NumberField(
+                                ProfileNumberField(
                                     label = Strings.dpdSeconds(lang),
                                     enabled = !busy,
                                     value = draft.dpdSeconds,
@@ -500,7 +492,7 @@ fun ProfileScreen(
                                 value = draft.userAgent,
                                 enabled = !busy,
                                 onValueChange = { draft = draft.copy(userAgent = it) },
-                                label = { Text("User agent override (optional)") },
+                                label = { Text(Strings.userAgentOverride(lang)) },
                                 singleLine = true,
                                 shape = MaterialTheme.shapes.small,
                                 modifier = Modifier.fillMaxWidth(),
@@ -508,7 +500,7 @@ fun ProfileScreen(
                         }
                     }
 
-                    SectionCard(title = "服务器公钥指纹 / Server pin") {
+                    SectionCard(title = Strings.serverPin(lang)) {
                         OutlinedTextField(
                             value = draft.trustedCertificate,
                             enabled = !busy,
@@ -518,12 +510,12 @@ fun ProfileScreen(
                                 draft = draft.copy(trustedCertificate = pin.trim(), caCertPath = if (pin.isBlank()) draft.caCertPath else "")
                             },
                             label = { Text("pin-sha256:…") },
-                            supportingText = { Text("填写管理员核实的指纹；指定 CA 或指纹校验失败会拒绝连接。 / Verify the pin with your administrator.") },
+                            supportingText = { Text(Strings.serverPinHint(lang)) },
                             modifier = Modifier.padding(16.dp).fillMaxWidth(),
                         )
                     }
                     if (draft.trustedCertificate.isNotBlank()) {
-                        SectionCard(title = "Pinned Certificate") {
+                        SectionCard(title = Strings.pinnedCertificate(lang)) {
                             Column(Modifier.padding(16.dp)) {
                                 Text(
                                     text = draft.trustedCertificate,
@@ -543,14 +535,14 @@ fun ProfileScreen(
                                                 draft = draft.copy(trustedCertificate = "")
                                                 baseline = baseline.copy(trustedCertificate = "")
                                             } catch (error: CancellationException) { throw error }
-                                            catch (error: Exception) { operationError = "Could not forget the certificate. The saved trust was preserved." }
+                                            catch (error: Exception) { operationError = Strings.forgetCertificateFailed(lang) }
                                             finally { busy = false }
                                         }
                                     },
                                     enabled = !busy,
                                     shape = MaterialTheme.shapes.small,
                                 ) {
-                                    Text("Forget this certificate")
+                                    Text(Strings.forgetCertificate(lang))
                                 }
                             }
                         }
@@ -575,7 +567,7 @@ fun ProfileScreen(
                     scope.launch {
                         try { onDelete(draft.id); onBack() }
                         catch (error: CancellationException) { throw error }
-                        catch (error: Exception) { operationError = "Could not delete this profile. Your edits are still here." }
+                        catch (error: Exception) { operationError = Strings.deleteProfileFailed(lang) }
                         finally { busy = false }
                     }
                 }) {
@@ -593,11 +585,10 @@ fun ProfileScreen(
     if (showDiscardConfirm) {
         AlertDialog(
             onDismissRequest = { showDiscardConfirm = false },
-            title = { Text(if (Strings.isRtl(lang)) "تغییرات ذخیره نشده" else "Unsaved Changes") },
+            title = { Text(Strings.unsavedChanges(lang)) },
             text = {
                 Text(
-                    if (Strings.isRtl(lang)) "پروفایل دارای خطای اعتبارسنجی است. آیا مایل به لغو تغییرات و بازگشت هستید؟"
-                    else "The profile has incomplete or invalid fields. Discard changes and leave?"
+                    Strings.discardInvalidProfile(lang)
                 )
             },
             confirmButton = {
@@ -606,7 +597,7 @@ fun ProfileScreen(
                     onBack()
                 }) {
                     Text(
-                        if (Strings.isRtl(lang)) "لغو تغییرات" else "Discard",
+                        Strings.discardChanges(lang),
                         color = MaterialTheme.colorScheme.error,
                         fontWeight = FontWeight.Bold,
                     )
@@ -614,182 +605,9 @@ fun ProfileScreen(
             },
             dismissButton = {
                 TextButton(onClick = { showDiscardConfirm = false }) {
-                    Text(if (Strings.isRtl(lang)) "ادامه ویرایش" else "Keep Editing")
+                    Text(Strings.keepEditing(lang))
                 }
             },
         )
     }
-}
-
-@Composable
-private fun CertificateField(label: String, selected: Boolean, enabled: Boolean, onSelect: () -> Unit, onClear: () -> Unit) {
-    OutlinedTextField(
-        value = if (selected) "Selected file" else "",
-        onValueChange = {},
-        readOnly = true,
-        enabled = enabled,
-        label = { Text(label) },
-        placeholder = { Text("Choose a file") },
-        trailingIcon = {
-            Row {
-                if (selected) IconButton(onClick = onClear, enabled = enabled) {
-                    Icon(Icons.Rounded.Clear, contentDescription = "Remove $label")
-                }
-                IconButton(onClick = onSelect, enabled = enabled) {
-                    Icon(Icons.Rounded.FolderOpen, contentDescription = "Select $label")
-                }
-            }
-        },
-        singleLine = true,
-        shape = MaterialTheme.shapes.small,
-        modifier = Modifier.fillMaxWidth(),
-    )
-}
-
-@Composable
-private fun CheckboxLine(
-    title: String,
-    subtitle: String,
-    checked: Boolean,
-    enabled: Boolean = true,
-    hapticEnabled: Boolean = true,
-    onCheckedChange: (Boolean) -> Unit,
-) {
-    val context = LocalContext.current
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable(enabled = enabled) {
-                HapticHelper.performClick(context, hapticEnabled)
-                onCheckedChange(!checked)
-            }
-            .padding(vertical = 4.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Checkbox(
-            checked = checked,
-            enabled = enabled,
-            onCheckedChange = {
-                HapticHelper.performClick(context, hapticEnabled)
-                onCheckedChange(it)
-            },
-        )
-        Spacer(Modifier.width(10.dp))
-        Column(Modifier.weight(1f)) {
-            Text(title, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
-            Text(subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        }
-    }
-}
-
-@Composable
-private fun ToggleLine(
-    title: String,
-    subtitle: String,
-    checked: Boolean,
-    enabled: Boolean = true,
-    onCheckedChange: (Boolean) -> Unit,
-) {
-    val context = LocalContext.current
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable(enabled = enabled) {
-                HapticHelper.performClick(context, true)
-                onCheckedChange(!checked)
-            }
-            .padding(horizontal = 16.dp, vertical = 12.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Column(Modifier.weight(1f)) {
-            Text(title, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium)
-            Text(subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        }
-        Spacer(Modifier.width(12.dp))
-        Switch(
-            checked = checked,
-            enabled = enabled,
-            onCheckedChange = {
-                HapticHelper.performClick(context, true)
-                onCheckedChange(it)
-            },
-        )
-    }
-}
-
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-private fun LabelledDropdown(
-    label: String,
-    options: List<Pair<String, String>>,
-    selected: String,
-    enabled: Boolean = true,
-    onSelected: (String) -> Unit,
-) {
-    var expanded by remember { mutableStateOf(false) }
-    val display = options.firstOrNull { it.first == selected }?.second ?: selected
-
-    ExposedDropdownMenuBox(
-        expanded = expanded,
-        onExpandedChange = { if (enabled) expanded = it },
-        modifier = Modifier.fillMaxWidth(),
-    ) {
-        OutlinedTextField(
-            value = display,
-            enabled = enabled,
-            onValueChange = {},
-            readOnly = true,
-            label = { Text(label) },
-            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
-            shape = MaterialTheme.shapes.small,
-            modifier = Modifier
-                .menuAnchor()
-                .fillMaxWidth(),
-        )
-        ExposedDropdownMenu(
-            expanded = expanded,
-            onDismissRequest = { expanded = false },
-        ) {
-            options.forEach { (value, name) ->
-                DropdownMenuItem(
-                    text = { Text(name) },
-                    enabled = enabled,
-                    onClick = {
-                        onSelected(value)
-                        expanded = false
-                    },
-                )
-            }
-        }
-    }
-}
-
-@Composable
-private fun NumberField(
-    label: String,
-    value: Int,
-    placeholder: String,
-    enabled: Boolean = true,
-    isError: Boolean = false,
-    supportingText: String? = null,
-    onValueChange: (Int) -> Unit,
-) {
-    OutlinedTextField(
-        value = if (value > 0) value.toString() else "",
-        enabled = enabled,
-        onValueChange = { input ->
-            val digits = input.filter { it.isDigit() }.take(5)
-            onValueChange(digits.toIntOrNull() ?: 0)
-        },
-        label = { Text(label) },
-        placeholder = { Text(placeholder) },
-        singleLine = true,
-        isError = isError,
-        supportingText = if (isError && supportingText != null) {
-            { Text(supportingText, color = MaterialTheme.colorScheme.error) }
-        } else null,
-        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-        shape = MaterialTheme.shapes.small,
-        modifier = Modifier.fillMaxWidth(),
-    )
 }

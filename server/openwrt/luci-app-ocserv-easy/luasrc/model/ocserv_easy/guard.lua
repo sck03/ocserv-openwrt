@@ -39,14 +39,8 @@ end
 local function atomic(path,value)
     storage.atomic(path,value,2097152)
 end
-local function saved()
-    local raw=read(statefile); if not raw then return nil end
-    logic.require(not logic.json_has_null(raw),"guard_state_invalid")
-    local state=json.parse(raw)
-    state_schema.validate(state)
-    return state
-end
-local function save(state) atomic(statefile,json.stringify(state)) end
+local journal=require "luci.model.ocserv_easy.guard_journal"
+local saved,save=journal.read,journal.write
 local function section(c,package,id)
     local value=c:get_all(package,id); if not value then return false end
     local clean={[".type"]=value[".type"]}
@@ -215,11 +209,11 @@ local function plan(c,info)
     return state
 end
 function M.status(admin,probe)
-    local ok,state=pcall(saved)
+    local ok,state=pcall(journal.status)
     if not ok then return {phase="recovery_failed",enabled=true,reason="guard_state_invalid"} end
     if state then
-        return {phase=state.phase,enabled=true,proxy=state.info.proxy,lan=state.info.lan,admin=state.info.admin,pool=state.info.pool.."/"..state.info.prefix,
-            deadline=state.deadline,token=state.phase=="pending" and state.info.admin==admin and state.token or nil,reason=state.failure}
+        if state.admin~=admin then state.token=nil end
+        return state
     end
     -- The frequent status endpoint only needs transaction state. Full page
     -- loads and enable requests perform the live topology/service checks.

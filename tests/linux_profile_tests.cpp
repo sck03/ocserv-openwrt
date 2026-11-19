@@ -10,7 +10,7 @@ int main(int argc, char **argv) {
     g_autofree char *temporary = g_dir_make_tmp("lansyra-profile-tests-XXXXXX", nullptr);
     assert(temporary && g_setenv("XDG_CONFIG_HOME", temporary, TRUE));
     const std::string corpus = std::string(argv[1]) + "/";
-    for (const char *name : {"pinned", "prompt", "ambiguous"}) {
+    for (const char *name : {"pinned", "prompt", "ambiguous", "ca", "ca-chain", "ca-der", "ca-junk", "ca-private", "ca-broken"}) {
         const auto path = corpus + name + ".vpn.fixture";
         assert(g_file_test(path.c_str(), G_FILE_TEST_IS_REGULAR));
         bool accepted = false;
@@ -19,7 +19,7 @@ int main(int argc, char **argv) {
             accepted = true;
         } catch (const std::runtime_error &) {
         }
-        assert(accepted == (std::string(name) == "prompt"));
+        assert(accepted == (std::string(name) == "prompt" || std::string(name) == "ca" || std::string(name) == "ca-chain"));
     }
     auto *original = lansyra::profile_candidate(nullptr, "Before", "https://vpn.example.com", "fixture", "");
     auto *ip = nm_connection_get_setting_ip4_config(original);

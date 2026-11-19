@@ -12,6 +12,16 @@ class ConnectionFileTest {
             else assertEquals(name == "pinned", ConnectionFile.parse(raw).profile.trustedCertificate.isNotEmpty())
         }
     }
+    @Test fun publicCaCorpusAndRoundTrip() {
+        for (name in listOf("ca", "ca-chain", "ca-der", "ca-junk", "ca-private", "ca-broken")) {
+            val raw = requireNotNull(javaClass.getResource("/public-profiles/$name.vpn.fixture")).readText()
+            if (name in listOf("ca", "ca-chain")) {
+                val parsed = ConnectionFile.parse(raw)
+                assertArrayEquals(parsed.ca, ConnectionFile.parse(parsed.encode()).ca)
+            } else assertThrows(Exception::class.java) { ConnectionFile.parse(raw) }
+        }
+        assertThrows(IllegalArgumentException::class.java) { PublicCa.validate(ByteArray(65537)) }
+    }
     private val pin = "pin-sha256:" + "A".repeat(43) + "="
     @Test fun publicFilesRoundTripWithoutPrivateFields() {
         val encoded = ConnectionFile(VpnProfile(name = "Office", server = "https://vpn.example.com", trustedCertificate = pin,

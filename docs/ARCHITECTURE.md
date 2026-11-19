@@ -4,7 +4,7 @@
 
 公共 `.vpn` 与管理接口的字段、版本和平台能力见 [CONNECTION-PROFILE.md](CONNECTION-PROFILE.md)。公共连接信息与平台私有设置分离，新增字段先定义支持范围，再接通校验、持久化、执行和界面。
 
-当前版本使用管理接口 v3、设置契约 3、隔离记录 schema 4 和可丢弃查询缓存格式 2。公共 `.vpn` 仍为版本 1；Windows schema 3、Android schema 4、macOS schema 2 的文件结构未改变，不新增旧版本迁移层。管理端统一下发隧道 DNS，代理端负责后续 DNS/代理分流。
+当前版本使用管理接口 v5、设置契约 3、隔离记录 schema 4 和可丢弃查询缓存格式 3。公共 `.vpn` 仍为版本 1；Windows schema 3、Android schema 4、macOS schema 2 的文件结构未改变，不新增旧版本迁移层。管理端统一下发隧道 DNS，代理端负责后续 DNS/代理分流。
 
 主要职责边界：
 
@@ -14,7 +14,7 @@
 - Android `HotpCounter` 在生成验证码前预留下次计数；`SpeedHistory` 管理有界、带会话归属的时间序列，`MainPagerScreen` 在图表页面订阅快照。
 - Android `Strings` 集中维护中文、英文和波斯文；配置选择保存在配置所属 DataStore，与删除在同一事务提交。
 - 服务端 `logic.validate_dns` 管理地址族及入口冲突规则。`client_profile` 负责目标能力、不可用原因和公共文件编码，后端在保存和下载时读取所选信任材料。LuCI 根据快照渲染按钮和错误原因。`package_version` 缓存安装包元数据。
-- 服务端导出与 Windows、Linux、Apple、Android 导入测试共用 `client/tests/public-profiles`。样例覆盖固定指纹、首次确认和冲突的信任字段。新增证书方式时应同步更新平台能力与导入测试。
+- 服务端导出与 Windows、Linux、Apple、Android 导入测试共用 `client/tests/public-profiles`。样例覆盖固定指纹、首次确认、冲突信任字段、PEM CA/证书链以及 DER、尾随垃圾、私钥和损坏证书的拒绝。新增证书方式时应同步更新平台能力与导入测试。
 
 | 模块 | 负责内容 | 边界 |
 |---|---|---|
@@ -124,3 +124,12 @@ Apple unsigned 构建、Android JUnit、NetworkManager IPC 和模拟 UCI 均不�
 - `StorageObservation` 是不依赖 Android UI 的存储观察恢复策略。配置与设置共用有界 IO 重试和显式重载；严格连接快照继续直接读取持久数据，错误占位不能启动连接。
 - `TunnelDiagnostics.swift` 统一 Apple 扩展诊断字段白名单、大小限制和超时；应用层负责连接代次校验及文件导出。
 - Linux 的异步激活完成处理与 libnm 回调解包分离，可直接测试取消、空结果和过时代次，GTK 不参与状态恢复。
+
+## 功能读取与证书所有权（2026-11-20）
+
+- `/data` 返回管理 API v5 的配置、权限、服务状态及轻量隔离状态；不执行证书和隔离拓扑探测。`/client-status` 返回带配置修订号的信任能力，`/guard-status` 按需探测拓扑。`resources.js` 负责功能页加载、失败重试和请求取消；换页或刷新后，旧结果不能发布，证书能力也不能跨配置修订使用。
+- 配置渲染失败不会阻断基础配置阅读。证书能力返回不可用原因，服务写入、启动和导出仍执行严格校验。成功的证书探测可缓存 300 秒；任何失败不进入成功缓存，显式刷新即可重新探测。界面每份状态只按需加载一次，不新增失败轮询。
+- `guard_journal` 独立管理完整恢复记录与小型状态投影。写记录前失效旧投影；投影绑定文件身份且最多保留 60 秒，位于易失运行目录。频繁轮询仅检查记录能否读取，并读取至多 4 KiB 的投影；身份改变、投影缺失/损坏/过期时才完整校验。实际确认、变更和恢复始终读取完整记录。损坏记录不被当成关闭状态，也不覆盖现场。
+- Windows `certificate_material` 负责公共证书校验，`public_ca.h` 与 Linux 共用 PEM 包络规则；Android `PublicCa` 检查全部证书并拒绝 DER、额外内容和私钥。公共 CA 最多 64 KiB / 64 个证书块，不引入旧格式迁移。Windows 本地系统证书读取的 DER 能力与公共导入导出契约分开。
+- Windows `certificate_lease` 使用只共享读取的句柄，在会话线程中覆盖所有重连和最终核心清理；其他进程的写入、替换和清理会被操作系统拒绝。配置删除后，证书可在后续存储清理中回收；不会依赖进程内计数来假定跨进程安全。
+- Android `ProfileFields` 只渲染受控输入，不访问存储或会话；`ProfileScreen` 保留编辑事务与导航。macOS `SystemExtensionActivation` 持有激活请求和 continuation，以请求身份拒绝迟到/重复回调，连接与存储协调不再实现系统扩展 delegate。

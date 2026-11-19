@@ -49,7 +49,7 @@ local function reset()
     S.files["/etc/ocserv/ocserv.conf.local"]=""
     S.files["/var/etc/ocpasswd"]=logic.passwd(original)
     S.files["/var/etc/ocserv.conf"]='auth = "plain[passwd=/var/etc/ocpasswd]"\n'
-    S.files["/etc/ocserv/ca.pem"]="-----BEGIN CERTIFICATE-----\nTEST PUBLIC CA\n-----END CERTIFICATE-----\n"
+    S.files["/etc/ocserv/ca.pem"]="-----BEGIN CERTIFICATE-----\nVEVTVA==\n-----END CERTIFICATE-----\n"
     S.files["/etc/ocserv/server-cert.pem"]="-----BEGIN CERTIFICATE-----\nTEST SERVER\n-----END CERTIFICATE-----\n"
     S.files["/etc/ocserv/server-key.pem"]="TEST PRIVATE KEY"
     set_running(true)

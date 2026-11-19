@@ -6,6 +6,21 @@ local run = require("ocserv.process").run
 local M = {}
 local ca_path = "/etc/ocserv/ca.pem"
 
+local function public_pem(raw)
+    if type(raw)~="string" or #raw==0 or #raw>65536 then return false end
+    local position,count=1,0
+    while true do
+        local first,last=raw:find("%-%-%-%-%-BEGIN CERTIFICATE%-%-%-%-%-",position)
+        if not first then return count>0 and raw:sub(position):match("^[ \t\r\n]*$")~=nil end
+        if not raw:sub(position,first-1):match("^[ \t\r\n]*$") then return false end
+        local close,finish=raw:find("%-%-%-%-%-END CERTIFICATE%-%-%-%-%-",last+1)
+        if not close or not raw:sub(last+1,close-1):match("^[A-Za-z0-9+/=\r\n]+$") then return false end
+        count=count+1
+        if count>64 then return false end
+        position=finish+1
+    end
+end
+
 function M.certificate(rendered)
     local certificate
     for line in (rendered .. "\n"):gmatch("([^\n]*)\n") do
@@ -31,8 +46,7 @@ function M.ca(rendered, hostname)
     local certificate = M.certificate(rendered)
     local ca = storage.read(ca_path, 65536)
     local leaf = storage.read(certificate, 65536)
-    logic.require(ca and ca:find("-----BEGIN CERTIFICATE-----", 1, true) and
-        ca:find("-----END CERTIFICATE-----", 1, true) and not ca:find("PRIVATE KEY", 1, true), "ca_unavailable")
+    logic.require(public_pem(ca), "ca_unavailable")
     logic.require(leaf and not leaf:find("PRIVATE KEY", 1, true), "ca_certificate_mismatch")
     -- Explicit trust anchors only; do not accept an unrelated system root.
     local arguments = {"/usr/bin/certtool", "--verify", "--verify-purpose", "1.3.6.1.5.5.7.3.1",

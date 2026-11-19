@@ -1,4 +1,5 @@
 #include "profile.h"
+#include "certificate_lease.h"
 #include "preferences_writer.h"
 #include "hotp_counter.h"
 #include "vendor/json.hpp"
@@ -17,6 +18,13 @@ void check(bool result, const char *message) {
 }
 } // namespace
 int main(int argc, char **argv) {
+    if (argc == 3 && std::string(argv[1]) == "--probe-ca-lease") {
+        const auto path = wide(argv[2]);
+        const bool blocked = !DeleteFileW(path.c_str()) && GetLastError() == ERROR_SHARING_VIOLATION;
+        Handle writer(CreateFileW(path.c_str(), GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+                                  nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr));
+        return blocked && !writer && GetLastError() == ERROR_SHARING_VIOLATION ? 0 : 1;
+    }
     if (argc != 3) {
         std::cerr << "Supply a temporary directory and the public-profile corpus\n";
         return 2;
@@ -37,6 +45,38 @@ int main(int argc, char **argv) {
                   "shared first-connection profile");
             check(!imports.import_connection(corpus / "ambiguous.vpn.fixture", imported, error),
                   "shared ambiguous policy");
+            for (const char *name : {"ca", "ca-chain", "ca-der", "ca-junk", "ca-private", "ca-broken"}) {
+                bool accepted = imports.import_connection(corpus / (std::string(name)+".vpn.fixture"), imported, error);
+                check(accepted == (std::string(name)=="ca" || std::string(name)=="ca-chain"), "shared CA corpus");
+                if (accepted) {
+                    check(imports.export_connection(root / L"ca-roundtrip.vpn", imported, error), "CA export roundtrip");
+                    Profile roundtrip;
+                    ProfileStore destination(root / wide(std::string("roundtrip-")+name));
+                    check(destination.import_connection(root / L"ca-roundtrip.vpn", roundtrip, error), "CA import roundtrip");
+                }
+            }
+            const auto leased = root / L"leased-ca.pem";
+            check(write_atomic(leased, "public trust", error), "create lease fixture");
+            {
+                auto lease = retain_certificate(leased.wstring());
+                check(static_cast<bool>(lease), "retain active CA");
+                wchar_t executable[32768];
+                check(GetModuleFileNameW(nullptr, executable, 32768)>0, "lease child executable");
+                std::wstring command = L"\"" + std::wstring(executable) + L"\" --probe-ca-lease \"" + leased.wstring() + L"\"";
+                STARTUPINFOW startup{}; startup.cb=sizeof(startup);
+                PROCESS_INFORMATION child{};
+                check(CreateProcessW(nullptr, command.data(), nullptr, nullptr, FALSE, CREATE_NO_WINDOW,
+                                     nullptr, nullptr, &startup, &child), "start CA lease child");
+                Handle process(child.hProcess), thread(child.hThread);
+                DWORD code=1;
+                check(WaitForSingleObject(process.get(), 10000)==WAIT_OBJECT_0 &&
+                      GetExitCodeProcess(process.get(), &code) && code==0, "other process cannot replace or remove active CA");
+                check(!DeleteFileW(leased.c_str()) && GetLastError()==ERROR_SHARING_VIOLATION, "active CA cannot be deleted");
+                check(!write_atomic(leased, "replacement", error), "active CA cannot be replaced");
+                std::string contents;
+                check(read_file(leased, contents, error) && contents=="public trust", "active CA remains readable");
+            }
+            check(DeleteFileW(leased.c_str()), "released CA can be collected");
         }
         check(normalize_gateway(L"192.168.19.253:4443", normalized, &origin) &&
                   normalized == L"https://192.168.19.253:4443",

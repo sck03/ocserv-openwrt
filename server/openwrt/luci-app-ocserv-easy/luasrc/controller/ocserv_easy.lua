@@ -8,7 +8,7 @@ function index()
     local page=entry(base,call("page"),"岚序 Lansyra",50)
     page.dependent=false
     page.acl_depends={"luci-app-ocserv-easy"}
-    for _,item in ipairs({{"data",call("data")},{"status",call("status")},{"online",call("online")},{"guard-log",call("guard_log")},{"proxy-status",call("proxy_status")},{"action",post("action")},{"download",post("download")}}) do
+    for _,item in ipairs({{"data",call("data")},{"status",call("status")},{"online",call("online")},{"client-status",call("client_status")},{"guard-status",call("guard_status")},{"guard-log",call("guard_log")},{"proxy-status",call("proxy_status")},{"action",post("action")},{"download",post("download")}}) do
         local child=entry({"admin","vpn","ocserv",item[1]},item[2])
         child.leaf=true
         child.acl_depends={"luci-app-ocserv-easy"}
@@ -51,6 +51,8 @@ function data() response(function()
     return require("luci.model.ocserv_easy.backend").data(require("luci.http").getenv("REMOTE_ADDR"),
         {write=write,settings=settings,guard=guard})
 end) end
+function client_status() response(function() return require("luci.model.ocserv_easy.backend").client_status() end) end
+function guard_status() response(function() return require("luci.model.ocserv_easy.guard").status(require("luci.http").getenv("REMOTE_ADDR")) end) end
 function guard_log() response(function() return require("luci.model.ocserv_easy.guard_log").read() end) end
 function proxy_status() response(function() return require("luci.model.ocserv_easy.backend").proxy_status() end) end
 function online() response(function() return require("luci.model.ocserv_easy.backend").status() end) end
@@ -67,7 +69,7 @@ function action()
         logic.require(type(raw)=="string" and #raw<=65536,"bad_request")
         logic.require(not logic.json_has_null(raw),"bad_request")
         local request=require("luci.jsonc").parse(raw)
-        logic.require(type(request)=="table" and request.api_version==4,"interface_mismatch")
+        logic.require(type(request)=="table" and request.api_version==5,"interface_mismatch")
         local packages=request.action=="guard" and {"firewall","dhcp"} or request.action=="settings" and {"firewall"} or {}
         if request.action=="guard" then
             for _,name in ipairs(require("luci.model.ocserv_easy.proxy_registry").names(true)) do packages[#packages+1]=name end

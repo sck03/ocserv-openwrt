@@ -22,7 +22,7 @@ end
 
 function M.identity(path)
     local info = fs.stat(path) or {}
-    return path .. ":" .. tostring(info.ino) .. ":" .. tostring(info.mtime) .. ":" .. tostring(info.size)
+    return path .. ":" .. tostring(info.ino) .. ":" .. tostring(info.mtime) .. ":" .. tostring(info.ctime) .. ":" .. tostring(info.size)
 end
 
 local function cached(path, marker, identity, seconds, limit, valid)
@@ -39,6 +39,12 @@ local function cached(path, marker, identity, seconds, limit, valid)
             (not valid or valid(entry.value)) then return entry end
     end)
     return ok and value or nil
+end
+
+function M.peek(name,identity,seconds,limit,valid)
+    local path,marker=paths(name)
+    local entry=cached(path,marker,identity,seconds,limit,valid)
+    return entry and entry.value or nil
 end
 
 local function marker_value(marker)

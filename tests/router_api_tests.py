@@ -53,7 +53,7 @@ class RouterAPI:
         return self.api('data')
 
     def action(self, **payload):
-        return self.api('action', dict(api_version=4, revision=self.data()['revision'], **payload))
+        return self.api('action', dict(api_version=5, revision=self.data()['revision'], **payload))
 
     def settings(self, values):
         values = copy.deepcopy(values)
@@ -106,14 +106,14 @@ def main():
         return next(user for user in (api.data()['users'] or []) if user['name'] in owned)
 
     try:
-        assert baseline['api_version'] == 4 and baseline['supported']
+        assert baseline['api_version'] == 5 and baseline['supported']
         assert baseline['certificates_ready'] and not baseline['installation_pending']
         passed('installed versions, certificate readiness and API contract')
         reject('interface_mismatch', lambda: api.api('action', {'api_version': 1, 'action': 'service'}))
         reject('stale_revision', lambda: api.api('action', {
-            'api_version': 4, 'action': 'service', 'command': 'start', 'revision': 'stale'}))
+            'api_version': 5, 'action': 'service', 'command': 'start', 'revision': 'stale'}))
         status, _ = api.request(api.options['base'] + '/action', {
-            'token': 'invalid', 'payload': json.dumps({'api_version': 4, 'action': 'service'})})
+            'token': 'invalid', 'payload': json.dumps({'api_version': 5, 'action': 'service'})})
         assert status == 403, status
         passed('API version, stale revision and CSRF rejection')
 
@@ -145,7 +145,7 @@ def main():
         invalid = dict(settings, port='0')
         reject('invalid_port', lambda: api.settings(invalid))
         reject('bad_request', lambda: api.api('action', {
-            'api_version': 4, 'action': 'settings', 'revision': api.data()['revision'],
+            'api_version': 5, 'action': 'settings', 'revision': api.data()['revision'],
             'settings': dict(settings, dns=['1.1.1.1', None])}))
         passed('unchanged settings avoid writes; invalid port and JSON null are rejected')
         changed = dict(settings, port='4444' if settings['port'] != '4444' else '4445',

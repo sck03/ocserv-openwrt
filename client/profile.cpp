@@ -479,7 +479,7 @@ bool ProfileStore::import_connection(const std::filesystem::path &path, Profile 
     std::filesystem::path imported_certificate;
     std::string certificate;
     if (!ca.empty()) {
-        if (!unbase64(ca, certificate) || !valid_public_certificates(certificate, error)) {
+        if (!unbase64(ca, certificate) || base64(certificate)!=ca || !valid_public_ca(certificate, error)) {
             if (error.empty())
                 error = L"CA 证书无效。 / Invalid CA certificate.";
             return false;
@@ -519,7 +519,7 @@ bool ProfileStore::export_connection(const std::filesystem::path &path, const Pr
         std::string ca;
         if (!read_file(p.ca_file, ca, error, 65536))
             return false;
-        if (!valid_public_certificates(ca, error))
+        if (!valid_public_ca(ca, error))
             return false;
         connection.trust = "ca";
         connection.ca = base64(ca);

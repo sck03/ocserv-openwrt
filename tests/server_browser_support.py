@@ -1,4 +1,4 @@
-"""Build coherent v4 summary/list replies for browser fault injection."""
+"""Build coherent v5 summary/list replies for browser fault injection."""
 import hashlib
 import json
 

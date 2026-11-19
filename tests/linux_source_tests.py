@@ -24,6 +24,7 @@ class LinuxSourceTests(unittest.TestCase):
                 cmake = archive.read("Lansyra/desktop/linux/CMakeLists.txt").decode()
                 inputs = re.findall(r"(?:[\w.-]+/)*[\w.-]+\.(?:cpp|h)\b", cmake)
                 self.assertTrue(inputs)
+                self.assertIn("Lansyra/client/public_ca.h", names)
                 for name in inputs:
                     path = posixpath.normpath(str(PurePosixPath("Lansyra/desktop/linux") / name))
                     with self.subTest(source=name):

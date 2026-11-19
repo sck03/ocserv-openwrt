@@ -10,7 +10,7 @@ def package(output=None):
     out.mkdir(parents=True, exist_ok=True)
     paths = source_files(ROOT, ('desktop/linux', 'client/tests/public-profiles'), (
         'scripts/build-linux.sh', 'scripts/package-linux-source.py', 'scripts/build_common.py',
-        'resources/app.svg', 'LICENSE', 'THIRD-PARTY-NOTICES.md', 'client/connection_file.h',
+        'resources/app.svg', 'LICENSE', 'THIRD-PARTY-NOTICES.md', 'client/connection_file.h', 'client/public_ca.h',
         'docs/DESKTOP.md', 'docs/CONNECTION-PROFILE.md', 'tests/linux_desktop_tests.cpp', 'tests/linux_auth_fixture.cpp',
         'tests/linux_connection_tests.cpp', 'tests/linux_source_tests.py', 'tests/linux_agent_tests.cpp', 'tests/linux_profile_tests.cpp', 'tests/linux_preferences_tests.cpp', 'tests/linux_package_tests.py', '.github/workflows/build-desktop.yml',
     ))

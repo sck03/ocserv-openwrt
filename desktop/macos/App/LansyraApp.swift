@@ -3,11 +3,10 @@ import AppKit
 import NetworkExtension
 import ServiceManagement
 import UniformTypeIdentifiers
-import SystemExtensions
 
 
 @MainActor
-final class DesktopVPN: NSObject, ObservableObject, OSSystemExtensionRequestDelegate {
+final class DesktopVPN: NSObject, ObservableObject {
     @Published var profiles: [VPNProfile] = []
     @Published var draft = VPNProfile()
     @Published var password = ""
@@ -35,8 +34,12 @@ final class DesktopVPN: NSObject, ObservableObject, OSSystemExtensionRequestDele
     private var errorCode = 0
     private var exportGeneration: UInt64 = 0
     private var storageReady = false
-    private var extensionReady = false
-    private var extensionCompletion: CheckedContinuation<Void, Error>?
+    private lazy var activation = SystemExtensionActivation(identifier: tunnelID, approval: { [weak self] in
+        self?.detail = "请在系统设置中允许 Lansyra 系统扩展。"
+    }, completed: { [weak self] in
+        guard let self, !self.wanted else { return }
+        self.refresh()
+    })
     private let dateFormatter = ISO8601DateFormatter()
     private var tunnelID: String { Bundle.main.bundleIdentifier! + ".tunnel" }
     private var directory: URL {
@@ -235,7 +238,7 @@ final class DesktopVPN: NSObject, ObservableObject, OSSystemExtensionRequestDele
         record("connecting; attempt=\(attempt)")
         Task {
             do {
-                try await activateExtension()
+                try await activation.activate()
                 guard wanted, request == epoch else { return }
                 let managers = try await NETunnelProviderManager.loadAllFromPreferences()
                 guard wanted, request == epoch else { return }
@@ -296,7 +299,7 @@ final class DesktopVPN: NSObject, ObservableObject, OSSystemExtensionRequestDele
     private func refresh() {
         let state = manager?.connection.status ?? .disconnected
         connected = state == .connected
-        busy = wanted || extensionCompletion != nil || ![.invalid, .disconnected].contains(state)
+        busy = wanted || activation.pending || ![.invalid, .disconnected].contains(state)
         switch state {
         case .connected: status = "已连接"; detail = ""; record("connected")
         case .connecting: status = "正在验证身份并建立隧道…"
@@ -343,39 +346,6 @@ final class DesktopVPN: NSObject, ObservableObject, OSSystemExtensionRequestDele
     }
     private func show(_ error: Error) {
         detail = error.localizedDescription
-    }
-    private func activateExtension() async throws {
-        if extensionReady { return }
-        guard extensionCompletion == nil else { throw ClientError.extensionPending }
-        try await withCheckedThrowingContinuation { continuation in
-            extensionCompletion = continuation
-            let request = OSSystemExtensionRequest.activationRequest(forExtensionWithIdentifier: tunnelID, queue: .main)
-            request.delegate = self
-            OSSystemExtensionManager.shared.submitRequest(request)
-        }
-    }
-    nonisolated func request(_ request: OSSystemExtensionRequest, actionForReplacingExtension existing: OSSystemExtensionProperties,
-                 withExtension ext: OSSystemExtensionProperties) -> OSSystemExtensionRequest.ReplacementAction { .replace }
-    nonisolated func requestNeedsUserApproval(_ request: OSSystemExtensionRequest) {
-        Task { @MainActor in detail = "请在系统设置中允许 Lansyra 系统扩展。" }
-    }
-    nonisolated func request(_ request: OSSystemExtensionRequest, didFinishWithResult result: OSSystemExtensionRequest.Result) {
-        Task { @MainActor in
-            extensionReady = result == .completed
-            let completion = extensionCompletion
-            extensionCompletion = nil
-            if extensionReady { completion?.resume() }
-            else { completion?.resume(throwing: ClientError.extensionRestart) }
-            if !wanted { refresh() }
-        }
-    }
-    nonisolated func request(_ request: OSSystemExtensionRequest, didFailWithError error: Error) {
-        Task { @MainActor in
-            let completion = extensionCompletion
-            extensionCompletion = nil
-            completion?.resume(throwing: error)
-            if !wanted { refresh() }
-        }
     }
     func importProfile() {
         guard !busy, !storageBusy else { return }

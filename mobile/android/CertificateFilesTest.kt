@@ -9,6 +9,7 @@ import java.nio.file.attribute.PosixFilePermission
 import org.junit.Assume.assumeTrue
 
 class CertificateFilesTest {
+    private val certificate = requireNotNull(javaClass.getResource("/public-profiles/ca.pem.fixture")).readBytes()
     private val protect: (File) -> Unit = { assertEquals(0L, it.length()) }
     private fun fixture(test: (File) -> Unit) {
         val directory = Files.createTempDirectory("certificate-files").toFile()
@@ -18,12 +19,12 @@ class CertificateFilesTest {
     @Test fun pickerCopiesSurviveProviderClosureAndLiveSessionOutlivesDeletion() = fixture { directory ->
         var closed = false
         val files = CertificateFiles(directory, protect) {
-            object : ByteArrayInputStream("certificate".toByteArray()) { override fun close() { closed = true } }
+            object : ByteArrayInputStream(certificate) { override fun close() { closed = true } }
         }
         val staged = files.stage(VpnProfile(caCertPath = "content://picker/ca"))
         val path = File(staged.profile.caCertPath)
         assertTrue(closed)
-        assertEquals("certificate", path.readText())
+        assertArrayEquals(certificate, path.readBytes())
         files.reconcile(listOf(staged.profile))
         staged.close()
         val session = files.retain(staged.profile)
@@ -39,7 +40,7 @@ class CertificateFilesTest {
             ByteArrayInputStream(when (source) {
                 "content://large" -> ByteArray(CertificateFiles.MAX_BYTES + 1)
                 "content://empty" -> ByteArray(0)
-                else -> "certificate".toByteArray()
+                else -> certificate
             })
         }
         files.stage(VpnProfile(caCertPath = "content://valid")).close()
@@ -72,7 +73,7 @@ class CertificateFilesTest {
 
     @Test fun privateFilesUseOwnerOnlyPermissionsOnPosix() = fixture { directory ->
         assumeTrue(Files.getFileStore(directory.toPath()).supportsFileAttributeView("posix"))
-        val files = CertificateFiles(directory) { ByteArrayInputStream("certificate".toByteArray()) }
+        val files = CertificateFiles(directory) { ByteArrayInputStream(certificate) }
         files.stage(VpnProfile(caCertPath = "content://ca")).use { staged ->
             assertEquals(setOf(PosixFilePermission.OWNER_READ, PosixFilePermission.OWNER_WRITE),
                 Files.getPosixFilePermissions(File(staged.profile.caCertPath).toPath()))

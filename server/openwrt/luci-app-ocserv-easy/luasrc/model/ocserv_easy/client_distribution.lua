@@ -17,16 +17,21 @@ function M.status(s, rendered)
     local certificate=read(certificate_path,65536) or ""
     local key=fs.stat(s.config.server_key or "/etc/ocserv/server-key.pem")
     local identity=s.revision..":"..cache.identity("/etc/ocserv/ca.pem")..":"..cache.identity(certificate_path)
+    local ready=certificate:find("-----BEGIN CERTIFICATE-----",1,true)~=nil and key~=nil and (key.size or 0)>0
+    if not rendered then return {},ready end
     local ok,path=pcall(material.certificate,rendered)
     if ok then identity=identity..":"..cache.identity(path) end
     local trust=cache.get("client-trust",identity,300,function()
-        return {
+        local value={
             pin=capability(function() material.pin(rendered) end,"pin_unavailable"),
             profile=capability(function() material.ca(rendered) end,"ca_unavailable"),
             address={available=true},
         }
+        -- A failed probe is not a lasting statement about installed trust material.
+        value.cacheable=value.pin.available and value.profile.available
+        return value
     end)
-    return trust,certificate:find("-----BEGIN CERTIFICATE-----",1,true)~=nil and key~=nil and (key.size or 0)>0
+    return trust,ready
 end
 function M.validate(s,rendered,url,mode,platform)
     local server,cert_mode,target=profile.validate(url,mode,platform,logic.settings(s.config,s.dns,{}))

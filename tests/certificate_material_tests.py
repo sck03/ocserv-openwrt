@@ -113,6 +113,15 @@ class CertificateMaterialTests(unittest.TestCase):
         self.assertEqual(self.verify(None, None), (False, 'ca_unavailable'))
         self.assertEqual(self.calls, 0)
 
+    def test_junk_or_broken_pem_envelope_is_not_exported(self):
+        path = self.directory / 'ca.pem'
+        original = path.read_text()
+        for suffix in ('garbage', '\n-----BEGIN CERTIFICATE-----\nAAAA\n',
+                       '\n-----BEGIN X509 CRL-----\nAAAA\n-----END X509 CRL-----\n'):
+            path.write_text(original + suffix)
+            self.assertEqual(self.verify(None, None), (False, 'ca_unavailable'))
+        self.assertEqual(self.calls, 0)
+
     def test_change_during_verification_is_rejected(self):
         self.rotate_after_verification = True
         self.assertEqual(self.verify('vpn.example.test', None), (False, 'stale_revision'))

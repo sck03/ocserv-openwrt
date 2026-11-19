@@ -1,6 +1,7 @@
 // Native adaptation of the callback lifecycle in OpenConnect GUI v1.6.2.
 // Upstream: Copyright (C) 2014 Red Hat, GPL-2.0-or-later.
 #include "session.h"
+#include "certificate_lease.h"
 #include "system_proxy.h"
 #include <algorithm>
 #include <cstdarg>
@@ -436,6 +437,7 @@ void Session::run() {
                  L"This profile is already connected in another client instance."));
         return;
     }
+    Handle ca_lease;
     struct Unlock {
         Session *session;
         HANDLE handle;
@@ -446,6 +448,15 @@ void Session::run() {
             ReleaseMutex(handle);
         }
     } unlock{this, session_lock.get()};
+    if (!profile_.ca_file.empty()) {
+        ca_lease = retain_certificate(profile_.ca_file);
+        if (!ca_lease) {
+            fail(ErrorCategory::Certificate, static_cast<int>(GetLastError()));
+            state(State::Failed, true, tr(language_, L"无法读取或保护 CA 证书，请重新选择证书。",
+                L"Cannot read or retain the CA certificate. Select it again."));
+            return;
+        }
+    }
     bool ok = false;
     for (attempt_ = 1; !stopped();) {
         error_.clear();

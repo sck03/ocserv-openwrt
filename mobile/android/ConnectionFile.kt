@@ -3,7 +3,6 @@ package dev.opentunnel.vpn.data
 import dev.opentunnel.vpn.core.CertificatePolicy
 import dev.opentunnel.vpn.core.ConnectionPolicy
 import java.util.Base64
-import java.security.cert.CertificateFactory
 
 /** Version 1 public .vpn contract shared with the server and desktop clients. */
 internal data class ConnectionFile(val profile: VpnProfile, val ca: ByteArray? = null) {
@@ -51,8 +50,8 @@ internal data class ConnectionFile(val profile: VpnProfile, val ca: ByteArray? =
             require(name.length <= 128 && name.toByteArray(Charsets.UTF_8).size <= 512 && server.toByteArray(Charsets.UTF_8).size <= 4096 &&
                 protocol.matches(Regex("[a-z0-9-]{1,32}"))) { "Invalid public profile field" }
             val ca = if (encoded.isEmpty()) null else Base64.getDecoder().decode(encoded).also { bytes ->
-                require(bytes.size in 1..65536 && !bytes.toString(Charsets.UTF_8).contains("PRIVATE KEY")) { "Invalid public CA" }
-                require(CertificateFactory.getInstance("X.509").generateCertificates(bytes.inputStream()).isNotEmpty()) { "Invalid public CA" }
+                require(Base64.getEncoder().encodeToString(bytes) == encoded) { "Invalid public CA encoding" }
+                PublicCa.validate(bytes)
             }
             return ConnectionFile(VpnProfile(name = name, server = server, protocol = protocol, trustedCertificate = pin), ca)
         }

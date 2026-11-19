@@ -1,3 +1,4 @@
+#include "../../client/public_ca.h"
 #include "profile_settings.h"
 #include "protocol.h"
 #include "../../client/connection_file.h"
@@ -127,10 +128,11 @@ ImportedProfile *read_public_profile(const std::string &path) {
         std::string pem(reinterpret_cast<char *>(bytes), size);
         if (!size || size > 65536 || value.ca != canonical || pem.find("PRIVATE KEY") != std::string::npos)
             throw std::runtime_error("Invalid public CA");
-        g_autoptr(GTlsCertificate) certificate =
-            g_tls_certificate_new_from_pem(pem.data(), static_cast<gssize>(pem.size()), nullptr);
-        if (!certificate)
-            throw std::runtime_error("Invalid public CA");
+        for (const auto &block : public_ca_blocks(pem)) {
+            g_autoptr(GTlsCertificate) certificate =
+                g_tls_certificate_new_from_pem(block.data(), static_cast<gssize>(block.size()), nullptr);
+            if (!certificate) throw std::runtime_error("Invalid public CA");
+        }
         const auto directory = std::string(g_get_user_config_dir()) + "/lansyra/certificates";
         if (g_file_test((std::string(g_get_user_config_dir()) + "/lansyra").c_str(),
                         G_FILE_TEST_IS_SYMLINK) ||

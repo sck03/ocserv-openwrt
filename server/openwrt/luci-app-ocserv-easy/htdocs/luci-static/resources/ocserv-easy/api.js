@@ -8,7 +8,7 @@
         function () {
           controller.abort();
         },
-        payload ? 120000 : 15000,
+        payload ? 120000 : ({data: 30000, "client-status": 30000, "guard-status": 90000, "proxy-status": 90000}[path] || 15000),
       );
       var settings = {
         credentials: "same-origin",
@@ -25,7 +25,7 @@
             "token=" +
             encodeURIComponent(options.token) +
             "&payload=" +
-            encodeURIComponent(JSON.stringify(Object.assign({}, payload, { api_version: 4 })));
+            encodeURIComponent(JSON.stringify(Object.assign({}, payload, { api_version: 5 })));
         }
         var response = await fetch(options.base + "/" + path, settings);
         var data;

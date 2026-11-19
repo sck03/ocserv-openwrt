@@ -25,6 +25,8 @@ Trust=prompt
 | ServerPin | 仅 `pin` 使用，必须是规范的完整 `pin-sha256:` 公钥指纹 |
 | CABase64 | 仅 `ca` 使用，Base64 编码的公共 PEM 证书，解码后最大 64 KiB |
 
+CA 必须由 1–64 个有效 `CERTIFICATE` PEM 块组成，块外仅允许空白；DER、PKCS#7、私钥、尾随垃圾或损坏证书均拒绝。Windows 导出及 Windows/Linux/Android 导入执行同一公共格式约束；Android 手动选择 CA 也在保存前校验，避免导入成功但原生核心无法读取。
+
 `pin` 和 `ca` 不能混用；`prompt` 不携带指纹或 CA。文件不接受用户名、密码、软件令牌、私钥、本机路径、脚本或私有连接选项。UDP、重连、应用分流等设置在各客户端本机管理。
 
 ## 平台能力
@@ -46,7 +48,7 @@ IPv4、IPv6 的服务器包含列表分别处理；已协商的地址族没有�
 
 ## 管理接口
 
-完整快照包含 `api_version: 4`、操作权限、客户端能力、配置修订号和安装包版本。HTTP 修改请求必须带数值 `api_version: 4` 及当前 `revision`，旧接口与未知版本直接拒绝。页面版本及静态资源缓存标记读取已安装 APK 元数据。
+基础快照 `/data` 包含 `api_version: 5`、操作权限、配置修订号、目标客户端清单和安装包版本。`/client-status` 独立返回带同一 `revision` 的 `client_trust` 与 `certificates_ready`；`/guard-status` 独立返回拓扑探测结果。HTTP 修改请求必须带数值 `api_version: 5` 及当前 `revision`，旧接口与未知版本直接拒绝。页面版本及静态资源缓存标记读取已安装 APK 元数据。
 
 ocserv 的配置渲染模块使用 `settings_contract = 3`。管理包与服务包须成套全新安装，不提供旧配置迁移。服务设置拒绝未知字段，`split_dns` 已删除；自定义配置也不能覆盖 `split-dns` 或 `tunnel-all-dns`。服务设置、保存客户端设置和临时导出共用 DNS 校验。入口是 IP 地址时，该地址不能同时用作隧道 DNS。仅配置 IPv4 地址池时，下发的 DNS 中至少需要一个 IPv4 地址。
 

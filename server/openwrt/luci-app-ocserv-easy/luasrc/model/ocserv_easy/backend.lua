@@ -34,7 +34,7 @@ local function version(fresh)
             return {version=value,cacheable=value~="unknown"}
         end).version
     end
-    local code,output=run({"/usr/sbin/ocserv","--version"},10)
+    local code,output=run({"/usr/sbin/ocserv","--version"},2)
     return code==0 and output:match("OpenConnect VPN Server%s+([^%s]+)") or "unknown"
 end
 local function running()
@@ -46,10 +46,10 @@ local function running()
 end
 local function capabilities()
     return query_cache.get("capabilities",query_cache.identity(occtl),300,function()
-        local code,help=run({occtl,"--help"},3)
+        local code,help=run({occtl,"--help"},1)
         -- Some occtl releases print only switches for --help; command help is separate.
         if not help:find("terminate user",1,true) then
-            local commands; code,commands=run({occtl,"help"},3); help=help..commands
+            local commands; code,commands=run({occtl,"help"},1); help=help..commands
         end
         local terminate=help:find("terminate user",1,true)~=nil
         -- A temporary process failure is not evidence of an unsupported server.
@@ -89,7 +89,7 @@ end
 function M.data(admin,permissions)
     local s=snapshot(); local state=M.status(true)
     state.version=version()
-    state.api_version=4
+    state.api_version=5
     state.ui_version=require("luci.model.ocserv_easy.package_version").read()
     state.permissions=permissions or {write=true,settings=true,guard=true}
     state.supported=logic.supported_version(state.version)
@@ -99,13 +99,23 @@ function M.data(admin,permissions)
     state.users=logic.public_users(s.users)
     state.settings=logic.settings(s.config,s.dns,s.routes)
     state.settings_supported=(s.config.auth or "plain")=="plain" and s.config.proxy_arp~="1"
-    state.autostart=run({"/etc/init.d/ocserv","enabled"},3)==0
-    state.client_trust,state.certificates_ready=distribution.status(s,rendered(s))
+    state.autostart=run({"/etc/init.d/ocserv","enabled"},1)==0
     state.installation_pending=fs.access("/etc/ocserv/easy-install-pending")==true
     state.client_profile={cert_mode=s.config.easy_cert_mode or "pin",platform=s.config.easy_client_platform or "windows"}
     state.client_targets=client_profile.targets()
-    state.guard=guard.status(admin)
+    state.guard=guard.status(admin,false)
     return state
+end
+-- Slow, optional capabilities never prevent reading the saved configuration.
+function M.client_status()
+    local s=snapshot()
+    local ok,value=pcall(rendered,s)
+    local trust,ready=distribution.status(s,ok and value or nil)
+    if not ok then
+        local code=type(value)=="table" and value.code or "invalid_settings"
+        for _,mode in ipairs({"pin","profile","address"}) do trust[mode]={available=false,error=code} end
+    end
+    return {api_version=5,revision=s.revision,client_trust=trust,certificates_ready=ready}
 end
 local function hash_password(password)
     local alphabet="./0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"

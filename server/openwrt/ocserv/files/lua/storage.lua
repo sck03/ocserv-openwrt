@@ -16,6 +16,16 @@ local function open_read(path)
     return f
 end
 
+-- Check availability without reading a potentially large recovery record.
+function M.readable(path)
+    local f=open_read(path)
+    if not f then return false end
+    local _,err=f:read(1)
+    f:close()
+    logic.require(err==nil,"read_failed")
+    return true
+end
+
 function M.read(path, limit)
     local f = open_read(path)
     if not f then return nil end

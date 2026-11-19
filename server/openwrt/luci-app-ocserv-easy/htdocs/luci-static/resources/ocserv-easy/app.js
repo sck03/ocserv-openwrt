@@ -34,6 +34,7 @@
   var messages = window.OcservEasyMessages(t),
     errors = messages.errors,
     effects = messages.effects;
+  var resources = window.OcservEasyResources(api, element, t, errorText);
   function t(zh, en) {
     return chinese ? zh : en;
   }
@@ -89,6 +90,7 @@
     // One operation owns both the submission and its refreshed revision.
     ++loadGeneration;
     loadRead.cancel();
+    resources.cancel();
     statusRead.cancel();
     onlineRead.cancel();
     var controls = Array.from(
@@ -590,7 +592,7 @@
     content.replaceChildren();
     if (activeTab === "users") renderUsers();
     else if (activeTab === "settings") renderSettings(state, content);
-    else if (activeTab === "guard") renderGuard(state, content);
+    else if (activeTab === "guard") resources.render("guard", state, content, renderGuard);
     else if (activeTab === "maintenance") {
       var restart = mutationButton(t("重启 VPN 服务", "Restart VPN service"), function () {
         confirm(t("重启 VPN 服务", "Restart VPN service"),
@@ -599,7 +601,7 @@
       });
       content.appendChild(element("section", {className: "easy-card"}, [restart]));
       content.appendChild(window.LansyraMaintenance(element, button, t));
-    } else renderExport(state, content);
+    } else resources.render("export", state, content, renderExport);
     root.querySelectorAll('[role="tab"]').forEach(function (b) {
       var selected = b.dataset.tab === activeTab;
       b.setAttribute("aria-selected", String(selected));
@@ -611,6 +613,7 @@
     // Reselecting a tab must not discard its unsaved form or list nodes.
     if (activeTab === tab) return;
     activeTab = tab;
+    resources.cancel();
     onlineRead.cancel();
     renderTab();
     if (tab === "users") refreshOnline();
@@ -771,10 +774,11 @@
     }
   });
   function load(preserveDialog) {
+    resources.cancel();
     statusRead.cancel();
     onlineRead.cancel();
     return loadRead.run(function (data) {
-      if (data.api_version !== 4 || !data.permissions || !data.client_trust) throw { code: "interface_mismatch" };
+      if (data.api_version !== 5 || !data.permissions) throw { code: "interface_mismatch" };
       backgroundRefresh = false;
       state = data;
       onlineLoadedVersion = data.online_version;

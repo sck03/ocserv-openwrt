@@ -171,10 +171,10 @@ with sync_playwright() as pw:
         checks.append('export methods follow target client capabilities without an unpinned fallback')
         def unrelated_ca(route):
             response=route.fetch(); payload=response.json()
-            payload['data']['client_trust']['profile'] = {'available': False, 'error': 'ca_certificate_mismatch'}
+            payload['data'].setdefault('client_trust', {})['profile'] = {'available': False, 'error': 'ca_certificate_mismatch'}
             payload['data']['client_profile']={'platform':'linux','cert_mode':'profile'}
             route.fulfill(response=response,json=payload)
-        page.route('**/easy/data',unrelated_ca)
+        page.route('**/easy/{data,client-status}',unrelated_ca)
         page.get_by_role('button',name='刷新',exact=True).click()
         # Wait for the refreshed form. Editing the old form intentionally cancels its pending read.
         expect(page.get_by_label('目标客户端',exact=True)).to_have_value('linux')
@@ -185,20 +185,20 @@ with sync_playwright() as pw:
         page.get_by_label('目标客户端',exact=True).select_option('windows')
         page.get_by_label('证书验证方式',exact=True).select_option('pin')
         expect(page.get_by_role('button',name='保存客户端设置',exact=True)).to_be_enabled()
-        page.unroute('**/easy/data',unrelated_ca)
+        page.unroute('**/easy/{data,client-status}',unrelated_ca)
         checks.append('unrelated CA cannot be saved or distributed, while explicit pin remains available')
         def ambiguous_pin(route):
             response=route.fetch(); payload=response.json()
             payload['data']['certificates_ready']=True
-            payload['data']['client_trust']['pin']={'available':False,'error':'pin_unavailable'}
+            payload['data'].setdefault('client_trust', {})['pin']={'available':False,'error':'pin_unavailable'}
             payload['data']['client_profile']={'platform':'ios','cert_mode':'pin'}
             route.fulfill(response=response,json=payload)
-        page.route('**/easy/data',ambiguous_pin)
+        page.route('**/easy/{data,client-status}',ambiguous_pin)
         page.get_by_role('button',name='刷新',exact=True).click()
         expect(page.get_by_label('目标客户端',exact=True)).to_have_value('ios')
         expect(page.get_by_role('button',name='下载 .vpn 连接配置',exact=True)).to_be_disabled()
         expect(page.get_by_role('button',name='保存客户端设置',exact=True)).to_be_disabled()
-        page.unroute('**/easy/data',ambiguous_pin)
+        page.unroute('**/easy/{data,client-status}',ambiguous_pin)
         checks.append('existing certificate files do not enable an unavailable Pin export')
         page.get_by_role('button',name='刷新',exact=True).click()
         expect(page.get_by_label('目标客户端',exact=True)).to_have_value('windows')
@@ -213,18 +213,18 @@ with sync_playwright() as pw:
             response=route.fetch()
             payload=response.json()
             payload['data'].update(certificates_ready=False,installation_pending=True)
-            payload['data']['client_trust']['pin'] = {'available': False, 'error': 'pin_unavailable'}
-            payload['data']['client_trust']['profile'] = {'available': False, 'error': 'ca_unavailable'}
+            payload['data'].setdefault('client_trust', {})['pin'] = {'available': False, 'error': 'pin_unavailable'}
+            payload['data'].setdefault('client_trust', {})['profile'] = {'available': False, 'error': 'ca_unavailable'}
             payload['data']['client_profile']={'cert_mode':'pin','platform':'windows'}
             route.fulfill(response=response,json=payload)
-        page.route('**/easy/data',missing_certificates)
+        page.route('**/easy/{data,client-status}',missing_certificates)
         page.get_by_role('button',name='刷新',exact=True).click()
         expect(page.get_by_text('安装尚未完成。请在完整服务端套装目录重新运行 sh install.sh，完成证书和 VPN 网络初始化。',exact=True)).to_be_visible()
         expect(page.get_by_role('button',name='生成缺失证书',exact=True)).to_be_enabled()
         expect(page.get_by_role('button',name='下载 .vpn 连接配置',exact=True)).to_be_disabled()
         expect(page.get_by_label('证书验证方式',exact=True)).to_have_value('pin')
         checks.append('an incomplete installation shows recovery guidance and missing certificates never silently disable pinning')
-        page.unroute('**/easy/data',missing_certificates)
+        page.unroute('**/easy/{data,client-status}',missing_certificates)
         page.get_by_role('button',name='刷新',exact=True).click()
         page.get_by_role('tab',name='VPN 专用上网',exact=True).click()
         page.set_viewport_size({'width':390,'height':844})

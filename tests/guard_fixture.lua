@@ -90,7 +90,18 @@ local function mode(value)
     assert(type(value)=="string" and value:match("^[0-7][0-7][0-7]$"),"nixio expects octal permission digits")
     return tonumber(value,8)
 end
-function fs.stat(path) if S.files[path]~=nil then return {} end; return S.dirs[path] end
+function fs.stat(path)
+    if S.files[path]~=nil then
+        S.identities=S.identities or {}
+        local previous=S.identities[path]
+        if not previous or previous.raw~=S.files[path] then
+            S.inode=(S.inode or 0)+1
+            previous={raw=S.files[path],ino=S.inode};S.identities[path]=previous
+        end
+        return {ino=previous.ino,size=#S.files[path]}
+    end
+    return S.dirs[path]
+end
 function fs.access(path) return fs.stat(path)~=nil end
 function fs.mkdir(path,value) S.dirs[path]={mode=mode(value)}; return true end
 function fs.chmod(path,value) mode(value);return true end
