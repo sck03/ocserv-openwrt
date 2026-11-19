@@ -29,7 +29,7 @@ def package(platform):
     paths = source_files(ROOT, (*directories, "client/tests/public-profiles"), (
         "mobile/sources.json",
         "LICENSE", "README.md", "THIRD-PARTY-NOTICES.md", "docs/MOBILE.md", "docs/DESKTOP.md", "docs/CONNECTION-PROFILE.md",
-        "tests/mobile_build_tests.py", "tests/mobile_protocol_tests.c", "tests/ios_connection_tests.m", "tests/apple_storage_tests.swift", "tests/apple_route_tests.m",
+        "tests/mobile_build_tests.py", "tests/mobile_protocol_tests.c", "tests/ios_connection_tests.m", "tests/apple_storage_tests.swift", "tests/apple_diagnostics_tests.swift", "tests/apple_route_tests.m",
         ".github/workflows/build-" + ("desktop" if platform == "macos" else platform) + ".yml",
         *("scripts/" + name for name in scripts),
     ))

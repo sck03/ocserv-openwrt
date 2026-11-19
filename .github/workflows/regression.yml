@@ -32,6 +32,7 @@ jobs:
           python tests/client_build_tests.py
           node client/tests/script_tests.js
           python tests/mobile_build_tests.py
+          python tests/linux_source_tests.py
           python tests/server_integration.py
           python tests/guard_integration.py
           python tests/process_tests.py
