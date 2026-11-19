@@ -6,7 +6,23 @@
 
 本机已执行：Windows 原生配置/DPAPI 回归 131 项（包含真实子进程 CA 文件保护和公共 CA corpus 往返）；服务端逻辑 142 项、隔离事务 108 项；完整浏览器 140 项，随后新增异步能力回归后轮询套件为 35 项；其余便携回归和清理检查见后续最终构建记录。浏览器无脚本错误。OpenWrt 业务逻辑使用模拟 UCI/nixio/服务边界，不能替代真实路由器验收。
 
-平台 CI、源码包验证与工作区清理将在本条下记录最终结果。未进行本轮真实公网 VPN、断网切换、移动设备或 Apple 签名安装验收。
+平台构建与验证均以本轮源码执行，功能实现为 `5c71a00`；`5bd7340` 补齐 Linux GIO TLS 依赖，`2d27629` 将管理页/服务包更新为 `0.11.0-r1` / `1.6.0-r7` 并加强包依赖审计。后续提交只整理验证记录。
+
+| 验证 | 结果与证据 |
+| --- | --- |
+| Windows x86/x64 | 两种架构编译、源码打包和原生运行通过：[CI 44568292352](https://github.com/sck03/ocserv-openwrt/actions/runs/44568292352)。每架构包括连接 61、配置/DPAPI 131、界面 51、WSH 7、资源 9、回环认证 35 项，以及存储、DPI、系统代理检查。x64 另通过 WFP 4 项和隔离 Wintun/CSTP 隧道 8 项。 |
+| Windows 资源 | 两架构各处理 600,000 个事件、1,000 次排空；x64 私有内存前后均 2,088,960 字节、句柄均 118。x86 私有内存 2,056,192 → 2,138,112 字节、句柄均 135。这是有界队列压力回归，不代表真实 VPN 的完整性能测量。 |
+| Android | arm64-v8a / armeabi-v7a / x86_64 原生核心、Debug APK、单元测试、16 KiB 对齐和签名校验通过：[CI 44568297863](https://github.com/sck03/ocserv-openwrt/actions/runs/44568297863)。 |
+| macOS | arm64/x86_64 Universal 未签名归档和系统扩展编译通过：[CI 44568312103](https://github.com/sck03/ocserv-openwrt/actions/runs/44568312103)。Apple 公共配置、存储和诊断回归通过。 |
+| Linux | amd64/arm64 编译、CTest、界面冒烟、DEB 审计及 Debian 13 / Ubuntu 26.04 安装验证通过。补齐 `glib-networking` 后再次通过：[CI 44570528747](https://github.com/sck03/ocserv-openwrt/actions/runs/44570528747)；最新源码的独立 Debug CTest 亦通过。 |
+| 服务端 | [CI 44568318371](https://github.com/sck03/ocserv-openwrt/actions/runs/44568318371) 通过真实证书工具、安装/卸载、事务、命名空间隔离及浏览器回归；逻辑 142、隔离事务 108、证书 14、安装 52、卸载 19 项。浏览器三种代理共 143 项（每款 UI 27，表格 20，轮询 35，在线详情 7），无脚本错误。本轮选择 `validate_only`，未重新编译六架构 ocserv APK。 |
+| 源码包 | Windows、Android、Linux/macOS 源码包均由对应任务生成；新增公共 CA 头文件、Android 校验模块、表单控件、macOS 激活模块及测试样例均纳入对应源代码包。 |
+
+首次独立 Linux Debug 任务暴露了未显式安装 GIO TLS 后端的问题；已修正 CI、DEB 依赖和构建说明，后续验证通过。没有将初次失败计为通过，也没有用旧发行包替代新源码构建。
+
+工作区使用 `scripts/clean-workspace.ps1 -DeepClean -Apply` 删除约 **0.906 GiB** 的生成文件与依赖缓存，没有需要移至手动删除目录的文件。源码、发行包、备份和私有配置保留。本地证据归档为 `artifacts/verification/refactor-20261120.zip`，SHA-256 为 `e71389fe38fe5a9690b503692ae25f152f679ea357d4b609e84a2c6e43118804`；归档 CRC 与 SHA-256 已检查。再次本地构建需要按构建说明恢复依赖。
+
+本轮未重新构建未改动的 iOS 应用，未对真实路由器、移动设备进行公网/长期漫游验收，也未进行 Apple 签名安装。Windows 隧道与防火墙测试运行在隔离 CI 主机中；上述检查不能替代部署环境的设备验收。
 
 本页记录岚序（Lansyra）全新安装版本的验证证据与实机边界。以前的打包和系统升级记录见[历史版本](https://github.com/sck03/ocserv-openwrt/blob/ba903fe/docs/VALIDATION.md)。
 
