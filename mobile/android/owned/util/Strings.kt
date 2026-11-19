@@ -82,6 +82,9 @@ object Strings {
     fun serverSection(lang: AppLanguage): String = if (isChinese(lang)) "服务器" else if (isRtl(lang)) "مشخصات سرور" else "Server"
     fun profileName(lang: AppLanguage): String = if (isChinese(lang)) "配置名称" else if (isRtl(lang)) "نام پروفایل" else "Profile name"
     fun serverAddress(lang: AppLanguage): String = if (isChinese(lang)) "服务器地址" else if (isRtl(lang)) "آدرس سرور (گیت‌وی)" else "Server address"
+    fun serverCredentials(lang: AppLanguage): String = if (isChinese(lang)) "更换主机或端口会清除旧凭据；本次重新填写的内容会保留。" else
+        if (isRtl(lang)) "با تغییر سرور، اطلاعات ورود قبلی حذف می‌شود؛ مقادیر تازه واردشده حفظ می‌شوند." else
+        "Changing the host or port clears inherited credentials; values entered in this edit are kept."
     fun caCertificate(lang: AppLanguage): String = if (isChinese(lang)) "CA 证书" else if (isRtl(lang)) "گواهی امنیتی ${ltr("CA")}" else "CA certificate"
     fun userCertificate(lang: AppLanguage): String = if (isChinese(lang)) "用户证书" else if (isRtl(lang)) "گواهی کاربر" else "User certificate"
     fun privateKey(lang: AppLanguage): String = if (isChinese(lang)) "私钥" else if (isRtl(lang)) "کلید خصوصی (${ltr("Private key")})" else "Private key"

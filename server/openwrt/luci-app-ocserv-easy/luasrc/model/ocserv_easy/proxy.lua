@@ -98,9 +98,8 @@ function M.ready(name,managed)
     if name~="openclash" and not ingress_ready(name) then return false end
     -- The interface set can exist before DNS rules finish generating.
     -- OpenClash also starts its core before installing firewall DNS hijacking.
-    local table_name=name=="openclash" and "fw4" or name
-    local chain=name=="openclash" and "openclash_dns_redirect" or "lan_dns_hijack"
-    local code,out=run({"/usr/sbin/nft","-j","list","chain","inet",table_name,chain},3)
+    local entry=registry.get(name)
+    local code,out=run({"/usr/sbin/nft","-j","list","chain","inet",entry.dns_table,entry.dns_chain},3)
     local data=code==0 and json.parse(out)
     local ports=target_ports(data,"redirect")
     if #ports==0 then return false end
@@ -119,15 +118,18 @@ function M.diagnostics(c,name)
     local running=M.running(name)
     local result={running=running,label=entry.label,supported=M.supports(name),targets={}}
     if not result.supported then return result end
-    result.ingress_ready=running and ingress_ready(name)
-    if name=="openclash" then return result end
-    result.tcp_mode=c:get(name,"proxy","tcp_mode")
-    result.udp_mode=c:get(name,"proxy","udp_mode")
+    -- OpenClash has no equivalent vpns interface set. Report only evidence
+    -- actually inspected, rather than equating its process with VPN ingress.
+    if name~="openclash" then
+        result.ingress_ready=running and ingress_ready(name)
+        result.tcp_mode=c:get(name,"proxy","tcp_mode")
+        result.udp_mode=c:get(name,"proxy","udp_mode")
+    end
     -- A stopped service cannot own the other provider's TUN in a shared table.
     if not running then return result end
     local wanted={}
-    local function targets(chain,kind)
-        local code,out=run({"/usr/sbin/nft","-j","list","chain","inet",name,chain},3)
+    local function targets(chain,kind,table_name)
+        local code,out=run({"/usr/sbin/nft","-j","list","chain","inet",table_name or name,chain},3)
         local data=code==0 and json.parse(out)
         local target={available=type(data)=="table" and type(data.nftables)=="table",ports={}}
         for _,port in ipairs(target_ports(data,kind)) do
@@ -136,7 +138,7 @@ function M.diagnostics(c,name)
         end
         result.targets[chain]=target
     end
-    targets("lan_dns_hijack","redirect")
+    targets(entry.dns_chain,"redirect",entry.dns_table)
     if result.tcp_mode=="redirect" then targets("lan_redirect","redirect") end
     if result.tcp_mode=="tproxy" or result.udp_mode=="tproxy" then targets("lan_tproxy","tproxy") end
     local sockets=listeners(wanted)

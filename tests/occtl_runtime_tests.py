@@ -126,14 +126,14 @@ class OcctlRuntimeTests(unittest.TestCase):
                 self.assertEqual(lua.globals().closed, 4)
 
     def test_display_fields_truncate_only_at_utf8_boundaries(self):
-        fields = {"Username": ("name", 64), "Groupname": ("group", 64),
+        fields = {"Username": ("name", 64),
                   "Remote IP": ("ip", 64), "IPv4": ("vpn_ip", 64),
                   "Last connected at": ("since", 64), "State": ("state", 32)}
         for character in ("é", "中", "😀"):
             width = len(character.encode("utf-8"))
             for remaining in range(width + 1):
                 with self.subTest(character=character, remaining=remaining):
-                    row = {"ID": 1}
+                    row = {"ID": 1, "Groupname": character * 128}
                     expected = {}
                     for source, (target, limit) in fields.items():
                         value = "a" * (limit - remaining) + character + "tail"
@@ -146,6 +146,7 @@ class OcctlRuntimeTests(unittest.TestCase):
                     # the projected row, not merely the original command text.
                     encoded = lua.globals().TEST_JSON_ENCODE(result.online[1])
                     displayed = json.loads(encoded)
+                    self.assertNotIn('group', displayed)
                     for field, value in expected.items():
                         self.assertEqual(displayed[field], value)
 

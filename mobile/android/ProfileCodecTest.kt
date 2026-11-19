@@ -51,9 +51,40 @@ class ProfileCodecTest {
         assertTrue(runCatching { ProfilePolicy.reorder(listOf(profile), listOf(profile.id, profile.id)) { it.id } }.isFailure)
     }
 
+    @Test fun explicitReplacementCredentialsAreEncryptedForTheNewOrigin() {
+        val old = codec.update(profile.copy(username = "old-user"), null)
+        val edit = old.profile.copy(server = "new.example.com", username = "new-user", password = "new-password",
+            tokenString = "new-token", caCertPath = "new-ca")
+        val saved = codec.update(edit, old, setOf(ProfileField.USERNAME, ProfileField.PASSWORD, ProfileField.TOKEN, ProfileField.CA))
+        val restored = codec.unlock(saved)
+        assertEquals("new-user", restored.username)
+        assertEquals("new-password", restored.password)
+        assertEquals("new-token", restored.tokenString)
+        assertEquals("new-ca", restored.caCertPath)
+        assertFalse(saved.password.contains("vpn.example.com"))
+        assertTrue(runCatching { codec.unlock(saved.copy(profile = old.profile)) }.isFailure)
+    }
+
     @Test fun aggregateSizeIsCheckedBeforeStorage() {
         val profiles = (1..128).map { codec.update(profile.copy(id = "00000000-0000-4000-8000-" +
             it.toString().padStart(12, '0'), password = "x".repeat(8192), tokenString = "y".repeat(8192)), null) }
         assertTrue(runCatching { codec.encode(profiles) }.isFailure)
+    }
+    @Test fun selectionAndDuplicateSubscribersShareOneMetadataDecode() {
+        val first = codec.update(profile, null)
+        val second = codec.update(profile.copy(id = "00000000-0000-4000-8000-000000000002"), null)
+        val raw = codec.encode(listOf(first, second))
+        var reads = 0
+        val projection = ProfileProjection { text -> reads++; codec.decode(text).map { it.profile } }
+        assertEquals(first.profile, projection.snapshot(raw, first.profile.id).selected)
+        assertEquals(second.profile, projection.snapshot(raw, second.profile.id).selected)
+        assertEquals(1, reads)
+        assertEquals(0, decrypted)
+        val invalidSelection = projection.snapshot(raw, "removed")
+        assertEquals(2, invalidSelection.profiles.size)
+        assertNotNull(invalidSelection.error)
+        assertEquals(1, reads)
+        assertNotNull(projection.snapshot("{broken", "").error)
+        assertEquals(first.profile, projection.snapshot(raw, first.profile.id).selected)
     }
 }

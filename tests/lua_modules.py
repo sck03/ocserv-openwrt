@@ -12,3 +12,6 @@ def install_modules(lua):
         for path in (ROOT / directory).glob("*.lua"):
             lua.execute('package.preload[...] = assert(loadstring(select(2,...)))',
                         namespace + path.stem, path.read_text(encoding="utf-8"))
+    for path in (ROOT / "tests").glob("*_fixture.lua"):
+        lua.execute('package.preload[...] = assert(loadstring(select(2,...)))',
+                    "test." + path.stem, path.read_text(encoding="utf-8"))

@@ -56,8 +56,8 @@ private:
 class ProfileEditor final : public Dialog {
 public:
     ProfileEditor(ProfileStore &store, Profile profile, Language language, bool advanced)
-        : result(std::move(profile)), store_(store), language_(language), advanced_(advanced),
-          protocols_(supported_protocols()) {}
+        : result(std::move(profile)), baseline_(result), store_(store), language_(language),
+          advanced_(advanced), protocols_(supported_protocols()) {}
     Profile result;
     bool customize = false;
 
@@ -122,7 +122,8 @@ private:
         edit(wide(result.token), TokenValue, 288, 220, 264, 25, ES_PASSWORD);
         if (!result.token_blob.empty())
             SendMessageW(item(TokenValue), EM_SETCUEBANNER, FALSE,
-                         reinterpret_cast<LPARAM>(t(L"已保存；输入新令牌可替换", L"Saved; enter a new token to replace")));
+                         reinterpret_cast<LPARAM>(
+                             t(L"已保存；输入新令牌可替换", L"Saved; enter a new token to replace")));
         button(L"…", ImportToken, 560, 220, 40);
         caption(L"接口名称", L"Interface name", 16, 254);
         edit(result.interface_name, InterfaceName, 146, 254, 454);
@@ -173,18 +174,23 @@ private:
         if (protocol < protocols_.size())
             result.protocol = protocols_[protocol].name;
         if (advanced_) {
-            result.username = utf8(value(ProfileUsername));
-            result.group = utf8(value(ProfileGroup));
-            result.ca_file = trim(value(ProfileCA));
+            auto update = [&](int id, auto &field, auto next, bool &edited) {
+                edited = edited || field != next || SendMessageW(item(id), EM_GETMODIFY, 0, 0);
+                field = std::move(next);
+            };
+            update(ProfileUsername, result.username, utf8(value(ProfileUsername)), edits_.username);
+            update(ProfileGroup, result.group, utf8(value(ProfileGroup)), edits_.group);
+            update(ProfileCA, result.ca_file, trim(value(ProfileCA)), edits_.ca);
             auto pin = utf8(trim(value(ProfilePin)));
             if (pin != result.server_pin || SendMessageW(item(ProfilePin), EM_GETMODIFY, 0, 0)) {
-                pin_input_ = ProfileStore::PinInput::Explicit;
+                edits_.pin = true;
                 result.server_pin = pin;
                 result.fixed_pin = !pin.empty();
             }
             result.token_type = static_cast<int>(selected_choice(item(TokenType), -1));
             auto token = utf8(value(TokenValue));
-            if (token != result.token) {
+            if (token != result.token || SendMessageW(item(TokenValue), EM_GETMODIFY, 0, 0)) {
+                edits_.token = true;
                 result.token = token;
                 result.token_blob.clear();
             }
@@ -194,8 +200,8 @@ private:
             }
             result.interface_name = trim(value(InterfaceName));
             result.script = trim(value(Script));
-            result.certificate_file = trim(value(Certificate));
-            result.key_file = trim(value(PrivateKey));
+            update(Certificate, result.certificate_file, trim(value(Certificate)), edits_.certificate);
+            update(PrivateKey, result.key_file, trim(value(PrivateKey)), edits_.key);
             result.log_level = static_cast<int>(selected_choice(item(LogLevel), -1));
             auto number = [&](int id, int &target) {
                 auto text = trim(value(id));
@@ -227,18 +233,19 @@ private:
         if (!validate)
             return true;
         std::wstring message;
-        if (!validate_profile(result, message)) {
+        Profile candidate = result;
+        if (!validate_profile_edit(candidate, baseline_.id.empty() ? nullptr : &baseline_, edits_, message)) {
             error(window_, message);
             return false;
         }
-        if (!result.ca_file.empty()) {
+        if (!candidate.ca_file.empty()) {
             std::wstring fingerprint;
-            if (!certificate_file_info(result.ca_file, fingerprint, message)) {
+            if (!certificate_file_info(candidate.ca_file, fingerprint, message)) {
                 error(window_, message);
                 return false;
             }
         }
-        for (const auto *path : {&result.certificate_file, &result.key_file, &result.script}) {
+        for (const auto *path : {&candidate.certificate_file, &candidate.key_file, &candidate.script}) {
             if (path->empty() || path->rfind(L"system:", 0) == 0 || path->rfind(L"pkcs11:", 0) == 0)
                 continue;
             std::error_code ec;
@@ -267,6 +274,7 @@ private:
                 return;
             }
             label(target, trim(wide(raw)));
+            SendMessageW(item(target), EM_SETMODIFY, TRUE, 0);
             erase(raw);
             return;
         }
@@ -278,6 +286,7 @@ private:
             }
         }
         label(target, path->wstring());
+        SendMessageW(item(target), EM_SETMODIFY, TRUE, 0);
     }
     LRESULT message(UINT message, WPARAM wparam, LPARAM lparam) override {
         if (message == WM_CREATE) {
@@ -290,9 +299,9 @@ private:
                 if (!read_fields(true))
                     return 0;
                 std::wstring reason;
-                if (!run_storage(window_, language_, [this](std::wstring &error) {
-                        return store_.save(result, error, pin_input_);
-                    }, reason)) {
+                if (!run_storage(
+                        window_, language_,
+                        [this](std::wstring &error) { return store_.save(result, error, edits_); }, reason)) {
                     error(window_, reason);
                     return 0;
                 }
@@ -312,16 +321,19 @@ private:
                 return 0;
             }
             if (id == ClearCA || id == ClearPin || id == ClearCertificate || id == ClearKey) {
-                label(id == ClearCA            ? ProfileCA
-                      : id == ClearPin         ? ProfilePin
-                      : id == ClearCertificate ? Certificate
-                                               : PrivateKey,
-                      L"");
+                const int target = id == ClearCA            ? ProfileCA
+                                   : id == ClearPin         ? ProfilePin
+                                   : id == ClearCertificate ? Certificate
+                                                            : PrivateKey;
+                label(target, L"");
+                SendMessageW(item(target), EM_SETMODIFY, TRUE, 0);
                 return 0;
             }
             if (id == ResetStore) {
                 label(Certificate, L"");
                 label(PrivateKey, L"");
+                SendMessageW(item(Certificate), EM_SETMODIFY, TRUE, 0);
+                SendMessageW(item(PrivateKey), EM_SETMODIFY, TRUE, 0);
                 return 0;
             }
             if (id == SystemStore) {
@@ -331,16 +343,19 @@ private:
                     picker.selected) {
                     label(Certificate, picker.selected->certificate);
                     label(PrivateKey, picker.selected->key);
+                    SendMessageW(item(Certificate), EM_SETMODIFY, TRUE, 0);
+                    SendMessageW(item(PrivateKey), EM_SETMODIFY, TRUE, 0);
                 }
                 return 0;
             }
         }
         return Dialog::message(message, wparam, lparam);
     }
+    Profile baseline_;
     ProfileStore &store_;
     Language language_;
     bool advanced_;
-    ProfileStore::PinInput pin_input_ = ProfileStore::PinInput::Inherited;
+    ProfileEdits edits_;
     std::vector<Protocol> protocols_;
 };
 

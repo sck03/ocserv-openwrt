@@ -9,6 +9,24 @@ internal data class StoredProfile(val profile: VpnProfile, val password: String 
 @Serializable
 private data class ProfileFile(val schema: Int, val profiles: List<StoredProfile>)
 
+internal data class ProfileMetadata(val profiles: List<VpnProfile> = emptyList(),
+    val selected: VpnProfile = VpnProfile(), val error: String? = null)
+
+/** A selection update reuses the last decoded document and does not decrypt it. */
+internal class ProfileProjection(private val decode: (String) -> List<VpnProfile>) {
+    private var document: String? = null
+    private var profiles = emptyList<VpnProfile>()
+    fun snapshot(raw: String, selectedId: String): ProfileMetadata {
+        try {
+            if (raw != document) { profiles = decode(raw); document = raw }
+        } catch (error: java.util.concurrent.CancellationException) { throw error }
+        catch (_: Exception) { return ProfileMetadata(error = "Profile storage is invalid; connection is blocked.") }
+        val selected = runCatching { ProfilePolicy.selected(profiles, selectedId) }
+        return ProfileMetadata(profiles, selected.getOrNull() ?: VpnProfile(),
+            if (selected.isFailure) "Selected profile is unavailable; connection is blocked." else null)
+    }
+}
+
 /** Metadata is readable without Keystore access. Only a connection unlocks credentials. */
 internal class ProfileCodec(
     private val encrypt: (String, String) -> String,
@@ -20,8 +38,8 @@ internal class ProfileCodec(
         check(it.isNotEmpty()) { "Credential operation failed; original data was preserved" }
     }
 
-    fun update(candidate: VpnProfile, previous: StoredProfile?): StoredProfile {
-        val p = ProfilePolicy.updated(previous?.profile, candidate)
+    fun update(candidate: VpnProfile, previous: StoredProfile?, fields: Set<ProfileField> = emptySet()): StoredProfile {
+        val p = ProfilePolicy.updated(previous?.profile, candidate, fields)
         ProfilePolicy.validate(listOf(p))
         val sameOrigin = previous != null && ProfilePolicy.origin(previous.profile.server) == ProfilePolicy.origin(p.server)
         fun protect(value: String, old: String, kind: String): String =

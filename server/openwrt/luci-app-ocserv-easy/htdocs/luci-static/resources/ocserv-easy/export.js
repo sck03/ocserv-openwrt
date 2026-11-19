@@ -82,7 +82,8 @@ window.OcservEasyExport = function ({ t, element, field, options, mutationButton
     var readOnly = save.disabled;
     function updateDownload() {
       var target = targets.find(function (item) { return item.id === platform.value; });
-      var reason = target ? target.unavailable : "unsupported_client_profile";
+      var reason = !target ? "unsupported_client_profile" :
+        trust.value === "profile" && !state.ca_available ? state.ca_error || "ca_unavailable" : null;
       compatibility.hidden = !reason;
       compatibility.textContent = reason ? errorText({code: reason}) : "";
       var option = trust.selectedOptions[0];
@@ -162,6 +163,7 @@ window.OcservEasyExport = function ({ t, element, field, options, mutationButton
       download("ca", "");
     });
     ca.disabled = !state.ca_available;
+    if (state.ca_error) ca.title = errorText({code: state.ca_error});
     content.appendChild(
       element("section", { className: "easy-card" }, [
         element("h3", {
@@ -183,6 +185,7 @@ window.OcservEasyExport = function ({ t, element, field, options, mutationButton
           ),
         }),
         ca,
+        state.ca_error ? element("p", {className: "easy-notice error", text: errorText({code: state.ca_error})}) : null,
       ]),
     );
     content.appendChild(

@@ -1,6 +1,7 @@
 #include "profile.h"
 #include "connection_file.h"
 #include "store_lease.h"
+#include "hotp_counter.h"
 #include "vendor/json.hpp"
 #include <algorithm>
 #include <cctype>
@@ -174,6 +175,38 @@ bool validate_profile(Profile &p, std::wstring &error) {
         p.fixed_pin = false;
     return true;
 }
+bool validate_profile_edit(Profile &candidate, const Profile *previous, ProfileEdits edits,
+                           std::wstring &error) {
+    if (previous) {
+        std::wstring old_origin, new_origin, normalized;
+        normalize_gateway(previous->gateway, normalized, &old_origin);
+        normalize_gateway(candidate.gateway, normalized, &new_origin);
+        if (old_origin != new_origin) {
+            if (!edits.password)
+                erase(candidate.password);
+            if (!edits.token)
+                erase(candidate.token);
+            candidate.password_blob.clear();
+            candidate.token_blob.clear();
+            if (!edits.username)
+                candidate.username.clear();
+            if (!edits.group)
+                candidate.group.clear();
+            if (!edits.pin || !candidate.fixed_pin) {
+                candidate.server_pin.clear();
+                candidate.fixed_pin = false;
+            }
+            if (!edits.ca)
+                candidate.ca_file.clear();
+            if (!edits.certificate)
+                candidate.certificate_file.clear();
+            if (!edits.key)
+                candidate.key_file.clear();
+            candidate.secret_unavailable = false;
+        }
+    }
+    return validate_profile(candidate, error);
+}
 ProfileStore::ProfileStore(std::filesystem::path directory)
     : directory_(directory.empty() ? executable_directory() / L"data" : std::move(directory)) {
     directory_ = std::filesystem::absolute(directory_).lexically_normal();
@@ -182,14 +215,17 @@ ProfileStore::ProfileStore(std::filesystem::path directory)
 bool ProfileStore::load(std::vector<Profile> &profiles, Preferences &preferences, std::wstring &error) const {
     return read(profiles, preferences, error, true);
 }
-bool ProfileStore::load_metadata(std::vector<Profile> &profiles, Preferences &preferences, std::wstring &error) const {
+bool ProfileStore::load_metadata(std::vector<Profile> &profiles, Preferences &preferences,
+                                 std::wstring &error) const {
     return read(profiles, preferences, error, false);
 }
 void ProfileStore::unlock(Profile &profile) {
     profile.secret_unavailable = false;
-    if (profile.password.empty() && !unprotect_secret(profile.password_blob, context(profile, "password"), profile.password))
+    if (profile.password.empty() &&
+        !unprotect_secret(profile.password_blob, context(profile, "password"), profile.password))
         profile.secret_unavailable = true;
-    if (profile.token.empty() && !unprotect_secret(profile.token_blob, context(profile, "token"), profile.token))
+    if (profile.token.empty() &&
+        !unprotect_secret(profile.token_blob, context(profile, "token"), profile.token))
         profile.secret_unavailable = true;
 }
 bool ProfileStore::read(std::vector<Profile> &profiles, Preferences &preferences, std::wstring &error,
@@ -292,9 +328,8 @@ void ProfileStore::prune_certificates(const std::vector<Profile> &profiles) cons
             DeleteFileW(path.c_str());
     }
 }
-bool ProfileStore::update(
-    const std::function<bool(std::vector<Profile> &, std::wstring &)> &change,
-    std::wstring &error, bool prune) {
+bool ProfileStore::update(const std::function<bool(std::vector<Profile> &, std::wstring &)> &change,
+                          std::wstring &error, bool prune) {
     StoreLease lease(mutex_name_, error);
     if (!lease)
         return false;
@@ -307,52 +342,42 @@ bool ProfileStore::update(
         prune_certificates(profiles);
     return true;
 }
-bool ProfileStore::save(Profile &profile, std::wstring &error, PinInput pin_input) {
-    if (!validate_profile(profile, error))
-        return false;
-    if (profile.id.empty())
-        profile.id = random_id();
-    if (!identifier(profile.id)) {
+bool ProfileStore::save(Profile &profile, std::wstring &error, ProfileEdits edits) {
+    Profile candidate = profile;
+    if (candidate.id.empty())
+        candidate.id = random_id();
+    if (!identifier(candidate.id)) {
         error = L"配置标识无效。 / Invalid profile identifier.";
         return false;
     }
-    return update(
+    const bool saved = update(
         [&](auto &profiles, auto &message) {
-            for (auto &existing : profiles) {
-                if (existing.id != profile.id && same_name(existing.name, profile.name)) {
+            auto found = std::find_if(profiles.begin(), profiles.end(),
+                                      [&](const auto &item) { return item.id == candidate.id; });
+            if (!validate_profile_edit(candidate, found == profiles.end() ? nullptr : &*found, edits,
+                                       message))
+                return false;
+            for (const auto &existing : profiles) {
+                if (existing.id != candidate.id && same_name(existing.name, candidate.name)) {
                     message = L"配置名称已存在。 / Profile name already exists.";
                     return false;
                 }
             }
-            for (auto &existing : profiles)
-                if (existing.id == profile.id) {
-                    std::wstring a, b, unused;
-                    normalize_gateway(existing.gateway, unused, &a);
-                    normalize_gateway(profile.gateway, unused, &b);
-                    if (a != b) {
-                        erase(profile.password);
-                        erase(profile.token);
-                        profile.password_blob.clear();
-                        profile.token_blob.clear();
-                        profile.username.clear();
-                        profile.group.clear();
-                        if (pin_input != PinInput::Explicit || !profile.fixed_pin) {
-                            profile.server_pin.clear();
-                            profile.fixed_pin = false;
-                        }
-                        profile.secret_unavailable = false;
-                    }
-                    existing = profile;
-                    return true;
-                }
+            if (found != profiles.end()) {
+                *found = candidate;
+                return true;
+            }
             if (profiles.size() >= 512) {
                 message = L"配置数量已达上限。 / Too many profiles.";
                 return false;
             }
-            profiles.push_back(profile);
+            profiles.push_back(candidate);
             return true;
         },
         error, true);
+    if (saved)
+        profile = std::move(candidate);
+    return saved;
 }
 bool ProfileStore::remove(const std::string &id, std::wstring &error) {
     return update(
@@ -391,6 +416,36 @@ bool ProfileStore::update_secrets(const std::string &id, const std::wstring &gat
         },
         error);
 }
+bool ProfileStore::reserve_hotp(const std::string &id, const std::wstring &gateway,
+                                const std::string &expected, const std::string &next, std::wstring &error) {
+    std::string calculated;
+    if (!next_hotp_counter(expected, calculated) || calculated != next) {
+        error = L"HOTP 计数无效。 / Invalid HOTP counter.";
+        return false;
+    }
+    return update(
+        [&](auto &profiles, auto &message) {
+            for (auto &profile : profiles) {
+                if (profile.id != id)
+                    continue;
+                std::wstring wanted, actual, normalized;
+                normalize_gateway(gateway, normalized, &wanted);
+                normalize_gateway(profile.gateway, normalized, &actual);
+                ProfileSecrets secret;
+                if (wanted != actual || profile.token_type != 3 ||
+                    !unprotect_secret(profile.token_blob, context(profile, "token"), secret.token) ||
+                    secret.token != expected)
+                    break;
+                profile.token = next;
+                profile.token_blob.clear();
+                return true;
+            }
+            message = L"HOTP 配置或计数已改变，认证已停止。 / HOTP profile or counter changed; "
+                      L"authentication stopped.";
+            return false;
+        },
+        error);
+}
 bool ProfileStore::import_connection(const std::filesystem::path &path, Profile &profile,
                                      std::wstring &error) {
     std::string raw;
@@ -401,8 +456,12 @@ bool ProfileStore::import_connection(const std::filesystem::path &path, Profile 
         return false;
     }
     lansyra::ConnectionFile connection;
-    try { connection = lansyra::ConnectionFile::parse(raw); }
-    catch (...) { error = L"公共配置格式无效；请重新导出版本 1 的 .vpn 文件。 / Invalid version 1 public profile."; return false; }
+    try {
+        connection = lansyra::ConnectionFile::parse(raw);
+    } catch (...) {
+        error = L"公共配置格式无效；请重新导出版本 1 的 .vpn 文件。 / Invalid version 1 public profile.";
+        return false;
+    }
     Profile candidate;
     candidate.name = connection.name.empty() ? path.stem().wstring() : wide(connection.name);
     candidate.gateway = wide(connection.server);
@@ -456,8 +515,7 @@ bool ProfileStore::export_connection(const std::filesystem::path &path, const Pr
     if (!p.server_pin.empty()) {
         connection.trust = "pin";
         connection.pin = p.server_pin;
-    }
-    else if (!p.ca_file.empty()) {
+    } else if (!p.ca_file.empty()) {
         std::string ca;
         if (!read_file(p.ca_file, ca, error, 65536))
             return false;
@@ -466,7 +524,11 @@ bool ProfileStore::export_connection(const std::filesystem::path &path, const Pr
         connection.trust = "ca";
         connection.ca = base64(ca);
     }
-    try { return write_atomic(path, connection.encode(), error); }
-    catch (...) { error = L"无法导出公共配置，请检查连接字段。 / Invalid public connection fields."; return false; }
+    try {
+        return write_atomic(path, connection.encode(), error);
+    } catch (...) {
+        error = L"无法导出公共配置，请检查连接字段。 / Invalid public connection fields.";
+        return false;
+    }
 }
 } // namespace vpn

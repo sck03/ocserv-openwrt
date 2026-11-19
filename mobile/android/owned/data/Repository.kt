@@ -74,7 +74,7 @@ class Repository private constructor(context: Context) {
     }
 
     /** Upsert and return the saved copy (which has an auto-assigned id if new). */
-    suspend fun saveProfile(profile: VpnProfile): VpnProfile = profileStore.save(profile)
+    suspend fun saveProfile(edit: ProfileEdit): VpnProfile = profileStore.save(edit)
 
     suspend fun reorderProfiles(ids: List<String>) = profileStore.reorder(ids)
 

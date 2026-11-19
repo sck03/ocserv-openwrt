@@ -1,6 +1,6 @@
 #pragma once
 #include "ui.h"
-#include "event_queue.h"
+#include "connection_controller.h"
 #include "preferences_writer.h"
 #include <atomic>
 
@@ -24,7 +24,7 @@ private:
     }
     const Profile *selected() const;
     bool busy() const {
-        return session_ != nullptr;
+        return connection_.active();
     }
     void create_controls();
     void rebuild_menu();
@@ -50,7 +50,7 @@ private:
     void watch_network();
     void stop_network_watch();
     void drain_network_change();
-    void receive(Event event);
+    void consume_event(Event event);
     void drain_events();
     void show_statistics(const Statistics &stats);
     bool claim_instance();
@@ -58,20 +58,18 @@ private:
     PreferencesWriter preferences_writer_;
     Preferences preferences_;
     std::vector<Profile> profiles_;
-    std::unique_ptr<Session> session_;
+    ConnectionController connection_;
     ui::LogWindow log_;
     State state_ = State::Idle;
     SessionStatus status_;
     Statistics statistics_;
-    EventQueue events_;
-    EventCursor cursor_;
     Handle instance_;
     std::wstring instance_name_;
     std::string auto_connect_;
     std::wstring active_gateway_;
     bool active_minimize_ = false;
     bool closing_ = false, tray_added_ = false;
-    bool draining_ = false, system_suspended_ = false;
+    bool system_suspended_ = false;
     bool reload_pending_ = false;
     unsigned timer_tick_ = 0;
     uint64_t network_change_at_ = 0;

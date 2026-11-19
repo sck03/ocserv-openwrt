@@ -156,8 +156,6 @@ window.OcservEasySettings = function ({ t, element, field, array, writable, erro
           t("默认域名", "Default domain"),
           t("可留空。", "Optional."),
         ),
-        flag("split_dns", t("仅 VPN 域名使用隧道 DNS", "Use tunnel DNS for the VPN domain"),
-          t("需要填写默认域名；客户端须支持 DNS 分流。", "Requires a default domain and client support for split DNS.")),
         flag("ping_leases", t("分配地址前检查占用", "Check addresses before assignment"),
           t("通常保持关闭；启用后会增加地址分配检查。", "Usually disabled; enabling adds an address availability check.")),
         textInput("server_cert", t("服务端证书路径", "Server certificate path"),

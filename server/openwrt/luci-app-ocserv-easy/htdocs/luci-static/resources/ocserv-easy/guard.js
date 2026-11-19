@@ -102,20 +102,21 @@ window.OcservEasyGuard = function ({ t, element, array, errors, showReader, butt
           t("核心进程：", "Core process: ") + status(p.running),
         ];
         if (p.supported === false) lines.push(errors.guard_proxy_unsupported);
-        else if (p.proxy !== "openclash") {
+        else {
           lines.push(
             t("VPN 入口：", "VPN ingress: ") + status(p.ingress_ready),
           );
-          if (!p.ingress_ready)
+          if (p.ingress_ready === false)
             lines.push(
               t(
                 "VPN 流量尚未接入代理，请查看接入日志。",
                 "VPN traffic is not connected to the proxy. Check the integration log.",
               ),
             );
-          lines.push("TCP: " + p.tcp_mode + "; UDP: " + p.udp_mode);
+          if (p.tcp_mode || p.udp_mode) lines.push("TCP: " + p.tcp_mode + "; UDP: " + p.udp_mode);
           [
             ["lan_dns_hijack", "DNS"],
+            ["openclash_dns_redirect", "DNS"],
             ["lan_redirect", "Redirect"],
             ["lan_tproxy", "TPROXY"],
           ].forEach(function (item) {

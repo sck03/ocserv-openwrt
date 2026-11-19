@@ -32,11 +32,11 @@ struct ApplicationTestAccess {
         options.authentication_only = true;
         // Deliberately do not start a worker: cancellation cannot finish this
         // controlled session or destroy the window before the assertion.
-        application.session_ = std::make_unique<Session>(
+        application.connection_.session_ = std::make_unique<Session>(
             std::move(profile), &application.store_, Language::Chinese, [](Event) {}, options);
     }
     static void finish_shutdown(Application &application) {
-        application.session_.reset();
+        application.connection_.session_.reset();
         DestroyWindow(application.handle());
     }
 };
@@ -85,13 +85,16 @@ void install_bridge(HWND window) {
 class TestStoreLease {
 public:
     explicit TestStoreLease(const ProfileStore &store)
-        : mutex_(CreateMutexW(nullptr, FALSE, (local_object_name(L"ProfileStore", store.directory()) + L".preferences").c_str())) {
+        : mutex_(CreateMutexW(
+              nullptr, FALSE,
+              (local_object_name(L"ProfileStore", store.directory()) + L".preferences").c_str())) {
         const DWORD result = mutex_ ? WaitForSingleObject(mutex_.get(), 5000) : WAIT_FAILED;
         check(result == WAIT_OBJECT_0 || result == WAIT_ABANDONED, "Could not hold the test store lease");
     }
     ~TestStoreLease() {
         ReleaseMutex(mutex_.get());
     }
+
 private:
     Handle mutex_;
 };
@@ -259,8 +262,8 @@ int wmain(int argc, wchar_t **argv) {
                 Sleep(350);
                 command(main, Chinese);
                 DWORD_PTR response = 0;
-                const bool responsive = SendMessageTimeoutW(main, WM_NULL, 0, 0, SMTO_ABORTIFHUNG,
-                                                            250, &response) != 0;
+                const bool responsive =
+                    SendMessageTimeoutW(main, WM_NULL, 0, 0, SMTO_ABORTIFHUNG, 250, &response) != 0;
                 ReleaseMutex(preference_lease.get());
                 check(responsive, "Preference saving blocked the UI on the store lease");
                 command(main, EditSelected);
@@ -352,15 +355,18 @@ int wmain(int argc, wchar_t **argv) {
                               preferences.selected == original_id,
                           "The stale completed snapshot fixture did not reproduce the ordering");
                     check(ApplicationTestAccess::reload(application, added.id) && writer.flush(error) &&
-                              store.load_metadata(profiles, preferences, error) && preferences.selected == added.id,
+                              store.load_metadata(profiles, preferences, error) &&
+                              preferences.selected == added.id,
                           "Reload failed to persist the final selection after an older snapshot completed");
                     {
                         TestStoreLease lease(store);
                         preferences.auto_connect = added.id;
                         ApplicationTestAccess::queue(application, preferences);
-                        check(store.remove(added.id, error), "Could not remove the obsolete automatic profile");
+                        check(store.remove(added.id, error),
+                              "Could not remove the obsolete automatic profile");
                     }
-                    check(writer.flush(error), "Independent preferences failed to save after profile deletion");
+                    check(writer.flush(error),
+                          "Independent preferences failed to save after profile deletion");
                     writer.take_result();
                     check(ApplicationTestAccess::reload(application) && writer.flush(error) &&
                               store.load_metadata(profiles, preferences, error) && profiles.size() == 1 &&
@@ -413,8 +419,9 @@ int wmain(int argc, wchar_t **argv) {
                     SendMessageW(main, WM_ENDSESSION, TRUE, 0);
                     check(IsWindow(main) != FALSE,
                           "The shutdown fixture did not retain its still-disconnecting session");
-                    check(ProfileStore(root / L"end-session").load_metadata(
-                              saved_profiles, saved_preferences, save_error) && saved_preferences.log_level == 3,
+                    check(ProfileStore(root / L"end-session")
+                                  .load_metadata(saved_profiles, saved_preferences, save_error) &&
+                              saved_preferences.log_level == 3,
                           "Windows end-session returned before persisting preferences of an active session");
                     ApplicationTestAccess::finish_shutdown(ending_application);
                 });

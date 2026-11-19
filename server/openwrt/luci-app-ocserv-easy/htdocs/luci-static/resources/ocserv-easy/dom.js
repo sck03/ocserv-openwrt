@@ -19,6 +19,7 @@
       else node.setAttribute(key, attrs[key]);
     });
     (children || []).forEach(function (child) {
+      if (child == null || child === false) return;
       node.appendChild(
         typeof child === "string" ? document.createTextNode(child) : child,
       );

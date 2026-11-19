@@ -23,6 +23,7 @@
     onlineList = null,
     onlineError = null;
   var onlineCounts = Object.create(null);
+  var onlineLoadedGeneration = null;
   var statusKey = null,
     modalCleanup = null,
     modalTrigger = null;
@@ -89,6 +90,7 @@
     ++loadGeneration;
     loadRead.cancel();
     statusRead.cancel();
+    onlineRead.cancel();
     var controls = Array.from(
       root.querySelectorAll("button,input,select,textarea"),
     ).map(function (node) {
@@ -150,6 +152,7 @@
     modalCleanup = cleanup;
     loadRead.cancel();
     statusRead.cancel();
+    onlineRead.cancel();
     var errorBox = element("div", {
       className: "easy-notice error",
       hidden: true,
@@ -544,7 +547,7 @@
     renderOnline();
     var key = JSON.stringify([
       state.running,
-      array(state.online).length,
+      state.online_count,
       state.online_error,
       array(state.users).length,
     ]);
@@ -559,7 +562,7 @@
       ],
       [
         t("在线连接", "Online connections"),
-        state.online_error ? "—" : String(array(state.online).length),
+        state.online_error ? "—" : String(state.online_count),
         "",
       ],
       [t("登录账号", "Accounts"), String(array(state.users).length), ""],
@@ -604,7 +607,9 @@
     // Reselecting a tab must not discard its unsaved form or list nodes.
     if (activeTab === tab) return;
     activeTab = tab;
+    onlineRead.cancel();
     renderTab();
+    if (tab === "users") refreshOnline();
   }
   function render() {
     removeModal();
@@ -743,6 +748,7 @@
   }
   var loadRead = readSlot("data"),
     statusRead = readSlot("status"),
+    onlineRead = readSlot("online"),
     loadGeneration = 0,
     formEdited = false,
     backgroundRefresh = false;
@@ -755,20 +761,56 @@
   root.addEventListener("input", edited);
   root.addEventListener("change", edited);
   document.addEventListener("visibilitychange", function () {
-    if (document.hidden) statusRead.cancel();
+    if (document.hidden) {
+      statusRead.cancel();
+      onlineRead.cancel();
+    }
   });
   function load(preserveDialog) {
     statusRead.cancel();
+    onlineRead.cancel();
     return loadRead.run(function (data) {
-      if (data.api_version !== 2 || !data.permissions) throw { code: "interface_mismatch" };
+      if (data.api_version !== 3 || !data.permissions) throw { code: "interface_mismatch" };
       backgroundRefresh = false;
       state = data;
+      onlineLoadedGeneration = data.online_generation;
       if (preserveDialog && readerOpen) {
         renderStatus();
         renderTab();
       } else render();
       return true;
     });
+  }
+  async function refreshOnline(retry) {
+    if (activeTab !== "users" || busy || document.hidden || !state || state.online_error ||
+        (modal && !readerOpen) || (onlineLoadedGeneration === state.online_generation &&
+          state.online_generation !== "uncached")) return;
+    var owner = state, generation = loadGeneration, expected = state.online_generation;
+    function current() {
+      return state === owner && generation === loadGeneration && !busy && !document.hidden &&
+        activeTab === "users" && !(modal && !readerOpen);
+    }
+    try {
+      var consumed = await onlineRead.run(function (data) {
+        if (!current()) return false;
+        if (state.online_generation !== expected && data.online_generation !== state.online_generation) return false;
+        state.online = data.online;
+        state.online_count = data.online_count;
+        state.online_generation = data.online_generation;
+        state.online_error = data.online_error;
+        onlineLoadedGeneration = data.online_error ? null : data.online_generation;
+        renderStatus();
+        return true;
+      });
+      if (consumed === false && !retry && current() && state.online_generation !== expected)
+        await refreshOnline(true);
+    } catch (_) {
+      if (current()) {
+        state.online_error = true;
+        onlineLoadedGeneration = null;
+        renderStatus();
+      }
+    }
   }
   var statusPending = false;
   setInterval(async function () {
@@ -805,8 +847,13 @@
       }
       if (!current) return;
       state.running = current.running;
-      state.online = current.online;
+      state.online_count = current.online_count;
+      state.online_generation = current.online_generation;
       state.online_error = current.online_error;
+      if (!current.running) {
+        state.online = [];
+        onlineLoadedGeneration = current.online_generation;
+      }
       if (state.recovery_pending !== current.recovery_pending) {
         state.recovery_pending = current.recovery_pending;
         if (state.recovery_pending) notice(errors.recovery_pending, true);
@@ -824,6 +871,7 @@
       if (previous !== (state.guard && state.guard.phase))
         backgroundRefresh = true;
       renderStatus();
+      await refreshOnline();
       if (
         !formEdited &&
         state.guard &&

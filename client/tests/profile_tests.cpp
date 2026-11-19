@@ -1,5 +1,6 @@
 #include "profile.h"
 #include "preferences_writer.h"
+#include "hotp_counter.h"
 #include "vendor/json.hpp"
 #include <algorithm>
 #include <iostream>
@@ -28,11 +29,14 @@ int main(int argc, char **argv) {
             ProfileStore imports(root / L"corpus");
             Profile imported;
             const std::filesystem::path corpus(argv[2]);
-            check(imports.import_connection(corpus / "pinned.vpn.fixture", imported, error) && imported.fixed_pin,
+            check(imports.import_connection(corpus / "pinned.vpn.fixture", imported, error) &&
+                      imported.fixed_pin,
                   "shared pinned profile");
-            check(imports.import_connection(corpus / "prompt.vpn.fixture", imported, error) && imported.server_pin.empty(),
+            check(imports.import_connection(corpus / "prompt.vpn.fixture", imported, error) &&
+                      imported.server_pin.empty(),
                   "shared first-connection profile");
-            check(!imports.import_connection(corpus / "ambiguous.vpn.fixture", imported, error), "shared ambiguous policy");
+            check(!imports.import_connection(corpus / "ambiguous.vpn.fixture", imported, error),
+                  "shared ambiguous policy");
         }
         check(normalize_gateway(L"192.168.19.253:4443", normalized, &origin) &&
                   normalized == L"https://192.168.19.253:4443",
@@ -87,8 +91,9 @@ int main(int argc, char **argv) {
         const auto short_size = credential_source.password.size();
         const char *short_storage = credential_source.password.data();
         Profile credential_moved = std::move(credential_source);
-        check(credential_moved.password == "short-secret" && credential_moved.token == std::string(128, 't') &&
-                  credential_source.password.empty() && credential_source.token.empty(),
+        check(credential_moved.password == "short-secret" &&
+                  credential_moved.token == std::string(128, 't') && credential_source.password.empty() &&
+                  credential_source.token.empty(),
               "credential move did not transfer and clear the source");
         if (credential_source.password.data() == short_storage) {
             check(std::all_of(short_storage, short_storage + short_size,
@@ -97,7 +102,8 @@ int main(int argc, char **argv) {
         }
         credential_target = std::move(credential_moved);
         credential_target = credential_target;
-        check(credential_target.password == "short-secret" && credential_target.password_blob == "opaque-password" &&
+        check(credential_target.password == "short-secret" &&
+                  credential_target.password_blob == "opaque-password" &&
                   credential_target.token_blob == "opaque-token" && credential_moved.password.empty(),
               "credential move/self assignment lost values");
 
@@ -108,7 +114,8 @@ int main(int argc, char **argv) {
               "an unstarted preference writer accepted work that could not complete");
         writer.start({});
         Handle preference_lease(CreateMutexW(
-            nullptr, TRUE, (local_object_name(L"ProfileStore", async_store.directory()) + L".preferences").c_str()));
+            nullptr, TRUE,
+            (local_object_name(L"ProfileStore", async_store.directory()) + L".preferences").c_str()));
         Preferences async_preferences;
         async_preferences.language = Language::English;
         check(writer.request(async_preferences, error), "preference request was rejected");
@@ -134,7 +141,8 @@ int main(int argc, char **argv) {
         }
         writer.stop();
         check(!writer.request(async_preferences, error), "a stopped preference writer accepted more work");
-        check(async_store.load_metadata(async_profiles, saved_preferences, error) && saved_preferences.log_level == 3,
+        check(async_store.load_metadata(async_profiles, saved_preferences, error) &&
+                  saved_preferences.log_level == 3,
               "writer shutdown dropped the last queued preferences");
         check(write_atomic(async_store.directory() / L"preferences.json", "{corrupt", error),
               "asynchronous failure fixture creation");
@@ -218,8 +226,8 @@ int main(int argc, char **argv) {
                   CompareFileTime(&marker, &attributes.ftLastWriteTime) == 0,
               "identical preferences rewrote the file");
         {
-            Handle locked(CreateFileW((store.directory() / L"profiles.json").c_str(), GENERIC_READ,
-                                      0, nullptr, OPEN_EXISTING, 0, nullptr));
+            Handle locked(CreateFileW((store.directory() / L"profiles.json").c_str(), GENERIC_READ, 0,
+                                      nullptr, OPEN_EXISTING, 0, nullptr));
             check(locked.get() != INVALID_HANDLE_VALUE, "could not exclusively lock the profile fixture");
             preferences.log_level = 2;
             check(store.save_preferences(preferences, error),
@@ -248,11 +256,34 @@ int main(int argc, char **argv) {
               "public vpn import");
         ProfileStore concurrent(root / L"concurrent-import");
         Profile base;
-        base.name = L"Existing"; base.gateway = L"https://base.example.com";
+        base.name = L"Existing";
+        base.gateway = L"https://base.example.com";
         check(concurrent.save(base, error), "concurrent import fixture");
         auto ca_import = root / L"public-ca.vpn";
-        check(write_atomic(ca_import, "[VPN]\nVersion=1\nTrust=ca\nName=Imported CA\nServer=https://fixture.example.com\nCABase64=LS0tLS1CRUdJTiBDRVJUSUZJQ0FURS0tLS0tCk1JSUNxekNDQVpPZ0F3SUJBZ0lCQVRBTkJna3Foa2lHOXcwQkFRc0ZBREFaTVJjd0ZRWURWUVFEREE1eVpYWnAKWlhjdFptbDRkSFZ5WlRBZUZ3MHlOakV3TWpNeU1ERTROVFJhRncweU5qRXdNalV5TURFNE5UUmFNQmt4RnpBVgpCZ05WQkFNTURuSmxkbWxsZHkxbWFYaDBkWEpsTUlJQklqQU5CZ2txaGtpRzl3MEJBUUVGQUFPQ0FROEFNSUlCCkNnS0NBUUVBc3luZk1jU0Q0TStCTHJ5ZEJDZmxuTVRaYzFSRkZ1ZTQzR09QY3lVbmNVaGNzZFYzYk50bXhLU0gKNUVrVWxMQnVSUzJIeFNFNEFqeUdwNGZrNGdBMXF3MVZ4ZmszU3N5VTdXTkZobVd0d1M3UEFVaGF5YlBZemE1QwoybjMvS21LRXQza25aV24vTGl1RXR5NUM4c3plcTdYYXMrYi9RSzd4aUxQV3N0NXM4MUlvZWRTK1FjbnFVejZ4CjhMWmthQnZwSGd4RTN5M3JSNHdQcUhUVVZOKzF4V25TN2d5WmFqVytjc1d2V2xBOGJZQ3ZEWU5acytucVcwRzkKRkFNcEpQSVhucUpVVnlVaVBNZ2hBYWxiZDlVVFFRWVBleXBYNnpyMWFHR0o4ZmxzbEtmcDNEdXF3SXBPL2E5dwpuVG1Zc0xsemNQRzRPdVV5enJYamlKWVVKb1lyeXdJREFRQUJNQTBHQ1NxR1NJYjNEUUVCQ3dVQUE0SUJBUUIwCk1xZ1BoYS9PUy9sSnRXWjF5aVpHQ1pmK3BoSlVnelQ3L21QeEFOaFFwK1BKTS9rSGc4L2JtSENMbThVM0s3a3IKQVFrTVJyYWpCT2xGQkNRNmxjczlYWXBDbUpValFkczV0bEtkTW05ckcxZjArMmZGMWZ0N1lSU2lFMGltd1ZJYQpWUi9lM1M0dU1pREptTG5OczU3a1Z4dkpNNmthMVNjWlpMZmRNWlduZ0RWOFFjQ2hsMXlkS0xSNE5IMW1LWDZECndFY2VRZU16N3RHQ0kvWkg2MFN2cnVVV0lGWVl1cjhjNm1iNUdaNW14Y1F5VXpnR0Zjbjl5Zk02V3NjY3hCbHQKd0VaN2dkQVJ2QVNCY3VPU1pueXd4aXdHTmt5TVRaczMyZmordkRvNktabjQrM3d1bUtja3JHblVHaVk2dW1hZgplbU82a1dHenRHby9MeWFSbFJnbAotLS0tLUVORCBDRVJUSUZJQ0FURS0tLS0tCg==\n", error), "public CA import fixture");
-        Handle lease(CreateMutexW(nullptr, TRUE, local_object_name(L"ProfileStore", concurrent.directory()).c_str()));
+        check(write_atomic(
+                  ca_import,
+                  "[VPN]\nVersion=1\nTrust=ca\nName=Imported "
+                  "CA\nServer=https://"
+                  "fixture.example.com\nCABase64="
+                  "LS0tLS1CRUdJTiBDRVJUSUZJQ0FURS0tLS0tCk1JSUNxekNDQVpPZ0F3SUJBZ0lCQVRBTkJna3Foa2lHOXcwQkFRc0"
+                  "ZBREFaTVJjd0ZRWURWUVFEREE1eVpYWnAKWlhjdFptbDRkSFZ5WlRBZUZ3MHlOakV3TWpNeU1ERTROVFJhRncweU5q"
+                  "RXdNalV5TURFNE5UUmFNQmt4RnpBVgpCZ05WQkFNTURuSmxkbWxsZHkxbWFYaDBkWEpsTUlJQklqQU5CZ2txaGtpRz"
+                  "l3MEJBUUVGQUFPQ0FROEFNSUlCCkNnS0NBUUVBc3luZk1jU0Q0TStCTHJ5ZEJDZmxuTVRaYzFSRkZ1ZTQzR09QY3lV"
+                  "bmNVaGNzZFYzYk50bXhLU0gKNUVrVWxMQnVSUzJIeFNFNEFqeUdwNGZrNGdBMXF3MVZ4ZmszU3N5VTdXTkZobVd0d1"
+                  "M3UEFVaGF5YlBZemE1QwoybjMvS21LRXQza25aV24vTGl1RXR5NUM4c3plcTdYYXMrYi9RSzd4aUxQV3N0NXM4MUlv"
+                  "ZWRTK1FjbnFVejZ4CjhMWmthQnZwSGd4RTN5M3JSNHdQcUhUVVZOKzF4V25TN2d5WmFqVytjc1d2V2xBOGJZQ3ZEWU"
+                  "5acytucVcwRzkKRkFNcEpQSVhucUpVVnlVaVBNZ2hBYWxiZDlVVFFRWVBleXBYNnpyMWFHR0o4ZmxzbEtmcDNEdXF3"
+                  "SXBPL2E5dwpuVG1Zc0xsemNQRzRPdVV5enJYamlKWVVKb1lyeXdJREFRQUJNQTBHQ1NxR1NJYjNEUUVCQ3dVQUE0SU"
+                  "JBUUIwCk1xZ1BoYS9PUy9sSnRXWjF5aVpHQ1pmK3BoSlVnelQ3L21QeEFOaFFwK1BKTS9rSGc4L2JtSENMbThVM0s3"
+                  "a3IKQVFrTVJyYWpCT2xGQkNRNmxjczlYWXBDbUpValFkczV0bEtkTW05ckcxZjArMmZGMWZ0N1lSU2lFMGltd1ZJYQ"
+                  "pWUi9lM1M0dU1pREptTG5OczU3a1Z4dkpNNmthMVNjWlpMZmRNWlduZ0RWOFFjQ2hsMXlkS0xSNE5IMW1LWDZECndF"
+                  "Y2VRZU16N3RHQ0kvWkg2MFN2cnVVV0lGWVl1cjhjNm1iNUdaNW14Y1F5VXpnR0Zjbjl5Zk02V3NjY3hCbHQKd0VaN2"
+                  "dkQVJ2QVNCY3VPU1pueXd4aXdHTmt5TVRaczMyZmordkRvNktabjQrM3d1bUtja3JHblVHaVk2dW1hZgplbU82a1dH"
+                  "enRHby9MeWFSbFJnbAotLS0tLUVORCBDRVJUSUZJQ0FURS0tLS0tCg==\n",
+                  error),
+              "public CA import fixture");
+        Handle lease(
+            CreateMutexW(nullptr, TRUE, local_object_name(L"ProfileStore", concurrent.directory()).c_str()));
         Handle entered(CreateEventW(nullptr, TRUE, FALSE, nullptr));
         Profile imported_ca;
         bool import_ok = false;
@@ -272,12 +303,15 @@ int main(int argc, char **argv) {
         Profile rejected_import;
         const bool rejected = !concurrent.import_connection(ca_import, rejected_import, error);
         size_t certificate_count = 0;
-        for (const auto &entry : std::filesystem::directory_iterator(concurrent.directory() / L"certificates"))
-            if (entry.is_regular_file()) ++certificate_count;
+        for (const auto &entry :
+             std::filesystem::directory_iterator(concurrent.directory() / L"certificates"))
+            if (entry.is_regular_file())
+                ++certificate_count;
         check(rejected && certificate_count == 1 && std::filesystem::exists(imported_ca.ca_file),
               "failed import left an orphan or removed another profile's CA");
         check(store.load_metadata(profiles, preferences, error) && profiles.front().password.empty() &&
-                  !profiles.front().password_blob.empty(), "metadata refresh decrypted stored credentials");
+                  !profiles.front().password_blob.empty(),
+              "metadata refresh decrypted stored credentials");
         ProfileStore::unlock(profiles.front());
         check(profiles.front().password == "New fixture password" && !profiles.front().secret_unavailable,
               "selected metadata credentials could not be unlocked");
@@ -302,12 +336,48 @@ int main(int argc, char **argv) {
         first.gateway = L"new-pinned.example.com";
         first.server_pin = explicit_pin;
         first.fixed_pin = true;
-        check(store.save(first, error, ProfileStore::PinInput::Explicit) && store.load(profiles, preferences, error) &&
+        ProfileEdits pin_edit;
+        pin_edit.pin = true;
+        check(store.save(first, error, pin_edit) && store.load(profiles, preferences, error) &&
                   profiles.front().fixed_pin && profiles.front().server_pin == explicit_pin,
               "explicit pin for replacement gateway survives reopening");
         first.gateway = L"other.example.com";
         check(store.save(first, error) && !first.fixed_pin && first.server_pin.empty(),
               "changing gateway without an explicit pin clears inherited trust");
+        first.gateway = L"explicit-credentials.example.com";
+        first.username = "new-user";
+        first.group = "new-group";
+        first.token_type = 3;
+        first.token = "base32:JBSWY3DPEHPK3PXP,4";
+        ProfileEdits credential_edit;
+        credential_edit.username = credential_edit.group = credential_edit.token = true;
+        check(store.save(first, error, credential_edit) && store.load(profiles, preferences, error) &&
+                  profiles.front().username == "new-user" && profiles.front().group == "new-group" &&
+                  profiles.front().token == first.token,
+              "new explicit credentials survive an origin change");
+        std::string next_token;
+        check(next_hotp_counter(first.token, next_token) && next_token == "base32:JBSWY3DPEHPK3PXP,5",
+              "HOTP next counter");
+        check(store.reserve_hotp(first.id, first.gateway, first.token, next_token, error) &&
+                  !store.reserve_hotp(first.id, first.gateway, first.token, next_token, error),
+              "HOTP reservation rejects a reused counter");
+        check(store.load(profiles, preferences, error) && profiles.front().token == next_token,
+              "HOTP reservation is durable before authentication");
+        std::string after_token;
+        check(next_hotp_counter(next_token, after_token), "next HOTP test counter");
+        const auto token_file = store.directory() / L"profiles.json";
+        check(SetFileAttributesW(token_file.c_str(), FILE_ATTRIBUTE_READONLY), "read-only HOTP fixture");
+        const bool reserved = store.reserve_hotp(first.id, first.gateway, next_token, after_token, error);
+        SetFileAttributesW(token_file.c_str(), FILE_ATTRIBUTE_NORMAL);
+        check(!reserved && store.load(profiles, preferences, error) && profiles.front().token == next_token,
+              "a failed HOTP write preserves the previous counter and reports failure");
+        for (const auto &invalid :
+             {"base32:SECRET", "base32:SECRET,-1", "base32:SECRET,2147483647",
+              "otpauth://hotp/test?counter=1&counter=2", "otpauth://hotp/test?counter=x"})
+            check(!next_hotp_counter(invalid, after_token), "invalid HOTP counters rejected");
+        check(next_hotp_counter("otpauth://hotp/test?secret=ABC&counter=9&issuer=Fixture", after_token) &&
+                  after_token == "otpauth://hotp/test?secret=ABC&counter=10&issuer=Fixture",
+              "HOTP URI preserves other fields");
         auto path = store.directory() / L"profiles.json";
         check(write_atomic(path, "{invalid fixture JSON", error), "write corrupt fixture");
         check(!store.load(profiles, preferences, error) && store.save_preferences(preferences, error),

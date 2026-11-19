@@ -35,7 +35,7 @@ function M.online()
         if not id or id % 1 ~= 0 or id < 1 or id > 2147483647 or seen[id] then return false end
         seen[id] = true
         local ipv4 = text(row.IPv4)
-        rows[#rows + 1] = {id = tostring(id), name = text(row.Username, 64), group = text(row.Groupname),
+        rows[#rows + 1] = {id = tostring(id), name = text(row.Username, 64),
             ip = text(row["Remote IP"]), vpn_ip = ipv4 ~= "" and ipv4 or text(row.IPv6),
             since = text(row["Last connected at"]), state = text(row.State, 32)}
     end)

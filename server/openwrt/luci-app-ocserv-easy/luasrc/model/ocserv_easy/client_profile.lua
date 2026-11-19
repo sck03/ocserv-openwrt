@@ -4,26 +4,21 @@ local logic = require "ocserv.logic"
 local M = {}
 local targets = {
     {id="windows",label="Windows",modes={"pin","profile","address"}},
-    {id="android",label="Android",modes={"pin","profile","address"},split_dns=false},
+    {id="android",label="Android",modes={"pin","profile","address"}},
     {id="macos",label="macOS",modes={"pin"}},
     {id="ios",label="iOS",modes={"pin"}},
     {id="linux",label="Linux",modes={"profile","address"}},
 }
-local function unavailable(target, settings)
-    if target.split_dns==false and settings.split_dns=="1" then return "unsupported_client_dns" end
-end
-function M.targets(settings)
+function M.targets()
     local result={}
     for _,target in ipairs(targets) do
-        result[#result+1]={id=target.id,label=target.label,modes=target.modes,unavailable=unavailable(target,settings)}
+        result[#result+1]={id=target.id,label=target.label,modes=target.modes}
     end
     return result
 end
-function M.require_target(platform,settings)
+function M.require_target(platform)
     for _,target in ipairs(targets) do
         if target.id==platform then
-            local reason=unavailable(target,settings)
-            if reason then logic.fail(reason) end
             return target
         end
     end
@@ -32,7 +27,7 @@ end
 function M.validate(server, mode, platform, settings)
     local normalized, cert_mode = logic.validate_client_profile(server, mode)
     platform = platform or "windows"
-    local target=M.require_target(platform,settings)
+    local target=M.require_target(platform)
     logic.validate_dns(normalized,settings.ip6addr,settings.dns)
     for _,supported in ipairs(target.modes) do
         if supported==cert_mode then return normalized,cert_mode,platform end

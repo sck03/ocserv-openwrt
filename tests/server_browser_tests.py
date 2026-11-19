@@ -51,7 +51,7 @@ def main():
     args = parser.parse_args()
     for proxy in (('OpenClash', 'Nikki', 'Momo') if args.all_proxies else ('OpenClash',)):
         suites = ['server_ui_tests']
-        if proxy == 'OpenClash': suites += ['server_table_tests', 'server_polling_tests']
+        if proxy == 'OpenClash': suites += ['server_table_tests', 'server_polling_tests', 'server_online_tests']
         for suite in suites:
             with preview(proxy) as url:
                 command = [sys.executable, '-B', str(ROOT / 'tests' / (suite + '.py')), '--url', url, '--browser-channel', args.browser_channel]

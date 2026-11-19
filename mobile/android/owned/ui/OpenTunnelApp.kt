@@ -55,7 +55,6 @@ fun OpenTunnelApp(
     val context = LocalContext.current
 
     val status by viewModel.status.collectAsStateWithLifecycle()
-    val stats by viewModel.stats.collectAsStateWithLifecycle()
     val logs by viewModel.logs.collectAsStateWithLifecycle()
     val profile by viewModel.profile.collectAsStateWithLifecycle()
     val profiles by viewModel.profiles.collectAsStateWithLifecycle()
@@ -127,7 +126,7 @@ fun OpenTunnelApp(
                 composable(Routes.HOME) {
                     dev.opentunnel.vpn.ui.screens.MainPagerScreen(
                         status = status,
-                        stats = stats,
+                        trafficStats = viewModel.stats,
                         logs = logs,
                         profile = profile,
                         profiles = profiles,
@@ -174,6 +173,7 @@ fun OpenTunnelApp(
                         onGrantUsageAccess = viewModel::openUsageAccessSettings,
                         onRefreshPermission = viewModel::checkUsageAccessPermission,
                         onTrafficVisibilityChanged = viewModel::setTrafficVisible,
+                        onStatisticsVisibilityChanged = viewModel::setStatisticsVisible,
                     )
                 }
 

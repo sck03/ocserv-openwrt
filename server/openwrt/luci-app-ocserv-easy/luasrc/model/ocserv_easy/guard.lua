@@ -187,7 +187,6 @@ local function plan(c,info)
     option("ocserv","config","ipaddr",info.pool)
     option("ocserv","config","netmask",logic.mask(info.prefix))
     option("ocserv","config","ip6addr",false)
-    option("ocserv","config","split_dns","0")
     c:foreach("ocserv","dns",function(s) whole("ocserv",s[".name"],false) end)
     c:foreach("ocserv","routes",function(s) whole("ocserv",s[".name"],false) end)
     logic.require(not c:get("ocserv","lansyra_guard_dns"),"guard_section_conflict")
@@ -205,7 +204,6 @@ local function plan(c,info)
     -- Leave the listener dual-stack. The input rules restrict access to VPN
     -- ports, including when an upstream router routes public IPv6 to the N1.
     lines[#lines+1]="no-route = "..info.lan_network.."/"..info.lan_mask
-    lines[#lines+1]="tunnel-all-dns = true"
     state.files[1]={path="/etc/ocserv/ocserv.conf.local",before=extra or false,after=table.concat(lines,"\n").."\n"}
     local template=read("/usr/share/ocserv-easy/guard.nft.in")
     logic.require(template and not fs.stat(rulefile),"guard_section_conflict")

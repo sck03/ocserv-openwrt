@@ -34,6 +34,7 @@ except Exception as error:
     raise
 report = {'runtime': 'Lua 5.1', 'passed': len(names), 'cases': names, 'boundary': 'OpenWrt UCI/nixio/occtl are simulated; no router modified'}
 report['cache_reuse'] = dict(lua.globals().TEST_CACHE_REUSE.items())
+report['summary_reuse'] = dict(lua.globals().TEST_SUMMARY_REUSE.items())
 destination = ROOT / 'test-results/server-regressions.json'
 destination.parent.mkdir(exist_ok=True)
 destination.write_text(json.dumps(report, ensure_ascii=False, indent=2)+'\n', encoding='utf-8')

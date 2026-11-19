@@ -114,6 +114,22 @@ class ProxyRuntimeTests(unittest.TestCase):
         state = self.proxy.diagnostics(self.lua.globals().cursor, "nikki")
         self.assertFalse(state.targets.lan_redirect.ports[1].tcp)
 
+    def test_openclash_reports_real_dns_ports_without_claiming_ingress(self):
+        self.target('fw4', 'openclash_dns_redirect', 18553)
+        self.files['/proc/net/tcp'] = socket_row(18553)
+        state = self.proxy.diagnostics(self.lua.globals().cursor, 'openclash')
+        self.assertTrue(state.running)
+        self.assertIsNone(state.ingress_ready)
+        dns = state.targets.openclash_dns_redirect.ports[1]
+        self.assertEqual((dns.port, dns.tcp, dns.udp), (18553, True, False))
+
+    def test_openclash_process_without_dns_rules_is_explicitly_incomplete(self):
+        state = self.proxy.diagnostics(self.lua.globals().cursor, 'openclash')
+        self.assertTrue(state.running)
+        self.assertFalse(state.targets.openclash_dns_redirect.available)
+        self.assertEqual(len(state.targets.openclash_dns_redirect.ports), 0)
+        self.assertEqual(self.opened, [])
+
     def test_tproxy_uses_its_generated_port_and_udp_listener(self):
         self.settings[("proxy", "udp_mode")] = "tproxy"
         self.target("momo", "lan_tproxy", 32092, "tproxy")

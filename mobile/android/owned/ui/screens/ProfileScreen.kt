@@ -63,6 +63,8 @@ import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import dev.opentunnel.vpn.data.AppLanguage
 import dev.opentunnel.vpn.data.VpnProfile
+import dev.opentunnel.vpn.data.ProfileEdit
+import dev.opentunnel.vpn.data.ProfileField
 import dev.opentunnel.vpn.ui.components.SectionCard
 import dev.opentunnel.vpn.util.HapticHelper
 import dev.opentunnel.vpn.util.RememberScrollHaptic
@@ -101,7 +103,7 @@ fun ProfileScreen(
     profile: VpnProfile,
     appLanguage: AppLanguage = AppLanguage.SYSTEM,
     hapticFeedbackEnabled: Boolean = true,
-    onSave: suspend (VpnProfile) -> VpnProfile,
+    onSave: suspend (ProfileEdit) -> VpnProfile,
     onDelete: (suspend (String) -> Unit)? = null,
     onForgetCertificate: suspend (String, String) -> Unit,
     onBack: () -> Unit,
@@ -111,6 +113,7 @@ fun ProfileScreen(
     var draft by remember(profile.id) { mutableStateOf(profile) }
     var dnsText by remember(profile.id) { mutableStateOf(profile.customDnsServers.joinToString("\n")) }
     var baseline by remember(profile.id) { mutableStateOf(profile) }
+    var editedFields by remember(profile.id) { mutableStateOf(emptySet<ProfileField>()) }
     var busy by remember(profile.id) { mutableStateOf(false) }
     var operationError by remember(profile.id) { mutableStateOf<String?>(null) }
     val scope = rememberCoroutineScope()
@@ -141,7 +144,7 @@ fun ProfileScreen(
             operationError = null
             scope.launch {
                 try {
-                    val saved = onSave(submitted.copy(name = submitted.name.trim(), server = submitted.server.trim()))
+                    val saved = onSave(ProfileEdit(submitted.copy(name = submitted.name.trim(), server = submitted.server.trim()), editedFields))
                     val unchanged = draft == submitted
                     baseline = saved
                     draft = if (unchanged) saved else draft.copy(id = saved.id,
@@ -171,13 +174,13 @@ fun ProfileScreen(
     BackHandler(onBack = handleBackNavigation)
 
     val caCertLauncher = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
-        uri?.let { draft = draft.copy(caCertPath = it.toString(), trustedCertificate = "") }
+        uri?.let { editedFields += setOf(ProfileField.CA, ProfileField.PIN); draft = draft.copy(caCertPath = it.toString(), trustedCertificate = "") }
     }
     val userCertLauncher = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
-        uri?.let { draft = draft.copy(userCertPath = it.toString()) }
+        uri?.let { editedFields += ProfileField.CERTIFICATE; draft = draft.copy(userCertPath = it.toString()) }
     }
     val privateKeyLauncher = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
-        uri?.let { draft = draft.copy(privateKeyPath = it.toString()) }
+        uri?.let { editedFields += ProfileField.KEY; draft = draft.copy(privateKeyPath = it.toString()) }
     }
 
     Scaffold(
@@ -253,9 +256,7 @@ fun ProfileScreen(
                         placeholder = { Text("vpn.example.com") },
                         singleLine = true,
                         isError = triedSaving && serverError,
-                        supportingText = if (triedSaving && serverError) {
-                            { Text(Strings.fieldRequired(lang), color = MaterialTheme.colorScheme.error) }
-                        } else null,
+                        supportingText = { Text(if (triedSaving && serverError) Strings.fieldRequired(lang) else Strings.serverCredentials(lang)) },
                         keyboardOptions = KeyboardOptions(
                             keyboardType = KeyboardType.Uri,
                             imeAction = ImeAction.Next,
@@ -283,7 +284,7 @@ fun ProfileScreen(
                     OutlinedTextField(
                         value = draft.username,
                         enabled = !busy,
-                        onValueChange = { draft = draft.copy(username = it) },
+                        onValueChange = { editedFields += ProfileField.USERNAME; draft = draft.copy(username = it) },
                         label = { Text(Strings.username(lang)) },
                         singleLine = true,
                         keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
@@ -292,9 +293,19 @@ fun ProfileScreen(
                     )
 
                     OutlinedTextField(
+                        value = draft.authGroup,
+                        enabled = !busy,
+                        onValueChange = { editedFields += ProfileField.GROUP; draft = draft.copy(authGroup = it) },
+                        label = { Text(Strings.authGroup(lang)) },
+                        singleLine = true,
+                        shape = MaterialTheme.shapes.small,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+
+                    OutlinedTextField(
                         value = draft.password,
                         enabled = !busy,
-                        onValueChange = { draft = draft.copy(password = it) },
+                        onValueChange = { editedFields += ProfileField.PASSWORD; draft = draft.copy(password = it) },
                         label = { Text(Strings.password(lang)) },
                         supportingText = { Text("Leave blank to keep the saved password. Turn off Save password to remove it.") },
                         singleLine = true,
@@ -337,7 +348,7 @@ fun ProfileScreen(
                         OutlinedTextField(
                             value = draft.tokenString,
                             enabled = !busy,
-                            onValueChange = { draft = draft.copy(tokenString = it) },
+                            onValueChange = { editedFields += ProfileField.TOKEN; draft = draft.copy(tokenString = it) },
                             label = { Text(Strings.tokenString(lang)) },
                             supportingText = { Text("Leave blank to keep the saved token. Disable software token to remove it.") },
                             singleLine = true,
@@ -347,11 +358,11 @@ fun ProfileScreen(
                     }
 
                     CertificateField(Strings.caCertificate(lang), draft.caCertPath.isNotEmpty(), !busy,
-                        onSelect = { caCertLauncher.launch("*/*") }, onClear = { draft = draft.copy(caCertPath = "") })
+                        onSelect = { caCertLauncher.launch("*/*") }, onClear = { editedFields += ProfileField.CA; draft = draft.copy(caCertPath = "") })
                     CertificateField(Strings.userCertificate(lang), draft.userCertPath.isNotEmpty(), !busy,
-                        onSelect = { userCertLauncher.launch("*/*") }, onClear = { draft = draft.copy(userCertPath = "") })
+                        onSelect = { userCertLauncher.launch("*/*") }, onClear = { editedFields += ProfileField.CERTIFICATE; draft = draft.copy(userCertPath = "") })
                     CertificateField(Strings.privateKey(lang), draft.privateKeyPath.isNotEmpty(), !busy,
-                        onSelect = { privateKeyLauncher.launch("*/*") }, onClear = { draft = draft.copy(privateKeyPath = "") })
+                        onSelect = { privateKeyLauncher.launch("*/*") }, onClear = { editedFields += ProfileField.KEY; draft = draft.copy(privateKeyPath = "") })
 
                     CheckboxLine(
                         title = "Save password",
@@ -502,7 +513,10 @@ fun ProfileScreen(
                             value = draft.trustedCertificate,
                             enabled = !busy,
                             singleLine = true,
-                            onValueChange = { pin -> draft = draft.copy(trustedCertificate = pin.trim(), caCertPath = if (pin.isBlank()) draft.caCertPath else "") },
+                            onValueChange = { pin ->
+                                editedFields += setOf(ProfileField.PIN, ProfileField.CA)
+                                draft = draft.copy(trustedCertificate = pin.trim(), caCertPath = if (pin.isBlank()) draft.caCertPath else "")
+                            },
                             label = { Text("pin-sha256:…") },
                             supportingText = { Text("填写管理员核实的指纹；指定 CA 或指纹校验失败会拒绝连接。 / Verify the pin with your administrator.") },
                             modifier = Modifier.padding(16.dp).fillMaxWidth(),

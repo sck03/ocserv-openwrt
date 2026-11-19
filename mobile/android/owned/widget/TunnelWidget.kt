@@ -30,11 +30,15 @@ open class TunnelWidget : AppWidgetProvider() {
         appWidgetManager: AppWidgetManager,
         appWidgetIds: IntArray,
     ) {
+        VpnBus.setWidgetStatisticsPresent(hasWidgets(context))
         val state = buildWidgetState()
         appWidgetIds.forEach { id ->
             updateWidget(context, appWidgetManager, id, layoutResId, state)
         }
     }
+
+    override fun onEnabled(context: Context) { VpnBus.setWidgetStatisticsPresent(true) }
+    override fun onDisabled(context: Context) { VpnBus.setWidgetStatisticsPresent(hasWidgets(context)) }
 
     override fun onReceive(context: Context, intent: Intent) {
         super.onReceive(context, intent)
@@ -59,6 +63,13 @@ open class TunnelWidget : AppWidgetProvider() {
 
     companion object {
         const val ACTION_WIDGET_TOGGLE = "dev.opentunnel.vpn.WIDGET_TOGGLE"
+        fun hasWidgets(context: Context): Boolean {
+            val manager = AppWidgetManager.getInstance(context) ?: return false
+            return listOf(TunnelWidget::class.java, TunnelWidget2x2::class.java,
+                TunnelWidget3x2::class.java, TunnelWidget4x1::class.java).any {
+                manager.getAppWidgetIds(ComponentName(context, it)).isNotEmpty()
+            }
+        }
 
         fun notifyAll(context: Context) {
             val manager = AppWidgetManager.getInstance(context) ?: return

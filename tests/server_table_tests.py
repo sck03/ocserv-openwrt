@@ -6,6 +6,7 @@ from pathlib import Path
 from urllib.parse import parse_qs
 
 from playwright.sync_api import expect, sync_playwright
+from server_browser_support import online_payload, summary_payload
 
 ROOT = Path(__file__).resolve().parents[1]
 parser = argparse.ArgumentParser()
@@ -30,8 +31,9 @@ with sync_playwright() as pw:
         for i in range(4096)]
     status = {'ok': True, 'data': {key: copy.deepcopy(snapshot['data'].get(key, False))
                                  for key in ('running', 'online', 'online_error', 'guard')}}
-    page.route('**/easy/data', lambda route: route.fulfill(json=snapshot))
-    page.route('**/easy/status', lambda route: route.fulfill(json=status))
+    page.route('**/easy/data', lambda route: route.fulfill(json=online_payload(snapshot)))
+    page.route('**/easy/status', lambda route: route.fulfill(json=summary_payload(status)))
+    page.route('**/easy/online', lambda route: route.fulfill(json=online_payload(status)))
     page.add_init_script("""(() => {
         window.createdRows = 0;
         const create = document.createElement.bind(document);

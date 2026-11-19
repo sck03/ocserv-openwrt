@@ -1,4 +1,5 @@
-#include "agent.h"
+#include "connection_controller.h"
+#include "profile_editor.h"
 #include "preferences.h"
 #include "protocol.h"
 #include "profile_settings.h"
@@ -11,26 +12,6 @@
 
 using namespace lansyra;
 namespace {
-const char *category(guint reason) {
-    switch (reason) {
-    case NM_VPN_CONNECTION_STATE_REASON_CONNECT_TIMEOUT:
-        return "timeout";
-    case NM_VPN_CONNECTION_STATE_REASON_DEVICE_DISCONNECTED:
-        return "network";
-    case NM_VPN_CONNECTION_STATE_REASON_LOGIN_FAILED:
-    case NM_VPN_CONNECTION_STATE_REASON_NO_SECRETS:
-        return "authentication";
-    case NM_VPN_CONNECTION_STATE_REASON_IP_CONFIG_INVALID:
-        return "adapter";
-    case NM_VPN_CONNECTION_STATE_REASON_SERVICE_START_FAILED:
-    case NM_VPN_CONNECTION_STATE_REASON_CONNECTION_REMOVED:
-        return "configuration";
-    case NM_VPN_CONNECTION_STATE_REASON_USER_DISCONNECTED:
-        return "canceled";
-    default:
-        return "server";
-    }
-}
 const char *explanation(const std::string &error) {
     if (error == "authentication")
         return "认证失败或已取消，请检查账号、密码和证书。";
@@ -49,35 +30,29 @@ public:
     GtkApplication *app;
     GtkWidget *window = nullptr, *servers = nullptr, *status = nullptr, *detail = nullptr,
               *connectButton = nullptr;
-    GtkWidget *newButton = nullptr, *editButton = nullptr, *deleteButton = nullptr, *importButton = nullptr, *login = nullptr,
-              *retryCheck = nullptr;
+    GtkWidget *newButton = nullptr, *editButton = nullptr, *deleteButton = nullptr, *importButton = nullptr,
+              *login = nullptr, *retryCheck = nullptr;
     NMClient *client = nullptr;
-    NMSecretAgentOld *agent = nullptr;
-    NMActiveConnection *active = nullptr;
-    Generation request;
+    std::unique_ptr<ConnectionController> connection;
     uint64_t stateGeneration = 0;
     unsigned storagePending = 0;
     PreferencesRepository preferences{g_get_user_config_dir()};
-    unsigned pending = 0, attempt = 1, retrySeconds = 0;
-    guint retryTimer = 0;
-    bool closing = false, startup, smoke, refreshing = false, deactivating = false;
+    unsigned pending = 0;
+    bool closing = false, startup, smoke, refreshing = false;
     bool retryFailed = false;
-    std::string selectedID, autoID, targetID, state = "idle", error = "none";
+    std::string selectedID, autoID, state = "idle", error = "none";
     std::deque<std::string> events;
 
     Application(GtkApplication *application, bool atLogin, bool test)
         : app(application), startup(atLogin), smoke(test) {}
     ~Application() {
-        if (retryTimer)
-            g_source_remove(retryTimer);
-        lansyra_agent_cancel(agent);
-        clearActive();
-        if (agent)
-            g_signal_handlers_disconnect_by_data(agent, this);
+        connection.reset();
         if (client)
             g_signal_handlers_disconnect_by_data(client, this);
-        g_clear_object(&agent);
         g_clear_object(&client);
+    }
+    uint64_t session_id() const {
+        return connection ? connection->state().session : 0;
     }
     void transition(const char *phase, const char *label, const char *description = "") {
         state = phase;
@@ -86,7 +61,7 @@ public:
         gtk_label_set_text(GTK_LABEL(detail), description);
         GDateTime *now = g_date_time_new_now_utc();
         char *time = g_date_time_format_iso8601(now);
-        events.push_back(std::string(time) + " session=" + std::to_string(request.value) + " generation=" +
+        events.push_back(std::string(time) + " session=" + std::to_string(session_id()) + " generation=" +
                          std::to_string(stateGeneration) + " state=" + phase + " error=" + error);
         g_free(time);
         g_date_time_unref(now);
@@ -95,17 +70,20 @@ public:
         update();
     }
     void update() {
-        bool busy = request.wanted || active || pending;
+        const bool connecting = connection && connection->busy();
+        const bool busy = connecting || pending;
         const bool hasProfile = selected() != nullptr;
-        bool available =
-            client && nm_client_get_nm_running(client) && agent && nm_secret_agent_old_get_registered(agent);
-        gtk_button_set_label(GTK_BUTTON(connectButton), busy ? "断开 / 取消" : "连接");
-        gtk_widget_set_sensitive(connectButton, !closing && (busy || (!storagePending && available && hasProfile)));
+        const bool available = connection && connection->ready();
+        gtk_button_set_label(GTK_BUTTON(connectButton), connecting ? "断开 / 取消" : "连接");
+        gtk_widget_set_sensitive(connectButton,
+                                 !closing && !pending &&
+                                     (connecting || (!storagePending && available && hasProfile)));
         for (auto *widget : {servers, newButton, editButton, deleteButton, importButton, login, retryCheck})
             gtk_widget_set_sensitive(widget, !busy && !storagePending && !closing && (available || smoke));
         gtk_widget_set_sensitive(editButton, !busy && !storagePending && !closing && hasProfile);
         gtk_widget_set_sensitive(deleteButton, !busy && !storagePending && !closing && hasProfile);
-        gtk_widget_set_sensitive(login, !busy && !storagePending && !closing && (hasProfile || !autoID.empty()));
+        gtk_widget_set_sensitive(login,
+                                 !busy && !storagePending && !closing && (hasProfile || !autoID.empty()));
         std::string loginLabel = "登录后自动连接所选服务器";
         if (client && !autoID.empty()) {
             if (auto *profile = nm_client_get_connection_by_uuid(client, autoID.c_str()))
@@ -134,24 +112,29 @@ public:
     }
     void savePreferences(std::function<void(bool)> completed = {}) {
         ++storagePending;
-        preferences.save({selectedID, autoID, retryFailed}, [this, completed = std::move(completed)](bool ok) {
-            --storagePending;
-            if (!ok && !closing)
-                gtk_label_set_text(GTK_LABEL(detail), "无法保存偏好，请检查配置目录权限和剩余空间。");
-            if (completed) completed(ok);
-            update();
-            maybeClose();
-        });
+        preferences.save(
+            {selectedID, autoID, retryFailed}, [this, completed = std::move(completed)](bool ok) {
+                --storagePending;
+                if (!ok && !closing)
+                    gtk_label_set_text(GTK_LABEL(detail), "无法保存偏好，请检查配置目录权限和剩余空间。");
+                if (completed)
+                    completed(ok);
+                update();
+                maybeClose();
+            });
         update();
     }
     void setLogin() {
-        if (refreshing) return;
+        if (refreshing)
+            return;
         const auto previous = autoID;
         auto *profile = selected();
-        autoID = gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(login)) && profile ?
-            nm_connection_get_uuid(NM_CONNECTION(profile)) : "";
+        autoID = gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(login)) && profile
+                     ? nm_connection_get_uuid(NM_CONNECTION(profile))
+                     : "";
         savePreferences([this, previous](bool ok) {
-            if (!ok) autoID = previous;
+            if (!ok)
+                autoID = previous;
             refreshing = true;
             gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(login), !autoID.empty());
             refreshing = false;
@@ -180,193 +163,62 @@ public:
         refreshing = false;
         update();
     }
-    void clearActive() {
-        if (active)
-            g_signal_handlers_disconnect_by_data(active, this);
-        g_clear_object(&active);
-        deactivating = false;
-    }
-    void deactivate() {
-        if (!active || deactivating)
+    void connectionChanged() {
+        if (!connection || !window)
             return;
-        deactivating = true;
-        ++pending;
-        struct Deactivation {
-            Application *self;
-            NMActiveConnection *connection;
-        };
-        auto *operation = new Deactivation{this, NM_ACTIVE_CONNECTION(g_object_ref(active))};
-        nm_client_deactivate_connection_async(
-            client, active, nullptr,
-            [](GObject *object, GAsyncResult *result, gpointer data) {
-                auto *operation = static_cast<Deactivation *>(data);
-                auto *self = operation->self;
-                GError *failure = nullptr;
-                bool ok = nm_client_deactivate_connection_finish(NM_CLIENT(object), result, &failure);
-                --self->pending;
-                if (nm_active_connection_get_state(operation->connection) ==
-                    NM_ACTIVE_CONNECTION_STATE_DEACTIVATED)
-                    self->ended(operation->connection);
-                else if (!ok && self->active == operation->connection) {
-                    self->deactivating = false;
-                    self->closing = false;
-                    self->error = "permission";
-                    self->transition("disconnect_failed", "VPN 尚未断开",
-                                     "系统未能断开 VPN。请重试，或在系统网络设置中断开后退出。");
-                }
-                g_clear_error(&failure);
-                g_object_unref(operation->connection);
-                delete operation;
-                self->maybeClose();
-            },
-            operation);
+        const auto current = connection->state();
+        error = current.error;
+        std::string label, description;
+        if (current.phase == "connected")
+            label = "已连接";
+        else if (current.phase == "connecting") {
+            label = "正在连接…";
+            description = "请在系统认证窗口中核对证书并完成登录。";
+        } else if (current.phase == "authenticating")
+            label = "等待身份认证…";
+        else if (current.phase == "configuring")
+            label = "正在配置 VPN 网络…";
+        else if (current.phase == "disconnecting")
+            label = "正在清理连接…";
+        else if (current.phase == "retry_wait")
+            label = std::to_string(current.retry_seconds) + " 秒后重试（" + std::to_string(current.attempt) +
+                    "/3）";
+        else if (current.phase == "disconnect_failed") {
+            closing = false;
+            label = "VPN 尚未断开";
+            description = "系统未能断开 VPN。请重试，或在系统网络设置中断开后退出。";
+        } else if (current.phase == "failed") {
+            label = "连接已结束";
+            description = explanation(error);
+        } else
+            label = "未连接";
+        transition(current.phase.c_str(), label.c_str(), description.c_str());
+        maybeClose();
     }
     void cancel() {
-        request.cancel();
-        lansyra_agent_cancel(agent);
-        if (retryTimer) {
-            g_source_remove(retryTimer);
-            retryTimer = 0;
-        }
-        retrySeconds = 0;
-        error = "canceled";
-        transition(active || pending ? "disconnecting" : "idle",
-                   active || pending ? "正在清理连接…" : "未连接");
-        deactivate();
+        if (connection)
+            connection->cancel();
+        else
+            transition("idle", "未连接");
     }
     void connect() {
-        if (request.wanted || active || pending) {
+        if (closing || pending || storagePending || !connection)
+            return;
+        if (connection->busy()) {
             cancel();
             return;
         }
         auto *profile = selected();
-        if (!profile || !agent)
+        if (!profile || !connection->ready())
             return;
-        targetID = nm_connection_get_uuid(NM_CONNECTION(profile));
-        selectedID = targetID;
+        selectedID = nm_connection_get_uuid(NM_CONNECTION(profile));
         savePreferences();
-        request.begin();
-        attempt = 1;
-        activate();
-    }
-    void activate() {
-        auto *profile = nm_client_get_connection_by_uuid(client, targetID.c_str());
-        if (!request.wanted || !profile) {
-            request.cancel();
-            error = "configuration";
-            transition("failed", "配置已不存在");
-            return;
-        }
-        error = "none";
-        transition("connecting", "正在连接…", "请在系统认证窗口中核对证书并完成登录。");
-        lansyra_agent_select(agent, targetID.c_str());
-        ++pending;
-        struct Activation {
-            Application *self;
-            uint64_t token;
-        };
-        auto *operation = new Activation{this, request.value};
-        // Do not cancel the D-Bus reply: cancellation must reap a late activation
-        // and explicitly deactivate its own connection instead of losing its handle.
-        nm_client_activate_connection_async(
-            client, NM_CONNECTION(profile), nullptr, nullptr, nullptr,
-            [](GObject *object, GAsyncResult *result, gpointer data) {
-                auto *operation = static_cast<Activation *>(data);
-                auto *self = operation->self;
-                GError *failure = nullptr;
-                auto *connection = nm_client_activate_connection_finish(NM_CLIENT(object), result, &failure);
-                --self->pending;
-                if (connection) {
-                    self->active = connection;
-                    g_signal_connect(connection, "state-changed", G_CALLBACK(activeChanged), self);
-                    if (NM_IS_VPN_CONNECTION(connection))
-                        g_signal_connect(connection, "vpn-state-changed", G_CALLBACK(vpnChanged), self);
-                    if (!self->request.accepts(operation->token) || self->closing)
-                        self->deactivate();
-                    else if (nm_active_connection_get_state(connection) ==
-                             NM_ACTIVE_CONNECTION_STATE_DEACTIVATED)
-                        self->ended(connection);
-                    else if (NM_IS_VPN_CONNECTION(connection))
-                        vpnChanged(NM_VPN_CONNECTION(connection),
-                                   nm_vpn_connection_get_vpn_state(NM_VPN_CONNECTION(connection)),
-                                   NM_VPN_CONNECTION_STATE_REASON_NONE, self);
-                } else if (self->request.accepts(operation->token)) {
-                    self->error = "configuration";
-                    self->ended();
-                }
-                g_clear_error(&failure);
-                delete operation;
-                self->update();
-                self->maybeClose();
-            },
-            operation);
-    }
-    static void activeChanged(NMActiveConnection *connection, guint state, guint, gpointer data) {
-        auto *self = static_cast<Application *>(data);
-        if (self->active != connection)
-            return;
-        if (state == NM_ACTIVE_CONNECTION_STATE_DEACTIVATED)
-            self->ended(connection);
-    }
-    static void vpnChanged(NMVpnConnection *connection, guint phase, guint reason, gpointer data) {
-        auto *self = static_cast<Application *>(data);
-        if (self->active != NM_ACTIVE_CONNECTION(connection))
-            return;
-        if (!self->request.wanted) {
-            self->deactivate();
-            return;
-        }
-        if (phase == NM_VPN_CONNECTION_STATE_ACTIVATED)
-            self->transition("connected", "已连接");
-        else if (phase == NM_VPN_CONNECTION_STATE_NEED_AUTH)
-            self->transition("authenticating", "等待身份认证…");
-        else if (phase == NM_VPN_CONNECTION_STATE_IP_CONFIG_GET)
-            self->transition("configuring", "正在配置 VPN 网络…");
-        else if (phase == NM_VPN_CONNECTION_STATE_FAILED || phase == NM_VPN_CONNECTION_STATE_DISCONNECTED) {
-            self->error = category(reason);
-            self->deactivate();
-        }
-    }
-    void ended(NMActiveConnection *source = nullptr) {
-        if (source && source != active)
-            return;
-        clearActive();
-        lansyra_agent_cancel(agent);
-        if (request.wanted && !closing) {
-            unsigned delay = retryFailed ? retry_delay(error, attempt) : 0;
-            if (delay) {
-                retrySeconds = delay;
-                transition("retry_wait", "网络连接失败，等待重试…");
-                retryTimer = g_timeout_add_seconds(
-                    1,
-                    [](gpointer data) -> gboolean {
-                        auto *self = static_cast<Application *>(data);
-                        if (!self->request.wanted || self->closing) {
-                            self->retryTimer = 0;
-                            return G_SOURCE_REMOVE;
-                        }
-                        if (--self->retrySeconds == 0) {
-                            self->retryTimer = 0;
-                            ++self->attempt;
-                            self->activate();
-                            return G_SOURCE_REMOVE;
-                        }
-                        auto text = std::to_string(self->retrySeconds) + " 秒后重试（" +
-                                    std::to_string(self->attempt) + "/3）";
-                        gtk_label_set_text(GTK_LABEL(self->status), text.c_str());
-                        return G_SOURCE_CONTINUE;
-                    },
-                    this);
-            } else {
-                request.wanted = false;
-                transition("failed", "连接已结束", explanation(error));
-            }
-        } else
-            transition("idle", "未连接");
-        maybeClose();
+        connection->start(selectedID, retryFailed);
     }
     void maybeClose() {
-        if (closing && !pending && !storagePending && !active) {
+        if (!window)
+            return;
+        if (closing && !pending && !storagePending && (!connection || !connection->busy())) {
             gtk_widget_destroy(window);
             window = nullptr;
             g_application_quit(G_APPLICATION(app));
@@ -377,59 +229,35 @@ public:
         auto *selected_profile = existing ? selected() : nullptr;
         g_autoptr(NMRemoteConnection) remote =
             selected_profile ? NM_REMOTE_CONNECTION(g_object_ref(selected_profile)) : nullptr;
-        GtkWidget *dialog = gtk_dialog_new_with_buttons(
-            existing ? "编辑服务器" : "新建服务器", GTK_WINDOW(window), GTK_DIALOG_MODAL, "取消",
-            GTK_RESPONSE_CANCEL, "保存", GTK_RESPONSE_OK, nullptr);
-        GtkWidget *grid = gtk_grid_new();
-        gtk_grid_set_row_spacing(GTK_GRID(grid), 10);
-        gtk_grid_set_column_spacing(GTK_GRID(grid), 12);
-        gtk_container_set_border_width(GTK_CONTAINER(grid), 18);
-        gtk_box_pack_start(GTK_BOX(gtk_dialog_get_content_area(GTK_DIALOG(dialog))), grid, TRUE, TRUE, 0);
-        GtkWidget *entries[4];
-        const char *labels[] = {"名称", "HTTPS 服务器", "用户名（可选）", "CA 证书文件（可选）"};
-        for (int i = 0; i < 4; ++i) {
-            entries[i] = gtk_entry_new();
-            gtk_entry_set_max_length(GTK_ENTRY(entries[i]), i ? 4096 : 128);
-            gtk_widget_set_size_request(entries[i], 340, -1);
-            gtk_grid_attach(GTK_GRID(grid), gtk_label_new(labels[i]), 0, i, 1, 1);
-            gtk_grid_attach(GTK_GRID(grid), entries[i], 1, i, 1, 1);
-        }
-        if (remote) {
-            auto *vpn = nm_connection_get_setting_vpn(NM_CONNECTION(remote));
-            const char *values[] = {
-                nm_connection_get_id(NM_CONNECTION(remote)), nm_setting_vpn_get_data_item(vpn, "gateway"),
-                nm_setting_vpn_get_user_name(vpn), nm_setting_vpn_get_data_item(vpn, "cacert")};
-            for (int i = 0; i < 4; ++i)
-                gtk_entry_set_text(GTK_ENTRY(entries[i]), values[i] ? values[i] : "");
-        } else if (imported) {
-            gtk_entry_set_text(GTK_ENTRY(entries[0]), imported->name.c_str());
-            gtk_entry_set_text(GTK_ENTRY(entries[1]), imported->server.c_str());
-            gtk_entry_set_text(GTK_ENTRY(entries[3]), imported->ca.c_str());
-        }
-        GtkWidget *validation = gtk_label_new("");
-        gtk_label_set_line_wrap(GTK_LABEL(validation), TRUE);
-        gtk_grid_attach(GTK_GRID(grid), validation, 0, 4, 2, 1);
-        gtk_widget_show_all(dialog);
-        std::string name, server, username, ca;
-        for (;;) {
-            if (gtk_dialog_run(GTK_DIALOG(dialog)) != GTK_RESPONSE_OK) { gtk_widget_destroy(dialog); return; }
-            name = gtk_entry_get_text(GTK_ENTRY(entries[0]));
-            server = gateway(gtk_entry_get_text(GTK_ENTRY(entries[1])));
-            username = gtk_entry_get_text(GTK_ENTRY(entries[2]));
-            ca = gtk_entry_get_text(GTK_ENTRY(entries[3]));
-            if (!name.empty() && field(name) && !server.empty() && field(username) &&
-                (ca.empty() || g_file_test(ca.c_str(), G_FILE_TEST_IS_REGULAR))) break;
-            gtk_label_set_text(GTK_LABEL(validation), "请检查名称、HTTPS 地址、用户名及 CA 文件。输入已保留。");
-        }
-        gtk_widget_destroy(dialog);
-        auto *connection = profile_candidate(remote ? NM_CONNECTION(remote) : nullptr, name, server, username, ca);
+        auto draft =
+            edit_profile(GTK_WINDOW(window), remote ? NM_CONNECTION(remote) : nullptr, imported.get());
+        if (!draft)
+            return;
+        auto *connection = profile_candidate(remote ? NM_CONNECTION(remote) : nullptr, draft->name,
+                                             draft->server, draft->username, draft->ca);
         const char *uuid = nm_connection_get_uuid(connection);
         const std::string previousID = selectedID;
         selectedID = uuid;
-        if (imported && ca != imported->ca) imported.reset();
+        if (imported && draft->ca != imported->ca)
+            imported.reset();
         ++pending;
-        struct SaveOperation { Application *self; std::string previousID; std::shared_ptr<ImportedProfile> imported; };
-        auto *operation = new SaveOperation{this, previousID, std::move(imported)};
+        struct SaveOperation {
+            Application *self;
+            std::string previousID, id, ca;
+            std::shared_ptr<ImportedProfile> imported;
+            void finish(bool ok) {
+                if (ok && imported)
+                    imported->retained = true;
+                if (!ok)
+                    self->selectedID = previousID;
+                if (ok)
+                    prune_profile_certificates(nm_client_get_connections(self->client), id, ca);
+                auto *owner = self;
+                delete this;
+                owner->saved(ok);
+            }
+        };
+        auto *operation = new SaveOperation{this, previousID, uuid, draft->ca, std::move(imported)};
         if (remote) {
             // Send an immutable candidate. Failed authorization must not mutate
             // the cached remote connection the UI will use for its next attempt.
@@ -438,16 +266,14 @@ public:
                 remote, settings, NM_SETTINGS_UPDATE2_FLAG_TO_DISK, nullptr, nullptr,
                 [](GObject *object, GAsyncResult *result, gpointer data) {
                     auto *operation = static_cast<SaveOperation *>(data);
-                    auto *self = operation->self;
                     GError *failure = nullptr;
-                    GVariant *reply = nm_remote_connection_update2_finish(NM_REMOTE_CONNECTION(object), result, &failure);
+                    GVariant *reply =
+                        nm_remote_connection_update2_finish(NM_REMOTE_CONNECTION(object), result, &failure);
                     bool ok = reply != nullptr;
-                    if (ok && operation->imported) operation->imported->retained = true;
-                    if (!ok) self->selectedID = operation->previousID;
-                    if (reply) g_variant_unref(reply);
+                    if (reply)
+                        g_variant_unref(reply);
                     g_clear_error(&failure);
-                    delete operation;
-                    self->saved(ok);
+                    operation->finish(ok);
                 },
                 operation);
             g_variant_unref(settings);
@@ -456,16 +282,12 @@ public:
                 client, connection, TRUE, nullptr,
                 [](GObject *object, GAsyncResult *result, gpointer data) {
                     auto *operation = static_cast<SaveOperation *>(data);
-                    auto *self = operation->self;
                     GError *failure = nullptr;
                     auto *profile = nm_client_add_connection_finish(NM_CLIENT(object), result, &failure);
                     bool ok = profile != nullptr;
-                    if (ok && operation->imported) operation->imported->retained = true;
-                    if (!ok) self->selectedID = operation->previousID;
                     g_clear_object(&profile);
                     g_clear_error(&failure);
-                    delete operation;
-                    self->saved(ok);
+                    operation->finish(ok);
                 },
                 operation);
         g_object_unref(connection);
@@ -477,62 +299,61 @@ public:
             reload();
             if (!ok)
                 gtk_label_set_text(GTK_LABEL(detail), "无法保存配置，请检查系统授权。");
-            else savePreferences([this](bool saved) {
-                if (saved && !closing) gtk_label_set_text(GTK_LABEL(detail), "配置已保存");
-            });
+            else
+                savePreferences([this](bool saved) {
+                    if (saved && !closing)
+                        gtk_label_set_text(GTK_LABEL(detail), "配置已保存");
+                });
         }
         maybeClose();
     }
     void importProfile() {
-        GtkWidget *dialog = gtk_file_chooser_dialog_new("导入 .vpn 公共配置", GTK_WINDOW(window), GTK_FILE_CHOOSER_ACTION_OPEN,
-            "取消", GTK_RESPONSE_CANCEL, "导入", GTK_RESPONSE_ACCEPT, nullptr);
+        GtkWidget *dialog = gtk_file_chooser_dialog_new(
+            "导入 .vpn 公共配置", GTK_WINDOW(window), GTK_FILE_CHOOSER_ACTION_OPEN, "取消",
+            GTK_RESPONSE_CANCEL, "导入", GTK_RESPONSE_ACCEPT, nullptr);
         auto *filter = gtk_file_filter_new();
         gtk_file_filter_set_name(filter, "Lansyra .vpn");
         gtk_file_filter_add_pattern(filter, "*.vpn");
         gtk_file_chooser_add_filter(GTK_FILE_CHOOSER(dialog), filter);
-        char *path = gtk_dialog_run(GTK_DIALOG(dialog)) == GTK_RESPONSE_ACCEPT ? gtk_file_chooser_get_filename(GTK_FILE_CHOOSER(dialog)) : nullptr;
+        char *path = gtk_dialog_run(GTK_DIALOG(dialog)) == GTK_RESPONSE_ACCEPT
+                         ? gtk_file_chooser_get_filename(GTK_FILE_CHOOSER(dialog))
+                         : nullptr;
         gtk_widget_destroy(dialog);
-        if (!path) return;
-        ++pending; update();
-        GTask *task = g_task_new(nullptr, nullptr, [](GObject *, GAsyncResult *result, gpointer data) {
-            auto *self = static_cast<Application *>(data);
-            GError *error = nullptr;
-            std::shared_ptr<ImportedProfile> imported(static_cast<ImportedProfile *>(g_task_propagate_pointer(G_TASK(result), &error)));
-            --self->pending;
-            if (!self->closing) {
-                if (imported) self->edit(false, imported);
-                else gtk_label_set_text(GTK_LABEL(self->detail), "导入失败。请选择 Linux 的版本 1 配置（CA 或首次确认），并检查文件和权限。");
-            }
-            g_clear_error(&error);
-            self->maybeClose();
-        }, this);
+        if (!path)
+            return;
+        ++pending;
+        update();
+        GTask *task = g_task_new(
+            nullptr, nullptr,
+            [](GObject *, GAsyncResult *result, gpointer data) {
+                auto *self = static_cast<Application *>(data);
+                GError *error = nullptr;
+                std::shared_ptr<ImportedProfile> imported(
+                    static_cast<ImportedProfile *>(g_task_propagate_pointer(G_TASK(result), &error)));
+                --self->pending;
+                if (!self->closing) {
+                    if (imported)
+                        self->edit(false, imported);
+                    else
+                        gtk_label_set_text(
+                            GTK_LABEL(self->detail),
+                            "导入失败。请选择 Linux 的版本 1 配置（CA 或首次确认），并检查文件和权限。");
+                }
+                g_clear_error(&error);
+                self->maybeClose();
+            },
+            this);
         g_task_set_task_data(task, path, g_free);
         g_task_run_in_thread(task, [](GTask *task, gpointer, gpointer data, GCancellable *) {
-            try { g_task_return_pointer(task, read_public_profile(static_cast<const char *>(data)), [](gpointer value) { delete static_cast<ImportedProfile *>(value); }); }
-            catch (...) { g_task_return_new_error(task, G_IO_ERROR, G_IO_ERROR_INVALID_DATA, "Public profile import failed"); }
+            try {
+                g_task_return_pointer(task, read_public_profile(static_cast<const char *>(data)),
+                                      [](gpointer value) { delete static_cast<ImportedProfile *>(value); });
+            } catch (...) {
+                g_task_return_new_error(task, G_IO_ERROR, G_IO_ERROR_INVALID_DATA,
+                                        "Public profile import failed");
+            }
         });
         g_object_unref(task);
-    }
-    void restoreActive() {
-        const auto *connections = nm_client_get_active_connections(client);
-        for (guint i = 0; i < connections->len; ++i) {
-            auto *connection = NM_ACTIVE_CONNECTION(g_ptr_array_index(connections, i));
-            const char *uuid = nm_active_connection_get_uuid(connection);
-            auto *profile = uuid ? nm_client_get_connection_by_uuid(client, uuid) : nullptr;
-            auto *marker = profile ? NM_SETTING_USER(nm_connection_get_setting(NM_CONNECTION(profile), NM_TYPE_SETTING_USER)) : nullptr;
-            if (!NM_IS_VPN_CONNECTION(connection) || !marker || g_strcmp0(nm_setting_user_get_data(marker, Marker), "1") ||
-                nm_active_connection_get_state(connection) == NM_ACTIVE_CONNECTION_STATE_DEACTIVATED) continue;
-            startup = false;
-            request.begin(); selectedID = targetID = uuid;
-            active = NM_ACTIVE_CONNECTION(g_object_ref(connection));
-            lansyra_agent_select(agent, uuid);
-            g_signal_connect(connection, "state-changed", G_CALLBACK(activeChanged), this);
-            g_signal_connect(connection, "vpn-state-changed", G_CALLBACK(vpnChanged), this);
-            transition("connecting", "正在恢复已有连接状态…");
-            vpnChanged(NM_VPN_CONNECTION(connection), nm_vpn_connection_get_vpn_state(NM_VPN_CONNECTION(connection)), NM_VPN_CONNECTION_STATE_REASON_NONE, this);
-            reload();
-            return;
-        }
     }
     void remove() {
         auto *selected_profile = selected();
@@ -547,7 +368,10 @@ public:
         if (!confirmed)
             return;
         ++pending;
-        struct Deletion { Application *self; std::string id; };
+        struct Deletion {
+            Application *self;
+            std::string id;
+        };
         auto *operation = new Deletion{this, nm_connection_get_uuid(NM_CONNECTION(profile))};
         nm_remote_connection_delete_async(
             profile, nullptr,
@@ -556,7 +380,8 @@ public:
                 auto *self = operation->self;
                 GError *failure = nullptr;
                 bool ok = nm_remote_connection_delete_finish(NM_REMOTE_CONNECTION(object), result, &failure);
-                if (ok) prune_profile_certificates(nm_client_get_connections(self->client), operation->id);
+                if (ok)
+                    prune_profile_certificates(nm_client_get_connections(self->client), operation->id);
                 if (ok && self->autoID == operation->id) {
                     self->autoID.clear();
                     self->savePreferences();
@@ -582,8 +407,9 @@ public:
             std::ostringstream report;
             report << "Lansyra " LANSYRA_VERSION "\nPlatform: Linux\nNetworkManager: "
                    << (client ? nm_client_get_version(client) : "unavailable")
-                   << "\nSession: " << request.value << "\nGeneration: " << stateGeneration
-                   << "\nState: " << state << "\nError: " << error << "\nAttempt: " << attempt << "\n\n";
+                   << "\nSession: " << session_id() << "\nGeneration: " << stateGeneration
+                   << "\nState: " << state << "\nError: " << error
+                   << "\nAttempt: " << (connection ? connection->state().attempt : 0) << "\n\n";
             for (const auto &event : events)
                 report << event << '\n';
             if (!path || !g_file_set_contents_full(path, report.str().c_str(), -1,
@@ -638,8 +464,9 @@ public:
             G_CALLBACK((+[](GtkButton *, gpointer data) { static_cast<Application *>(data)->edit(false); })),
             this);
         g_signal_connect(importButton, "clicked", G_CALLBACK((+[](GtkButton *, gpointer data) {
-            static_cast<Application *>(data)->importProfile();
-        })), this);
+                             static_cast<Application *>(data)->importProfile();
+                         })),
+                         this);
         g_signal_connect(
             editButton, "clicked",
             G_CALLBACK((+[](GtkButton *, gpointer data) { static_cast<Application *>(data)->edit(true); })),
@@ -662,17 +489,19 @@ public:
                          this);
         g_signal_connect(retryCheck, "toggled", G_CALLBACK((+[](GtkToggleButton *button, gpointer data) {
                              auto *self = static_cast<Application *>(data);
-                              if (self->refreshing) return;
-                              const bool previous = self->retryFailed;
-                              self->retryFailed = gtk_toggle_button_get_active(button);
-                              self->savePreferences([self, previous](bool ok) {
-                                  if (!ok) {
-                                      self->retryFailed = previous;
-                                      self->refreshing = true;
-                                      gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(self->retryCheck), previous);
-                                      self->refreshing = false;
-                                  }
-                              });
+                             if (self->refreshing)
+                                 return;
+                             const bool previous = self->retryFailed;
+                             self->retryFailed = gtk_toggle_button_get_active(button);
+                             self->savePreferences([self, previous](bool ok) {
+                                 if (!ok) {
+                                     self->retryFailed = previous;
+                                     self->refreshing = true;
+                                     gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(self->retryCheck),
+                                                                  previous);
+                                     self->refreshing = false;
+                                 }
+                             });
                          })),
                          this);
         g_signal_connect(servers, "changed", G_CALLBACK((+[](GtkComboBox *box, gpointer data) {
@@ -720,13 +549,17 @@ public:
         GError *failure = nullptr;
         client = nm_client_new(nullptr, &failure);
         if (client && nm_client_get_nm_running(client) && !lansyra_auth_dialog().empty())
-            agent = lansyra_agent_new(&failure);
-        if (!client || !agent || !nm_client_get_nm_running(client)) {
+            connection =
+                std::make_unique<ConnectionController>(client, [this] { connectionChanged(); }, &failure);
+        if (!client || !connection || !connection->initialized() || !nm_client_get_nm_running(client)) {
             error = "configuration";
             transition("failed", "系统 VPN 服务不可用",
                        "请启动 NetworkManager，并安装 network-manager-openconnect-gnome。");
         } else {
-            restoreActive();
+            if (connection->restore(retryFailed)) {
+                startup = false;
+                selectedID = connection->state().profile;
+            }
             reload();
             g_signal_connect(client, "connection-added",
                              G_CALLBACK((+[](NMClient *, NMRemoteConnection *, gpointer data) {
@@ -736,11 +569,6 @@ public:
             g_signal_connect(client, "connection-removed",
                              G_CALLBACK((+[](NMClient *, NMRemoteConnection *, gpointer data) {
                                  static_cast<Application *>(data)->reload();
-                             })),
-                             this);
-            g_signal_connect(agent, "notify::registered",
-                             G_CALLBACK((+[](GObject *, GParamSpec *, gpointer data) {
-                                 static_cast<Application *>(data)->update();
                              })),
                              this);
         }

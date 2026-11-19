@@ -7,6 +7,7 @@ import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.lifecycle.compose.LifecycleStartEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -24,7 +25,7 @@ import kotlinx.coroutines.launch
 @Composable
 fun MainPagerScreen(
     status: TunnelStatus,
-    stats: TrafficStats,
+    trafficStats: StateFlow<TrafficStats>,
     logs: List<LogLine>,
     profile: VpnProfile,
     profiles: List<VpnProfile>,
@@ -64,9 +65,17 @@ fun MainPagerScreen(
     onGrantUsageAccess: () -> Unit = {},
     onRefreshPermission: () -> Unit = {},
     onTrafficVisibilityChanged: (Boolean) -> Unit,
+    onStatisticsVisibilityChanged: (Any, Boolean) -> Unit,
 ) {
     // 4 Pages: 0: Home, 1: Traffic Monitor, 2: Logs, 3: Settings
     val pagerState = rememberPagerState(initialPage = 0, pageCount = { 4 })
+    val statisticsPage = pagerState.settledPage in 0..1
+    val statisticsOwner = remember { Any() }
+    LifecycleStartEffect(statisticsPage) {
+        onStatisticsVisibilityChanged(statisticsOwner, statisticsPage)
+        onStopOrDispose { onStatisticsVisibilityChanged(statisticsOwner, false) }
+    }
+    val stats = if (statisticsPage) trafficStats.collectAsStateWithLifecycle().value else TrafficStats()
     val history = if (pagerState.settledPage == 0) speedHistory.collectAsStateWithLifecycle().value else SpeedSnapshot()
     val currentHistory = if (history.session == status.connectedAtElapsed) history else SpeedSnapshot()
     val trafficPage = pagerState.settledPage == 1

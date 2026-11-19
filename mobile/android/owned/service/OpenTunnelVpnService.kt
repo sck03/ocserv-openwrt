@@ -4,10 +4,6 @@ import android.app.NotificationManager
 import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
-import android.net.ConnectivityManager
-import android.net.Network
-import android.net.NetworkCapabilities
-import android.net.NetworkRequest
 import android.net.VpnService
 import android.os.Build
 import android.os.IBinder
@@ -37,6 +33,8 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
@@ -63,9 +61,10 @@ class OpenTunnelVpnService : VpnService(), TunnelHost {
     private var ownerWait: Job? = null
     private val mainHandler = Handler(Looper.getMainLooper())
 
-    private var statsJob: Job? = null
-    private var networkCallback: ConnectivityManager.NetworkCallback? = null
-    private var lastNetworkId: Long = -1L
+    private var statistics: StatisticsSampler? = null
+    private var wakeRenewal: Job? = null
+    private val notificationStatistics = MutableStateFlow(true)
+    private var networks: UpstreamMonitor? = null
     private var reconnectOnNetworkChange = true
     private var showStatsInNotification = true
 
@@ -88,6 +87,13 @@ class OpenTunnelVpnService : VpnService(), TunnelHost {
         Notifications.createChannels(this)
         observeStatus()
         observePrompts()
+        scope.launch {
+            repository.settings.collect {
+                appLanguage = it.appLanguage
+                showStatsInNotification = it.showStatsInNotification
+                notificationStatistics.value = it.showStatsInNotification
+            }
+        }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -118,7 +124,7 @@ class OpenTunnelVpnService : VpnService(), TunnelHost {
 
     override fun onDestroy() {
         stopNetworkMonitoring()
-        statsJob?.cancel()
+        statistics?.close(); statistics = null
         if (sessions.cancelStart(ownedTicket)) VpnBus.reset()
         startupJob?.cancel()
         if (sessions.active(ownedTicket)) runner?.requestDisconnect()
@@ -158,6 +164,7 @@ class OpenTunnelVpnService : VpnService(), TunnelHost {
                 check(NativeLibrary.isAvailable) { NativeLibrary.MISSING_MESSAGE }
                 reconnectOnNetworkChange = settings.reconnectOnNetworkChange
                 showStatsInNotification = settings.showStatsInNotification
+                notificationStatistics.value = settings.showStatsInNotification
                 appLanguage = settings.appLanguage
                 val tunnel = TunnelRunner(this@OpenTunnelVpnService, profile, settings, lease)
                 if (!sessions.attach(ticket, tunnel)) return@launch
@@ -213,7 +220,7 @@ class OpenTunnelVpnService : VpnService(), TunnelHost {
 
     private fun stopSelfSafely() {
         stopNetworkMonitoring()
-        statsJob?.cancel(); statsJob = null
+        statistics?.close(); statistics = null
         releaseWakeLock()
         ServiceCompat.stopForeground(this, ServiceCompat.STOP_FOREGROUND_REMOVE)
         TunnelWidget.notifyAll(this)
@@ -252,9 +259,17 @@ class OpenTunnelVpnService : VpnService(), TunnelHost {
             it.acquire(6 * 60 * 60 * 1000L)   // 6 hours max, released in stopSelfSafely() / onDestroy()
         }
         VpnBus.info("WakeLock acquired — tunnel will stay active during screen-off (max 6h)")
+        wakeRenewal?.cancel()
+        wakeRenewal = scope.launch {
+            while (isActive) {
+                delay(3 * 60 * 60 * 1000L)
+                wakeLock?.acquire(6 * 60 * 60 * 1000L)
+            }
+        }
     }
 
     private fun releaseWakeLock() {
+        wakeRenewal?.cancel(); wakeRenewal = null
         val wl = wakeLock ?: return
         wakeLock = null
         if (wl.isHeld) {
@@ -295,16 +310,18 @@ class OpenTunnelVpnService : VpnService(), TunnelHost {
     private var lastWidgetTime = 0L
     private var lastNotifyTime = 0L
     private var lastStageNotified: ConnectionStage? = null
+    private var lastStatisticsNotified: Boolean? = null
 
     private fun observeStatus() {
         scope.launch {
-            combine(VpnBus.status, VpnBus.stats) { status, stats -> status to stats }
-                .collect { (status, stats) ->
+            combine(VpnBus.status, VpnBus.stats, notificationStatistics) { status, stats, show -> Triple(status, stats, show) }
+                .collect { (status, stats, showStatistics) ->
                     val now = android.os.SystemClock.elapsedRealtime()
                     val stageChanged = status.stage != lastStageNotified
-                    if (stageChanged || (now - lastNotifyTime >= 2000L)) {
+                    if (stageChanged || showStatistics != lastStatisticsNotified || (now - lastNotifyTime >= 2000L)) {
                         lastNotifyTime = now
                         lastStageNotified = status.stage
+                        lastStatisticsNotified = showStatistics
                         if (runner != null || status.stage.isActive) {
                             runCatching {
                                 val manager = getSystemService<NotificationManager>()
@@ -314,7 +331,7 @@ class OpenTunnelVpnService : VpnService(), TunnelHost {
                                         this@OpenTunnelVpnService,
                                         status,
                                         stats,
-                                        showStatsInNotification,
+                                        showStatistics,
                                     ),
                                 )
                             }
@@ -357,55 +374,30 @@ class OpenTunnelVpnService : VpnService(), TunnelHost {
     }
 
     private fun startStatsPolling() {
-        statsJob?.cancel()
-        statsJob = scope.launch {
-            while (isActive) {
-                delay(if (getSystemService<PowerManager>()?.isInteractive == true) STATS_INTERVAL_MS else 5_000L)
-                if (runner != null && wakeLock?.isHeld != true) acquireWakeLock()
-                if (VpnBus.status.value.stage == ConnectionStage.CONNECTED) {
-                    runner?.pollStats()
-                }
-            }
+        statistics?.close()
+        statistics = StatisticsSampler(this, scope, notificationStatistics) {
+            if (sessions.active(ownedTicket)) runner?.pollStats()
         }
     }
 
     // ── network monitoring ──────────────────────────────────────────────────
 
     private fun startNetworkMonitoring() {
-        if (networkCallback != null) return
-        val connectivity = getSystemService<ConnectivityManager>() ?: return
-
-        val callback = object : ConnectivityManager.NetworkCallback() {
-            override fun onAvailable(network: Network) {
-                val id = network.networkHandle
-                if (lastNetworkId != -1L && lastNetworkId != id && reconnectOnNetworkChange) {
-                    VpnBus.info("Underlying network changed — re-establishing the tunnel")
+        if (networks != null) return
+        networks = UpstreamMonitor(this) { network, reconnect ->
+            if (sessions.active(ownedTicket)) {
+                runCatching { setUnderlyingNetworks(network?.let { arrayOf(it) }) }
+                if (reconnect && reconnectOnNetworkChange) {
+                    VpnBus.info("Underlying network or its addresses changed; reconnecting")
                     runner?.requestReconnect()
                 }
-                lastNetworkId = id
-                runCatching { setUnderlyingNetworks(arrayOf(network)) }
-            }
-
-            override fun onLost(network: Network) {
-                if (network.networkHandle != lastNetworkId) return
-                VpnBus.info("Network lost")
-                runCatching { setUnderlyingNetworks(null) }
             }
         }
-
-        val request = NetworkRequest.Builder()
-            .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
-            .addCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN)
-            .build()
-
-        runCatching { connectivity.registerNetworkCallback(request, callback) }
-            .onSuccess { networkCallback = callback }
     }
 
     private fun stopNetworkMonitoring() {
-        val callback = networkCallback ?: return
-        networkCallback = null
-        runCatching { getSystemService<ConnectivityManager>()?.unregisterNetworkCallback(callback) }
+        networks?.close()
+        networks = null
     }
 
     // ── TunnelHost ───────────────────────────────────────────────────────────
@@ -451,8 +443,6 @@ class OpenTunnelVpnService : VpnService(), TunnelHost {
         const val ACTION_CONNECT    = "dev.opentunnel.vpn.CONNECT"
         const val ACTION_DISCONNECT = "dev.opentunnel.vpn.DISCONNECT"
         const val ACTION_RECONNECT  = "dev.opentunnel.vpn.RECONNECT"
-
-        private const val STATS_INTERVAL_MS   = 1_000L
 
         /** Grace period before a hard kill when stopTunnel() is called. */
         private const val FORCE_STOP_AFTER_MS = 12_000L

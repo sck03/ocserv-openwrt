@@ -67,7 +67,7 @@ def prepare(app, root):
         shutil.copy2(root / "mobile/android" / source, target)
 
     for name in ("SessionOwner", "SessionControl", "PromptWait", "DiagnosticLog", "ProfilePolicy", "ProfileCodec",
-                 "CertificateFiles", "ConnectionFile", "AppRoutingPolicy", "HotpCounter", "SpeedHistory"):
+                 "CertificateFiles", "ConnectionFile", "AppRoutingPolicy", "HotpCounter", "SpeedHistory", "StatisticsPolicy", "UpstreamPolicy"):
         package = "data" if name.startswith("Profile") or name in ("CertificateFiles", "ConnectionFile") else "core"
         for suffix, directory in (("", "main"), ("Test", "test")):
             target = app / f"app/src/{directory}/java/dev/opentunnel/vpn/{package}/{name}{suffix}.kt"

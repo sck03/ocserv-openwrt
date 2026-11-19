@@ -39,14 +39,11 @@ void CALLBACK route_changed(void *context, MIB_IPFORWARD_ROW2 *row, MIB_NOTIFICA
 }
 } // namespace
 Application::Application(std::filesystem::path directory)
-    : store_(std::move(directory)), preferences_writer_(store_) {}
+    : store_(std::move(directory)), preferences_writer_(store_), connection_(store_) {}
 Application::~Application() {
     preferences_writer_.stop();
     stop_network_watch();
-    if (session_) {
-        session_->cancel();
-        session_.reset();
-    }
+    connection_.stop();
     remove_tray();
     if (accelerators_)
         DestroyAcceleratorTable(accelerators_);
@@ -96,6 +93,7 @@ int Application::run(int show, const std::string &connect_profile, bool startup)
         return 1;
     }
     preferences_writer_.start([this] { PostMessageW(window_, PreferencesSavedMessage, 0, 0); });
+    connection_.set_wakeup([this] { PostMessageW(window_, SessionMessage, 0, 0); });
     SetPropW(window_, instance_name_.c_str(), reinterpret_cast<HANDLE>(1));
     watch_network();
     ACCEL keys[] = {
@@ -247,9 +245,9 @@ bool Application::reload(const std::string &id) {
     std::wstring reason;
     Preferences current;
     std::vector<Profile> profiles;
-    if (!run_storage(window_, preferences_.language, [&](std::wstring &error) {
-            return store_.load_metadata(profiles, current, error);
-        }, reason)) {
+    if (!run_storage(
+            window_, preferences_.language,
+            [&](std::wstring &error) { return store_.load_metadata(profiles, current, error); }, reason)) {
         error(window_, reason);
         return false;
     }
@@ -347,15 +345,14 @@ bool Application::flush_preferences(std::wstring &reason) {
     // save failure. Ordinary background completion never retries on its own.
     if (preferences_writer_.ready() && !preferences_writer_.request(preferences_, reason))
         return false;
-    return run_storage(window_, preferences_.language, [this](std::wstring &error) {
-        return preferences_writer_.flush(error);
-    }, reason);
+    return run_storage(
+        window_, preferences_.language,
+        [this](std::wstring &error) { return preferences_writer_.flush(error); }, reason);
 }
 void Application::preferences_saved() {
     if (auto result = preferences_writer_.take_result(); result && !result->success)
-        error(window_, result->error.empty()
-                           ? t(L"保存偏好时发生错误。", L"Could not save preferences.")
-                           : result->error);
+        error(window_, result->error.empty() ? t(L"保存偏好时发生错误。", L"Could not save preferences.")
+                                             : result->error);
 }
 void Application::toggle_auto_connect() {
     // The registry startup command and its profile binding form one operation.
@@ -372,9 +369,10 @@ void Application::toggle_auto_connect() {
         return;
     preferences_.auto_connect = previous.empty() ? profile->id : "";
     const auto updated = preferences_;
-    if (!run_storage(window_, preferences_.language, [this, updated](std::wstring &error) {
-            return store_.save_preferences(updated, error);
-        }, reason)) {
+    if (!run_storage(
+            window_, preferences_.language,
+            [this, updated](std::wstring &error) { return store_.save_preferences(updated, error); },
+            reason)) {
         preferences_.auto_connect = previous;
         error(window_, reason);
         return;
@@ -383,9 +381,10 @@ void Application::toggle_auto_connect() {
         preferences_.auto_connect = previous;
         std::wstring rollback_error;
         const auto restored = preferences_;
-        if (!run_storage(window_, preferences_.language, [this, restored](std::wstring &error) {
-                return store_.save_preferences(restored, error);
-            }, rollback_error))
+        if (!run_storage(
+                window_, preferences_.language,
+                [this, restored](std::wstring &error) { return store_.save_preferences(restored, error); },
+                rollback_error))
             reason += L"\n" + rollback_error;
         error(window_, reason);
     }
@@ -400,18 +399,20 @@ void Application::export_diagnostics() {
     auto status = status_;
     status.state = state_;
     std::wstring reason;
-    const auto report = diagnostic_report(status, statistics_, log_.content(), events_.dropped());
-    if (!run_storage(window_, preferences_.language, [path, report](std::wstring &error) {
-            return write_atomic(*path, report, error);
-        }, reason))
+    const auto report = diagnostic_report(status, statistics_, log_.content(), connection_.dropped_logs());
+    if (!run_storage(
+            window_, preferences_.language,
+            [path, report](std::wstring &error) { return write_atomic(*path, report, error); }, reason))
         error(window_, reason);
 }
 void Application::watch_network() {
     network_watch_.window = window_;
     network_watch_.message_pending.store(false);
     ULONG results[] = {
-        NotifyIpInterfaceChange(AF_UNSPEC, interface_changed, &network_watch_, FALSE, &network_notifications_[0]),
-        NotifyUnicastIpAddressChange(AF_UNSPEC, address_changed, &network_watch_, FALSE, &network_notifications_[1]),
+        NotifyIpInterfaceChange(AF_UNSPEC, interface_changed, &network_watch_, FALSE,
+                                &network_notifications_[0]),
+        NotifyUnicastIpAddressChange(AF_UNSPEC, address_changed, &network_watch_, FALSE,
+                                     &network_notifications_[1]),
         NotifyRouteChange2(AF_UNSPEC, route_changed, &network_watch_, FALSE, &network_notifications_[2])};
     for (ULONG result : results)
         if (result != NO_ERROR) {
@@ -430,7 +431,7 @@ void Application::stop_network_watch() {
     network_watch_.message_pending.store(false);
 }
 void Application::drain_network_change() {
-    if (network_watch_.message_pending.exchange(false) && session_ && !cursor_.canceled() &&
+    if (network_watch_.message_pending.exchange(false) && connection_.active() && !connection_.canceled() &&
         (state_ == State::Connected || state_ == State::Reconnecting))
         network_change_at_ = GetTickCount64() + 1000;
 }
@@ -500,8 +501,7 @@ void Application::command(int id) {
             preferences_.language = id == Chinese ? Language::Chinese : Language::English;
         else if (id >= LogError && id <= LogTrace) {
             preferences_.log_level = id - LogError;
-            if (session_)
-                session_->set_log_level(preferences_.log_level);
+            connection_.set_log_level(preferences_.log_level);
         }
         save_preferences();
         translate();
@@ -526,9 +526,9 @@ void Application::command(int id) {
             std::wstring reason;
             bool remove_startup = preferences_.auto_connect == profile->id;
             const auto id = profile->id;
-            if (!run_storage(window_, preferences_.language, [this, id](std::wstring &error) {
-                    return store_.remove(id, error);
-                }, reason))
+            if (!run_storage(
+                    window_, preferences_.language,
+                    [this, id](std::wstring &error) { return store_.remove(id, error); }, reason))
                 error(window_, reason);
             else {
                 reload();
@@ -542,9 +542,9 @@ void Application::command(int id) {
             return;
         Profile value;
         std::wstring reason;
-        if (!run_storage(window_, preferences_.language, [&](std::wstring &error) {
-                return store_.import_connection(*path, value, error);
-            }, reason))
+        if (!run_storage(
+                window_, preferences_.language,
+                [&](std::wstring &error) { return store_.import_connection(*path, value, error); }, reason))
             error(window_, reason);
         else
             reload(value.id);
@@ -554,9 +554,12 @@ void Application::command(int id) {
             return;
         std::wstring reason;
         const auto snapshot = *profile;
-        if (!run_storage(window_, preferences_.language, [this, path, snapshot](std::wstring &error) {
-                return store_.export_connection(*path, snapshot, error);
-            }, reason))
+        if (!run_storage(
+                window_, preferences_.language,
+                [this, path, snapshot](std::wstring &error) {
+                    return store_.export_connection(*path, snapshot, error);
+                },
+                reason))
             error(window_, reason);
     }
 }
@@ -583,9 +586,9 @@ void Application::connect() {
         }))
             profile.name = base + L" (" + std::to_wstring(suffix++) + L")";
         std::wstring reason;
-        if (!run_storage(window_, preferences_.language, [&](std::wstring &error) {
-                return store_.save(profile, error);
-            }, reason)) {
+        if (!run_storage(
+                window_, preferences_.language,
+                [&](std::wstring &error) { return store_.save(profile, error); }, reason)) {
             error(window_, reason);
             return;
         }
@@ -619,33 +622,27 @@ void Application::connect() {
     int level = profile.log_level >= 0 ? profile.log_level : preferences_.log_level;
     Session::Options options;
     options.retry_failed = preferences_.retry_failed;
-    session_ = std::make_unique<Session>(
-        std::move(profile), &store_, preferences_.language,
-        [this](Event event) { receive(std::move(event)); }, options);
-    cursor_.begin(session_->id());
     status_ = {};
-    status_.session_id = session_->id();
-    session_->set_log_level(level);
     state_ = State::Connecting;
     SetTimer(window_, 1, 250, nullptr);
     show_statistics({});
     log_.append(t(L"开始连接。", L"Starting connection."));
-    if (!session_->start()) {
-        session_.reset();
+    if (!connection_.start(std::move(profile), preferences_.language, options, level)) {
+        SetTimer(window_, 1, 1000, nullptr);
         state_ = State::Failed;
         status_.error = ErrorCategory::Internal;
         status_.terminal = true;
         error(window_, t(L"无法启动连接线程。", L"Could not start the connection worker."));
     }
+    status_.session_id = connection_.id();
     update_controls();
 }
 void Application::disconnect() {
-    if (!session_)
+    if (!connection_.active())
         return;
     state_ = State::Disconnecting;
-    cursor_.cancel();
     network_change_at_ = 0;
-    session_->cancel();
+    connection_.cancel();
     update_controls();
 }
 void Application::shutdown() {
@@ -659,7 +656,6 @@ void Application::shutdown() {
         disconnect();
         return;
     }
-    session_.reset();
     DestroyWindow(window_);
 }
 void Application::restore() {
@@ -722,10 +718,6 @@ void Application::tray_menu() {
     if (id)
         command(id);
 }
-void Application::receive(Event event) {
-    if (events_.push(std::move(event)))
-        PostMessageW(window_, SessionMessage, 0, 0);
-}
 void Application::show_statistics(const Statistics &stats) {
     statistics_ = stats;
     const std::wstring values[] = {stats.ipv4,           stats.ipv6,        stats.dns,
@@ -735,55 +727,36 @@ void Application::show_statistics(const Statistics &stats) {
         label(InfoValue + i, values[i].empty() ? L"—" : values[i]);
 }
 void Application::drain_events() {
-    if (draining_)
-        return;
-    struct Drain {
-        bool &active;
-        explicit Drain(bool &value) : active(value) {
-            active = true;
-        }
-        ~Drain() {
-            active = false;
-        }
-    } drain(draining_);
-    auto events = events_.take();
-    for (auto &event : events) {
-        if (!cursor_.accept(event)) {
-            if (event.prompt)
-                event.prompt->answer(false);
-            continue;
-        }
-        auto prefix = L"[session " + std::to_wstring(event.session_id) + L"/" +
-                      std::to_wstring(event.generation) + L"] ";
-        if (event.kind == Event::Kind::Log)
+    connection_.drain([this](Event event) { consume_event(std::move(event)); });
+}
+void Application::consume_event(Event event) {
+    auto prefix =
+        L"[session " + std::to_wstring(event.session_id) + L"/" + std::to_wstring(event.generation) + L"] ";
+    if (event.kind == Event::Kind::Log)
+        log_.append(prefix + event.text);
+    else if (event.kind == Event::Kind::Statistics)
+        show_statistics(event.statistics);
+    else if (event.kind == Event::Kind::ProfilesChanged)
+        reload();
+    else if (event.kind == Event::Kind::Prompt) {
+        restore();
+        show_prompt(window_, event.prompt, preferences_.language,
+                    [this, id = event.session_id] { return closing_ || !connection_.prompt_active(id); });
+    } else {
+        auto previous = state_;
+        status_ = event;
+        state_ = system_suspended_ && !event.terminal && event.state != State::Disconnecting
+                     ? State::Suspended
+                     : event.state;
+        if (!event.text.empty())
             log_.append(prefix + event.text);
-        else if (event.kind == Event::Kind::Statistics)
-            show_statistics(event.statistics);
-        else if (event.kind == Event::Kind::ProfilesChanged)
-            reload();
-        else if (event.kind == Event::Kind::Prompt) {
-            restore();
-            show_prompt(window_, event.prompt, preferences_.language, [this, id = event.session_id] {
-                return closing_ || !session_ || session_->id() != id || session_->finished() ||
-                       cursor_.canceled();
-            });
-        } else {
-            auto previous = state_;
-            status_ = event;
-            state_ = system_suspended_ && !event.terminal && event.state != State::Disconnecting
-                         ? State::Suspended
-                         : event.state;
-            if (!event.text.empty())
-                log_.append(prefix + event.text);
-            if (previous != state_ || event.terminal)
-                log_.append(prefix + state_text(state_, preferences_.language) +
-                            (event.error == ErrorCategory::None
-                                 ? L""
-                                 : L" [" + wide(error_name(event.error)) + L"]"));
-            update_controls();
-            if (state_ == State::Connected && previous != State::Connected && active_minimize_)
-                minimize();
-        }
+        if (previous != state_ || event.terminal)
+            log_.append(
+                prefix + state_text(state_, preferences_.language) +
+                (event.error == ErrorCategory::None ? L"" : L" [" + wide(error_name(event.error)) + L"]"));
+        update_controls();
+        if (state_ == State::Connected && previous != State::Connected && active_minimize_)
+            minimize();
     }
 }
 LRESULT Application::message(UINT message, WPARAM wparam, LPARAM lparam) {
@@ -816,8 +789,8 @@ LRESULT Application::message(UINT message, WPARAM wparam, LPARAM lparam) {
             if (system_suspended_ != suspended || wparam == PBT_APMRESUMEAUTOMATIC) {
                 system_suspended_ = suspended;
                 network_change_at_ = 0;
-                if (session_ && !cursor_.canceled()) {
-                    session_->suspend(suspended);
+                if (connection_.active() && !connection_.canceled()) {
+                    connection_.suspend(suspended);
                     state_ = suspended ? State::Suspended : State::Reconnecting;
                     update_controls();
                 }
@@ -840,17 +813,13 @@ LRESULT Application::message(UINT message, WPARAM wparam, LPARAM lparam) {
         return 0;
     }
     if (message == WM_TIMER) {
-        if (draining_)
+        if (connection_.dispatching())
             return 0;
         // Also recovers a failed PostMessage when the Windows queue was full.
-        drain_events();
+        const bool finished = connection_.poll([this](Event event) { consume_event(std::move(event)); });
         preferences_saved();
         drain_network_change();
-        if (session_ && session_->finished()) {
-            // The worker can publish its terminal event between the first drain
-            // and finished(). Consume it before allowing a new session.
-            drain_events();
-            session_.reset();
+        if (finished) {
             SetTimer(window_, 1, 1000, nullptr);
             update_controls();
             if (closing_ && !storage_pending()) {
@@ -860,14 +829,13 @@ LRESULT Application::message(UINT message, WPARAM wparam, LPARAM lparam) {
         }
         if (network_change_at_ && GetTickCount64() >= network_change_at_) {
             network_change_at_ = 0;
-            if (session_ && !cursor_.canceled())
-                session_->network_changed();
+            connection_.network_changed();
         }
         if (reload_pending_ && !storage_pending() && !closing_)
             reload();
-        if (++timer_tick_ % 4 == 0 && session_ && state_ == State::Connected &&
+        if (++timer_tick_ % 4 == 0 && connection_.active() && state_ == State::Connected &&
             IsWindowVisible(window_) && !IsIconic(window_))
-            session_->request_statistics();
+            connection_.request_statistics();
         return 0;
     }
     if (message == WM_COMMAND) {
@@ -925,7 +893,7 @@ LRESULT Application::message(UINT message, WPARAM wparam, LPARAM lparam) {
     if (message == WM_QUERYENDSESSION) {
         if (storage_pending())
             return FALSE;
-        if (session_)
+        if (connection_.active())
             disconnect();
         return TRUE;
     }

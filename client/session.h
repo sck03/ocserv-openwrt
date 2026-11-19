@@ -97,7 +97,6 @@ private:
     static void setup_tun_callback(void *context);
     static void reconnected_callback(void *context);
     static int lock_token_callback(void *context);
-    static int unlock_token_callback(void *context, const char *token);
     int authenticate(oc_auth_form *form);
     int validate_certificate(const char *reason);
     bool ask(const std::shared_ptr<Prompt> &prompt);

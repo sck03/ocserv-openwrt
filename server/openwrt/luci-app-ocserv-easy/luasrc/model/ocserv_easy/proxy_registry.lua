@@ -2,9 +2,9 @@
 -- Keep service identity and capabilities in one place. A shared core binary
 -- does not imply shared configuration, ingress rules or rollback semantics.
 local entries={
-    {name="openclash",label="OpenClash",option="enable",adapter="openclash"},
-    {name="nikki",label="Nikki",option="enabled",adapter="ucode"},
-    {name="momo",label="Momo",option="enabled",adapter="ucode"},
+    {name="openclash",label="OpenClash",option="enable",adapter="openclash",dns_table="fw4",dns_chain="openclash_dns_redirect"},
+    {name="nikki",label="Nikki",option="enabled",adapter="ucode",dns_table="nikki",dns_chain="lan_dns_hijack"},
+    {name="momo",label="Momo",option="enabled",adapter="ucode",dns_table="momo",dns_chain="lan_dns_hijack"},
     {name="passwall",label="PassWall"},
     {name="passwall2",label="PassWall 2"},
     {name="homeproxy",label="HomeProxy"},

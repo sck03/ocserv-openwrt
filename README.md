@@ -1,6 +1,6 @@
 # 岚序（Lansyra）
 
-岚序（Lansyra）提供 Windows 10/11 原生客户端 0.8.0、macOS 13+ Universal 客户端 0.2.0 和 Linux amd64/arm64 桌面客户端 0.2.0，以及 Android 0.3.0 / iOS 0.3.0 移动客户端。配套 ocserv 1.6.0-r5 服务端和中文管理页 0.8.2-r1。Windows 提供 x86/x64 便携包；Linux 支持 Debian 13 / Ubuntu 26.04，macOS 实际连接需要有效的 Apple 系统扩展签名。桌面安装方式见[桌面客户端说明](docs/DESKTOP.md)。服务端支持 **OpenWrt 25.12 / APK** 的六个目标，具体架构见 [OpenWrt 多架构说明](docs/OPENWRT.md)。
+岚序（Lansyra）提供 Windows 10/11 原生客户端 0.9.0、macOS 13+ Universal 客户端 0.2.0 和 Linux amd64/arm64 桌面客户端 0.3.0，以及 Android 0.4.0 / iOS 0.3.0 移动客户端。配套 ocserv 1.6.0-r6 服务端和中文管理页 0.9.0-r1。Windows 提供 x86/x64 便携包；Linux 支持 Debian 13 / Ubuntu 26.04，macOS 实际连接需要有效的 Apple 系统扩展签名。桌面安装方式见[桌面客户端说明](docs/DESKTOP.md)。服务端支持 **OpenWrt 25.12 / APK** 的六个目标，具体架构见 [OpenWrt 多架构说明](docs/OPENWRT.md)。
 
 客户端界面名称统一为 **岚序 Lansyra**，Windows 程序为 `Lansyra.exe`，Linux 包和命令为 `lansyra`，Android / iOS 默认安装 ID 为 `io.github.sck03.lansyra`，macOS 为 `io.github.sck03.lansyra.macos`。本轮按未部署项目重构，不迁移旧客户端数据：Windows 使用 schema 3 与独立偏好文件，Android 使用 schema 4，macOS 使用 schema 2。请创建新配置或导入公共连接信息后重新填写凭据；Apple 签名描述文件须匹配应用标识。模块和存储契约见[架构说明](docs/ARCHITECTURE.md)。
 
@@ -12,7 +12,7 @@ Windows 客户端提供服务器配置列表、VPN 信息、独立日志、服�
 
 ## 客户端连接
 
-当前公共配置统一为带 `Version=1` 的 `.vpn`，Windows、Android、macOS、iOS、Linux 均有导入入口。管理页按目标平台筛选证书方式；Apple 使用固定 Pin，Linux 使用 CA/首次确认，Android 不支持服务器 DNS 分流。私有连接选项和凭据留在本机，旧公共文件需重新导出。详见[格式与能力矩阵](docs/CONNECTION-PROFILE.md)。
+当前公共配置统一为带 `Version=1` 的 `.vpn`，Windows、Android、macOS、iOS、Linux 均有导入入口。管理页按目标平台筛选证书方式；Apple 使用固定 Pin，Linux 使用 CA/首次确认。服务端统一下发隧道 DNS，DNS 和代理规则由 OpenClash、Nikki、Momo 或所配置的解析器处理，不再提供客户端 DNS 分流开关。私有连接选项和凭据留在本机，旧公共文件需重新导出。详见[格式与能力矩阵](docs/CONNECTION-PROFILE.md)。
 
 1. 将对应架构的 ZIP 完整解压到空目录，运行 `Lansyra.exe`。
 2. 从 **配置 → 新建配置** 保存服务器，也可直接输入 `192.168.19.253:4443`、`vpn.example.com:4443` 或 `[IPv6地址]:4443`（自动补上 `https://`）。高级配置可设置证书、HOTP/TOTP/STOKEN、系统代理、UDP 和重连。
@@ -24,6 +24,10 @@ Windows 客户端提供服务器配置列表、VPN 信息、独立日志、服�
 `.vpn` 配置、公共 CA 和管理员预先核实的完整指纹仍可选用。无需先把自签证书导入 Windows 根证书库。过期或尚未生效的证书仍需修正证书或系统时间。
 
 客户端的 **配置 → 导出配置** 可将所选名称、地址、协议及指纹或公共 CA 保存为 `.vpn`。服务端管理页的 **客户端配置** 默认导出固定服务器公钥指纹，支持自签证书通过域名或 IPv6 接入。导出不包含账号、密码、令牌、脚本或私钥。配置位于程序旁的 `data/`，加密凭据绑定当前 Windows 用户及服务器。
+
+0.9.0 管理页使用接口 v3 与设置契约 3，隔离恢复记录为 schema 4，按成套全新安装使用。CA 分发会校验实际服务端证书链和连接地址；更换外部证书后不会继续分发不匹配的初始 CA。Windows / Android 编辑器保留本次新输入，清除来自旧服务器的凭据；Windows HOTP 在生成验证码前持久预留计数，失败停止认证。
+
+状态轮询返回小摘要，仅在账号页且在线代次变化时获取列表；摘要缓存命中无需解码完整会话列表。Windows / Linux 的连接控制独立于界面，Android 共用配置解析结果，并按界面、通知和小组件的实际需求请求统计。验证证据和实机边界见[验证记录](docs/VALIDATION.md)。
 
 外网连接需要可达的公网入口。运营商 CGNAT 环境不能仅靠域名/DDNS 穿透，需要公网 IPv6、公网 IPv4 或公网中转。N1 旁路由的端口转发、证书选择和升级步骤见[域名与公网连接](docs/WAN.md)。
 

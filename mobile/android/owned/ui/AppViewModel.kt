@@ -32,6 +32,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     val status = VpnBus.status
     val stats = VpnBus.stats
     val logs = VpnBus.logs
+    fun setStatisticsVisible(owner: Any, visible: Boolean) = VpnBus.setStatisticsVisible(owner, visible)
     val pendingPrompt = Interaction.pending
 
     val settings: StateFlow<AppSettings> = repository.settings
@@ -256,7 +257,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    suspend fun saveProfile(profile: VpnProfile): VpnProfile = repository.saveProfile(profile)
+    suspend fun saveProfile(edit: dev.opentunnel.vpn.data.ProfileEdit): VpnProfile = repository.saveProfile(edit)
 
     suspend fun deleteEditingProfile(profileId: String) { repository.deleteProfile(profileId) }
 

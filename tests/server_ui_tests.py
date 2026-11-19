@@ -169,23 +169,24 @@ with sync_playwright() as pw:
         expect(page.get_by_label('证书验证方式', exact=True)).to_have_value('profile')
         expect(page.locator('option[value="pin"]')).to_be_disabled()
         checks.append('export methods follow target client capabilities without an unpinned fallback')
-        def split_dns_targets(route):
+        def unrelated_ca(route):
             response=route.fetch(); payload=response.json()
-            for target in payload['data']['client_targets']:
-                if target['id']=='android': target['unavailable']='unsupported_client_dns'
+            payload['data'].update(ca_available=False,ca_error='ca_certificate_mismatch')
+            payload['data']['client_profile']={'platform':'linux','cert_mode':'profile'}
             route.fulfill(response=response,json=payload)
-        page.route('**/easy/data',split_dns_targets)
+        page.route('**/easy/data',unrelated_ca)
         page.get_by_role('button',name='刷新',exact=True).click()
         # Wait for the refreshed form. Editing the old form intentionally cancels its pending read.
-        expect(page.get_by_label('目标客户端',exact=True)).to_have_value('windows')
-        page.get_by_label('目标客户端',exact=True).select_option('android')
+        expect(page.get_by_label('目标客户端',exact=True)).to_have_value('linux')
         for label in ('保存客户端设置','下载 .vpn 连接配置'):
             expect(page.get_by_role('button',name=label,exact=True)).to_be_disabled()
-        expect(page.get_by_text('Android 不支持 DNS 分流。',exact=False)).to_be_visible()
+        expect(page.get_by_text('公共 CA 无法验证当前服务端证书',exact=False).first).to_be_visible()
+        expect(page.get_by_role('button',name='下载 ca.pem',exact=True)).to_be_disabled()
         page.get_by_label('目标客户端',exact=True).select_option('windows')
+        page.get_by_label('证书验证方式',exact=True).select_option('pin')
         expect(page.get_by_role('button',name='保存客户端设置',exact=True)).to_be_enabled()
-        page.unroute('**/easy/data',split_dns_targets)
-        checks.append('save and download follow the server platform availability reason')
+        page.unroute('**/easy/data',unrelated_ca)
+        checks.append('unrelated CA cannot be saved or distributed, while explicit pin remains available')
         def missing_certificates(route):
             response=route.fetch()
             payload=response.json()

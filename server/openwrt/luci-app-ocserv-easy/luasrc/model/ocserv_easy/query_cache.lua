@@ -24,35 +24,90 @@ function M.identity(path)
     return path .. ":" .. tostring(info.ino) .. ":" .. tostring(info.mtime) .. ":" .. tostring(info.size)
 end
 
-function M.get(name, identity, seconds, query, fresh, limit)
-    local path, marker = paths(name)
+local function cached(path, marker, identity, seconds, limit, valid)
     local time = now()
-    if not fresh then
-        local ok, cached = pcall(function()
-            local raw = storage.read(path, limit)
-            local value = raw and json.parse(raw)
-            -- Read the marker after the snapshot: invalidation may have raced
-            -- with either its publication or this read in another LuCI process.
-            if type(value) == "table" and type(value.generation) == "string" and
-                #value.generation == 32 and value.generation == storage.read(marker, 32) then return value end
-        end)
-        if ok and type(cached) == "table" and cached.identity == identity and
-            type(cached.time) == "number" and cached.time <= time and time - cached.time < seconds and
-            type(cached.value) == "table" then return cached.value end
+    local ok, value = pcall(function()
+        local raw = storage.read(path, limit)
+        local entry = raw and json.parse(raw)
+        -- Check the marker after reading the snapshot, including across processes.
+        if type(entry) == "table" and entry.format == 2 and type(entry.generation) == "string" and
+            #entry.generation == 32 and entry.generation == storage.read(marker, 32) and
+            entry.identity == identity and type(entry.time) == "number" and entry.time <= time and
+            time - entry.time < seconds and type(entry.value) == "table" and
+            (not valid or valid(entry.value)) then return entry end
+    end)
+    return ok and value or nil
+end
+
+local function marker_value(marker)
+    local ok, value = pcall(storage.read, marker, 32)
+    return ok and value or nil
+end
+
+function M.get(name, identity, seconds, query, fresh, limit, project, valid)
+    local path, marker = paths(name)
+    local previous = marker_value(marker)
+    local value = not fresh and cached(path, marker, identity, seconds, limit, valid)
+    if value then return value.value, value.generation, value.time end
+    -- Query locks are independent of configuration transactions. Bounded waits
+    -- coalesce simultaneous cache misses without blocking invalidation.
+    local lock, file
+    pcall(function()
+        storage.directory(root)
+        file = nixio.open(path .. ".lock", nixio.open_flags("wronly", "creat"), "600")
+        if not file then return end
+        for attempt = 1, 101 do
+            if file:lock("tlock") then lock = file; return end
+            if attempt < 101 then nixio.poll({}, 50) end
+        end
+    end)
+    if file and not lock then pcall(function() file:close() end) end
+    if lock then
+        value = cached(path, marker, identity, seconds, limit, valid)
+        if value and (not fresh or value.generation ~= previous) then
+            lock:lock("ulock"); lock:close()
+            return value.value, value.generation, value.time
+        end
     end
     -- Once bypassed, an old success must not reappear after a failed refresh.
     local generation = M.invalidate(name)
-    local value = query()
-    if generation and type(value) == "table" and value.cacheable ~= false then
+    local ok, value = pcall(query)
+    local completed = now()
+    if ok and generation and type(value) == "table" and value.cacheable ~= false then
         pcall(function()
             -- Avoid replacing newer work when possible. Readers also check the
             -- generation, so invalidation between this check and rename is safe.
             if storage.read(marker, 32) ~= generation then return end
-            storage.atomic(path, json.stringify({identity = identity, time = now(),
+            storage.atomic(path, json.stringify({format = 2, identity = identity, time = completed,
                 generation = generation, value = value}), limit)
+            if project then
+                storage.atomic(path .. ".summary", json.stringify({format = 2, identity = identity, time = completed,
+                    generation = generation, value = project(value)}))
+            end
         end)
     end
-    return value
+    if lock then lock:lock("ulock"); lock:close() end
+    if not ok then error(value, 0) end
+    return value, generation, completed
+end
+
+function M.projected(name, identity, seconds, query, project, limit, valid_full, valid_summary)
+    local path, marker = paths(name)
+    local value = cached(path .. ".summary", marker, identity, seconds, nil, valid_summary)
+    if value then return value.value, value.generation end
+    local full, generation, time = M.get(name, identity, seconds, query, false, limit, project, valid_full)
+    local summary = project(full)
+    local published = cached(path .. ".summary", marker, identity, seconds, nil, valid_summary)
+    if published and published.generation == generation then return summary, generation end
+    -- A full-data reader may have populated the cache before this projection
+    -- was requested. Preserve its original expiry when adding the small view.
+    if generation then pcall(function()
+        if storage.read(marker, 32) == generation then
+            storage.atomic(path .. ".summary", json.stringify({format = 2, identity = identity, time = time,
+                generation = generation, value = summary}))
+        end
+    end) end
+    return summary, generation
 end
 
 function M.invalidate(name)
@@ -67,6 +122,7 @@ function M.invalidate(name)
     -- writers cannot revive it. Cache IO never changes the live query outcome.
     if not ok then pcall(fs.remove, marker) end
     pcall(fs.remove, path)
+    pcall(fs.remove, path .. ".summary")
     return ok and generation or nil
 end
 

@@ -1,7 +1,7 @@
 -- SPDX-License-Identifier: GPL-3.0-or-later
 -- Pure policy and rendering shared by service startup and management.
 local M = {}
-M.settings_contract = 2
+M.settings_contract = 3
 
 function M.fail(code) error({ code = code }, 0) end
 function M.require(ok, code) if not ok then M.fail(code) end return ok end
@@ -235,9 +235,9 @@ end
 
 M.defaults = { port="4443", udp_port="", max_clients="8", max_same="2", dpd="120", udp="1", compression="0",
     cisco_compat="1", predictable_ips="1", ipaddr="192.168.100.0", netmask="255.255.255.0", ip6addr="", default_domain="", easy_public_url="",
-    split_dns="0",ping_leases="0",server_cert="/etc/ocserv/server-cert.pem",server_key="/etc/ocserv/server-key.pem" }
+    ping_leases="0",server_cert="/etc/ocserv/server-cert.pem",server_key="/etc/ocserv/server-key.pem" }
 local numbers={port={1,65535},max_clients={1,4096},max_same={1,64},dpd={10,3600}}
-local flags={udp=true,compression=true,cisco_compat=true,predictable_ips=true,split_dns=true,ping_leases=true}
+local flags={udp=true,compression=true,cisco_compat=true,predictable_ips=true,ping_leases=true}
 local certificate_modes={pin=true,address=true,profile=true}
 function M.validate_client_profile(server,cert_mode)
     M.require(M.text(server,512),"invalid_url")
@@ -278,6 +278,9 @@ function M.validate_dns(url, ipv6_pool, addresses)
 end
 function M.validate_settings(input)
     M.require(type(input)=="table", "bad_request")
+    for key in pairs(input) do
+        M.require(M.defaults[key]~=nil or key=="dns" or key=="routes" or key=="route_mode", "invalid_settings")
+    end
     local out={}
     for key,default in pairs(M.defaults) do
         local value=input[key]
@@ -305,7 +308,6 @@ function M.validate_settings(input)
         M.require(unicast6(key) and p and p>=16 and p<=112 and network6(key,p), "invalid_ipv6_pool")
     end
     M.require(out.default_domain=="" or M.domain(out.default_domain), "invalid_domain")
-    M.require(out.split_dns~="1" or out.default_domain~="", "split_dns_requires_domain")
     for _, key in ipairs({"server_cert","server_key"}) do
         M.require(out[key]:match("^/[%w%._/%-]+$") and not out[key]:find("/../",1,true) and not out[key]:match("/%.%.$"), "invalid_certificate_path")
     end
@@ -342,6 +344,10 @@ function M.render(template, extra, config, dns, routes, context)
     context=context or {}
     M.require((config.auth or "plain")=="plain", "plain_auth_required")
     M.require(config.proxy_arp~="1", "proxy_arp_managed")
+    for line in ((extra or "").."\n"):gmatch("([^\n]*)\n") do
+        M.require(not line:match("^%s*split%-dns%s*=") and
+            not line:match("^%s*tunnel%-all%-dns%s*="), "unsupported_dns_policy")
+    end
     local function flag(key,default) return (config[key] or default)=="1" and "true" or "false" end
     local domain=config.default_domain or ""
     if domain=="" then domain=context.domain or "" end
@@ -350,7 +356,7 @@ function M.render(template, extra, config, dns, routes, context)
         MAX_CLIENTS=config.max_clients or "8", MAX_SAME=config.max_same or "2", DPD=config.dpd or "120",
         AUTH="plain[passwd=/var/etc/ocpasswd]", DYNDNS="true",
         PREDICTABLE_IPS=flag("predictable_ips","1"), DEFAULT_DOMAIN=domain, ENABLE_DEFAULT_DOMAIN=domain~="" and "" or "#",
-        ENABLE_SPLIT_DNS=config.split_dns=="1" and "" or "#", CISCO_COMPAT=flag("cisco_compat","1"),
+        CISCO_COMPAT=flag("cisco_compat","1"),
         PING_LEASES=flag("ping_leases","0"), UDP=(config.udp or "1")=="1" and "" or "#", COMPRESSION=config.compression=="1" and "" or "#",
         IPV4ADDR=config.ipaddr or "192.168.100.0", NETMASK=config.netmask or "255.255.255.0", IPV6ADDR=config.ip6addr or "",
         ENABLE_IPV6=config.ip6addr and config.ip6addr~="" and "" or "#",

@@ -6,6 +6,7 @@ from urllib.parse import parse_qs
 
 ROOT = Path(__file__).resolve().parents[1]
 from playwright.sync_api import sync_playwright, expect
+from server_browser_support import online_payload, summary_payload
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--url', default='http://127.0.0.1:22981/')
@@ -137,7 +138,8 @@ with sync_playwright() as pw:
     status = page.request.get(args.url + 'easy/status').json()
     status['data']['online'] = [{'id': '7', 'name': 'poll-fixture', 'ip': '192.0.2.1',
                                 'vpn_ip': '10.77.0.7', 'since': 'now', 'state': 'connected'}]
-    page.route('**/easy/status', lambda route: route.fulfill(json=status))
+    page.route('**/easy/status', lambda route: route.fulfill(json=summary_payload(status)))
+    page.route('**/easy/online', lambda route: route.fulfill(json=online_payload(status)))
     page.clock.run_for(3000)
     expect(page.get_by_role('cell', name='192.0.2.1', exact=True)).to_be_visible()
     page.evaluate("window.summaryNode = document.querySelector('.easy-summary').firstChild")
@@ -157,6 +159,7 @@ with sync_playwright() as pw:
     page.get_by_role('button', name='取消', exact=True).click()
     checks.append('service state changes update the action and preserve unchanged online controls')
     page.unroute('**/easy/status')
+    page.unroute('**/easy/online')
     page.clock.run_for(3000)
     expect(page.get_by_role('button', name='停止服务', exact=True)).to_be_visible()
 
@@ -169,7 +172,7 @@ with sync_playwright() as pw:
     page.route('**/easy/action', lambda route: route.fulfill(status=409, json={'ok': False, 'error': 'stale_revision'}))
     page.get_by_role('button', name='关闭开机启动', exact=True).click()
     expect(page.locator('#ocserv-easy > .easy-notice.error')).to_contain_text('配置已被其他页面修改')
-    obsolete[0].fulfill(json=status)
+    obsolete[0].fulfill(json=summary_payload(status))
     page.wait_for_timeout(100)
     expect(page.get_by_role('button', name='停止服务', exact=True)).to_be_visible()
     expect(page.locator('.easy-summary').first).to_contain_text('运行中')
@@ -184,7 +187,7 @@ with sync_playwright() as pw:
     page.wait_for_function('true')
     assert len(obsolete) == 1
     page.evaluate("Object.defineProperty(document, 'hidden', {configurable:true, value:true})")
-    obsolete[0].fulfill(json=status)
+    obsolete[0].fulfill(json=summary_payload(status))
     page.wait_for_timeout(100)
     expect(page.locator('.easy-summary').first).to_contain_text('运行中')
     checks.append('an in-flight poll does not update a tab hidden before its response')

@@ -12,8 +12,8 @@ android {
         applicationId = "io.github.sck03.lansyra"
         minSdk = 26
         targetSdk = 37
-        versionCode = 27
-        versionName = "0.3.0"
+        versionCode = 28
+        versionName = "0.4.0"
         ndk { abiFilters += listOf("arm64-v8a", "armeabi-v7a", "x86_64") }
         buildConfigField("String", "OPENCONNECT_VERSION", "\"${providers.gradleProperty("openconnect.version").get()}\"")
     }

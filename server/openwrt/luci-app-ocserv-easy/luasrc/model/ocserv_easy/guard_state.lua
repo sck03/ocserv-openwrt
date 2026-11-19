@@ -2,7 +2,7 @@
 -- Pure recovery schema. Validate the whole journal before any runtime action.
 local logic=require "ocserv.logic"
 local registry=require "luci.model.ocserv_easy.proxy_registry"
-local M={version=3,root="/etc/ocserv/easy-guard",configs={"firewall","dhcp"}}
+local M={version=4,root="/etc/ocserv/easy-guard",configs={"firewall","dhcp"}}
 for _,name in ipairs(registry.names(true)) do M.configs[#M.configs+1]=name end
 M.configs[#M.configs+1]="ocserv"
 local phases={queued=true,applying=true,pending=true,enabled=true,restoring=true,recovery_failed=true}

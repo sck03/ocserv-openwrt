@@ -1,5 +1,6 @@
 // Native adaptation of OpenConnect GUI v1.6.2 (GPL-2.0-or-later).
 #include "session.h"
+#include "hotp_counter.h"
 #include <algorithm>
 #include <cstring>
 
@@ -11,7 +12,7 @@ bool is_field(const char *value, const char *expected) {
 std::wstring safe(const char *value) {
     return value ? wide(value) : std::wstring();
 }
-}
+} // namespace
 bool Session::ask(const std::shared_ptr<Prompt> &prompt) {
     if (!wait_until_resumed() || !prompt->answered)
         return false;
@@ -306,26 +307,30 @@ int Session::validate_certificate(const char *reason) {
 }
 int Session::lock_token_callback(void *context) {
     auto *self = static_cast<Session *>(context);
-    if (self->current_origin() != self->origin_)
+    if (self->stopped() || self->current_origin() != self->origin_)
         return -EPERM;
-    return openconnect_set_token_mode(self->vpn_, static_cast<oc_token_mode_t>(self->profile_.token_type),
-                                      self->profile_.token.c_str());
-}
-int Session::unlock_token_callback(void *context, const char *token) {
-    auto *self = static_cast<Session *>(context);
     try {
-        if (token) {
-            self->redactor_.remember(token);
-            erase(self->profile_.token);
-            self->profile_.token = token;
-            self->persist([&](Profile &p) {
-                p.token = token;
-                p.token_blob.clear();
-            });
+        std::string next;
+        if (!next_hotp_counter(self->profile_.token, next) ||
+            openconnect_set_token_mode(self->vpn_, OC_TOKEN_MODE_HOTP, self->profile_.token.c_str())) {
+            self->fail(ErrorCategory::Configuration);
+            return -EINVAL;
         }
+        if (!self->store_ || !self->store_->reserve_hotp(self->profile_.id, self->profile_.gateway,
+                                                         self->profile_.token, next, self->error_)) {
+            self->fail(ErrorCategory::Authentication);
+            return -EIO;
+        }
+        self->redactor_.remember(next);
+        erase(self->profile_.token);
+        self->profile_.token = std::move(next);
+        Event event;
+        event.kind = Event::Kind::ProfilesChanged;
+        self->emit(std::move(event));
         return 0;
     } catch (...) {
-        return -1;
+        self->fail(ErrorCategory::Authentication);
+        return -EIO;
     }
 }
 } // namespace vpn

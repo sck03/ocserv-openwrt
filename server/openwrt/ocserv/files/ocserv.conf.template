@@ -44,7 +44,8 @@ predictable-ips = |PREDICTABLE_IPS|
 ipv4-network = |IPV4ADDR|
 ipv4-netmask = |NETMASK|
 |ENABLE_IPV6|ipv6-network = |IPV6ADDR|
-|ENABLE_SPLIT_DNS|split-dns = |DEFAULT_DOMAIN|
+# Clients use the VPN DNS; domain and proxy decisions belong to the resolver.
+tunnel-all-dns = true
 ping-leases = |PING_LEASES|
 config-per-user = /etc/ocserv/config-per-user/
 config-per-group = /etc/ocserv/config-per-group/
@@ -54,8 +55,6 @@ cisco-client-compat = |CISCO_COMPAT|
 expose-iroutes = true
 client-bypass-protocol = false
 camouflage = false
-camouflage_secret = "mysecretkey"
-camouflage_realm = "Restricted Content"
 included-http-headers = Strict-Transport-Security: max-age=31536000 ; includeSubDomains
 included-http-headers = X-Frame-Options: deny
 included-http-headers = X-Content-Type-Options: nosniff

@@ -393,7 +393,8 @@ void Session::cleanup() noexcept {
             const auto routes = script_log_.wstring() + L".routes";
             if (GetFileAttributesW(routes.c_str()) != INVALID_FILE_ATTRIBUTES) {
                 cleanup_failed_ = true;
-                log(PRG_ERR, utf8(L"VPN 路由尚未清理，恢复记录已保留： / VPN route recovery retained: " + routes));
+                log(PRG_ERR,
+                    utf8(L"VPN 路由尚未清理，恢复记录已保留： / VPN route recovery retained: " + routes));
             } else
                 DeleteFileW(script_log_.c_str());
         } catch (...) {
@@ -421,8 +422,9 @@ void Session::run() {
     redactor_.remember(profile_.password);
     redactor_.remember(profile_.token);
     if (profile_.secret_unavailable)
-        log(PRG_INFO, utf8(tr(language_, L"保存的凭据不属于当前 Windows 用户，请重新输入。",
-                             L"Saved credentials are unavailable for this Windows user. Enter them again.")));
+        log(PRG_INFO,
+            utf8(tr(language_, L"保存的凭据不属于当前 Windows 用户，请重新输入。",
+                    L"Saved credentials are unavailable for this Windows user. Enter them again.")));
     Handle session_lock(
         CreateMutexW(nullptr, FALSE, (L"Local\\Lansyra.Session." + wide(profile_.id)).c_str()));
     DWORD acquired = session_lock ? WaitForSingleObject(session_lock.get(), 0) : WAIT_FAILED;
@@ -562,7 +564,8 @@ bool Session::run_attempt() {
         }
     }
     if (profile_.token_type >= 0 && !profile_.token.empty()) {
-        openconnect_set_token_callbacks(vpn_, this, lock_token_callback, unlock_token_callback);
+        if (profile_.token_type == OC_TOKEN_MODE_HOTP)
+            openconnect_set_token_callbacks(vpn_, this, lock_token_callback, nullptr);
         if (openconnect_set_token_mode(vpn_, static_cast<oc_token_mode_t>(profile_.token_type),
                                        profile_.token.c_str()) < 0) {
             error_ =

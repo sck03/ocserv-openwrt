@@ -6,19 +6,21 @@ local function expect(code,fn)
     local ok,err=pcall(fn)
     check(not ok and type(err)=="table" and err.code==code,"expected error: "..code)
 end
-local function test(name,fn) fn(); results[#results+1]=name end
-local function clone(value)
-    if type(value)~="table" then return value end
-    local out={}; for k,v in pairs(value) do out[k]=clone(v) end; return out
+local function test(name,fn)
+    local ok,err=pcall(fn)
+    check(ok,name..": "..(type(err)=="table" and tostring(err.code) or tostring(err)))
+    results[#results+1]=name
 end
-local function fixture_settings()
-    return {port="4443",udp_port="",max_clients="16",max_same="1",dpd="60",udp="1",compression="0",cisco_compat="1",predictable_ips="1",
-        ipaddr="10.77.0.0",netmask="24",ip6addr="",default_domain="",easy_public_url="https://vpn.example.com:4443",dns={"10.77.0.1"},route_mode="split",routes={"192.168.19.0/24"}}
-end
-local old_hash="$6$existingSalt$"..string.rep("a",86)
-local test_pin="pin-sha256:"..TEST_BASE64(string.rep("a",32))
-local function hasher() return "$6$newSalt$"..string.rep("b",86) end
-local original={{id="employee",name="employee01",group="*",password=old_hash}}
+local fixture=require "test.server_fixture"
+local clone,fixture_settings,hasher=fixture.clone,fixture.settings,fixture.hasher
+local old_hash,test_pin,original=fixture.old_hash,fixture.test_pin,fixture.original
+local fs,nixio,cursor,run=fixture.fs,fixture.nixio,fixture.cursor,fixture.run
+local serialize,set_running=fixture.serialize,fixture.set_running
+local backend,request,edit=fixture.backend,fixture.request,fixture.edit
+local contains_command,no_candidates=fixture.contains_command,fixture.no_candidates
+local original_io_open=fixture.original_io_open
+local S
+local function reset()fixture.reset();S=fixture.state()end
 test("JSON null tokens are rejected before jsonc can discard fields or array tails",function()
     for _,raw in ipairs({'null','{"dns":["1.1.1.1",null]}','{"routes":[null]}',
         '{"settings":{"udp":null}}','{"password":"null","settings":null}'}) do
@@ -230,197 +232,6 @@ test("large configurations preserve custom content and all route and DNS entries
     for i=0,127 do check(addresses[i+1]=="10."..i..".0.0") end
 end)
 
--- In-memory OpenWrt boundary. Exercises real backend transactions, not a rewrite
--- of them. External UCI, nixio, occtl and procd are the mocked interfaces.
-local S
-local function serialize(db)
-    local lines,rows={},{}
-    if #db>0 then for _,row in ipairs(db) do rows[#rows+1]=row end
-    else for _,row in pairs(db) do rows[#rows+1]=row end end
-    table.sort(rows,function(a,b)return tostring(a[".name"])<tostring(b[".name"])end)
-    for _,row in ipairs(rows) do
-        lines[#lines+1]=row[".name"]..":"..row[".type"]
-        local keys={};for key in pairs(row) do if key:sub(1,1)~="." then keys[#keys+1]=key end end
-        table.sort(keys);for _,key in ipairs(keys) do lines[#lines+1]=key.."="..tostring(row[key]) end
-    end
-    return table.concat(lines,"\n")
-end
-local function set_running(value)
-    S.running=value;S.files["/var/run/ocserv.pid"]=value and "101\n" or nil
-    S.files["/proc/101/cmdline"]=value and "ocserv-main\0" or nil
-end
-local function reset()
-    local cfg=logic.validate_settings(fixture_settings());cfg[".name"]="config";cfg[".type"]="ocserv"
-    S={files={},dirs={},history={},commands={},disk_events={},version="1.6.0",counter=0,online={},sessions={}}
-    S.db={cfg,{[".name"]="employee",[".type"]="ocservusers",name="employee01",group="*",password=old_hash},
-        {[".name"]="dns1",[".type"]="dns",ip="10.77.0.1"}}
-    S.firewall={
-        ocserv_vpn={ [".name"]="ocserv_vpn", [".type"]="zone", name="ocvpn", device={"vpns+"}, input="ACCEPT", output="ACCEPT", forward="REJECT", mtu_fix="1" },
-        ocserv_vpn_to_lan={ [".name"]="ocserv_vpn_to_lan", [".type"]="forwarding", src="ocvpn", dest="lan" },
-        ocserv_vpn_nat={ [".name"]="ocserv_vpn_nat", [".type"]="nat", name="ocserv VPN source NAT", src="lan", src_ip="10.77.0.0/24", proto="all", family="ipv4", target="MASQUERADE" },
-        ocserv_vpn_entry={ [".name"]="ocserv_vpn_entry", [".type"]="rule", name="Allow ocserv from LAN", src="lan", proto="tcp udp", dest_port="4443", target="ACCEPT" }
-    }
-    S.files["/etc/config/ocserv"]=serialize(S.db);S.history[S.files["/etc/config/ocserv"]]=clone(S.db)
-    S.files["/etc/config/firewall"]=serialize(S.firewall);S.history[S.files["/etc/config/firewall"]]=clone(S.firewall)
-    S.files["/etc/ocserv/ocserv.conf.template"]=TEST_TEMPLATE
-    S.files["/etc/ocserv/ocserv.conf.local"]=""
-    S.files["/var/etc/ocpasswd"]=logic.passwd(original)
-    S.files["/var/etc/ocserv.conf"]='auth = "plain[passwd=/var/etc/ocpasswd]"\n'
-    S.files["/etc/ocserv/ca.pem"]="-----BEGIN CERTIFICATE-----\nTEST PUBLIC CA\n-----END CERTIFICATE-----\n"
-    S.files["/etc/ocserv/server-cert.pem"]="-----BEGIN CERTIFICATE-----\nTEST SERVER\n-----END CERTIFICATE-----\n"
-    S.files["/etc/ocserv/server-key.pem"]="TEST PRIVATE KEY"
-    set_running(true)
-end
-local original_io_open=io.open
-io.open=function(path)
-    if S and S.fail_open==path then return nil,"Permission denied",13 end
-    if not S or S.files[path]==nil then return nil,"No such file",2 end
-    return {read=function(_,limit)
-        if S.fail_read==path then return nil,"Input/output error",5 end
-        local data=S.files[path]:sub(1,limit);return #data>0 and data or nil
-    end,close=function()S.closed_read=path end}
-end
-local function mode(value)
-    check(type(value)=="string" and value:match("^[0-7][0-7][0-7]$"),"nixio expects octal permission digits, not decimal bit masks")
-    return tonumber(value,8)
-end
-local fs={
-    stat=function(path)return S.dirs[path] or S.files[path] and {size=#S.files[path]} end,
-    access=function(path)return S.dirs[path]~=nil or S.files[path]~=nil end,
-    readlink=function(path)if S.running and path=="/proc/101/exe"then return "/usr/sbin/ocserv"end end,
-    mkdir=function(path,value)S.dirs[path]={mode=mode(value)};return true end,
-    chmod=function(path,value)mode(value);return true end,
-    remove=function(path)
-        if S.fail_remove==path then S.fail_remove=nil;return nil end
-        S.files[path]=nil;S.disk_events[#S.disk_events+1]="remove:"..path;return true
-    end,
-    rename=function(from,to)
-        if S.fail_write==to then S.fail_write=nil;return nil end
-        S.disk_events[#S.disk_events+1]="rename:"..to
-        S.files[to]=S.files[from];S.files[from]=nil
-        if S.history[S.files[to]] then
-            if to=="/etc/config/ocserv" then S.db=clone(S.history[S.files[to]]) end
-            if to=="/etc/config/firewall" then S.firewall=clone(S.history[S.files[to]]) end
-        end
-        return true
-    end
-}
-local nixio={bin={},getpid=function()return 42 end,open_flags=function()return 1 end,poll=function()
-    if S and S.wait_ready then S.wait_ready=S.wait_ready-1; if S.wait_ready==0 then S.wait_ready=nil;set_running(true) end end
-end}
-nixio.bin.hexlify=function(value)return (value:gsub(".",function(c)return string.format("%02x",c:byte())end)) end
-nixio.bin.b64encode=TEST_BASE64
-nixio.crypt=function()if S.fail_hash then return "*0" end return hasher()end
-nixio.open=function(path,flags,permissions)
-    if path=="/dev/urandom" then return {read=function(_,count)S.counter=S.counter+1;return string.rep(string.char(S.counter%255),count)end,close=function()end} end
-    if flags=="r" then return {sync=function()
-        S.disk_events[#S.disk_events+1]="sync:"..path
-        if S.fail_directory_sync==path then S.fail_directory_sync=nil;return false end
-        return true
-    end,close=function()end} end
-    mode(permissions)
-    S.files[path]=""
-    return {write=function(_,data,offset)
-        S.write_sizes=S.write_sizes or {};S.write_sizes[#S.write_sizes+1]=#data
-        if S.write_stalled then return 0 end
-        local part=data:sub((offset or 0)+1,(offset or 0)+(S.write_chunk or #data))
-        S.files[path]=S.files[path]..part;return #part
-    end,sync=function()S.disk_events[#S.disk_events+1]="sync:"..path;return true end,close=function()end,lock=function()return not S.busy end}
-end
-local function cursor(directory,savedir)
-    directory=directory or "/etc/config"
-    local db=clone(directory=="/etc/config" and S.db or S.history[S.files[directory.."/ocserv"]] or S.db)
-    local fw=clone(directory=="/etc/config" and S.firewall or S.history[S.files[directory.."/firewall"]] or S.firewall)
-    local function find(id)for _,row in ipairs(db)do if row[".name"]==id then return row end end end
-    local function find_fw(id) return fw[id] end
-    return {
-        get_confdir=function()return directory end,get_savedir=function()return savedir end,
-        load=function(_,package)return directory=="/etc/config" or S.fail_load~=package end,unload=function()end,
-        get=function(_,package,id,key)local row=package=="firewall" and find_fw(id) or find(id);return row and row[key or ".type"]end,
-        get_all=function(_,package,id)return clone(package=="firewall" and find_fw(id) or find(id))end,
-        get_first=function()return "lan"end,
-        foreach=function(_,package,kind,fn)if package=="ocserv"then for _,row in ipairs(db)do if row[".type"]==kind then fn(clone(row))end end end end,
-        changes=function(_,package)return (S.pending==true or S.pending==package) and {[package]={"pending"}} or {}end,
-        add=function(_,package,kind)local id="added"..tostring(#db+1);if package=="firewall" then id="added-fw"..tostring(#db+1);fw[id]={[".name"]=id,[".type"]=kind};return id end;db[#db+1]={[".name"]=id,[".type"]=kind};return id end,
-        set=function(_,package,id,key,value)
-            if package=="firewall" and value==nil then fw[id]={[".name"]=id,[".type"]=key};return true end
-            local row=package=="firewall" and find_fw(id) or find(id);if not row then return nil end;row[key]=value;return true
-        end,
-        delete=function(_,package,id,key)
-            local row=package=="firewall" and find_fw(id) or find(id)
-            if key then if not row or row[key]==nil then return false end;row[key]=nil;return true end
-            if package=="firewall" then fw[id]=nil;return true end
-            for i,item in ipairs(db)do if item[".name"]==id then table.remove(db,i);return true end end
-        end,
-        revert=function()db=clone(S.db);fw=clone(S.firewall);return true end,
-        commit=function(_,package)
-            if S.fail_commit then return nil end
-            if package=="firewall" then local raw=serialize(fw);S.history[raw]=clone(fw);S.files[directory.."/firewall"]=raw;if directory=="/etc/config" then S.firewall=clone(fw) end;return true end
-            local raw=serialize(db);S.history[raw]=clone(db);S.files[directory.."/ocserv"]=raw;if directory=="/etc/config" then S.db=clone(db) end;return true
-        end
-    }
-end
-local function run(argv,timeout,consume)
-    local command=table.concat(argv," ");S.commands[#S.commands+1]=command
-    if command==S.fail_command then S.fail_command=nil;return 1,"fixture failure" end
-    if argv[1]=="/usr/bin/certtool" then
-        return S.certtool_code or 0,S.certtool_output or ("Public Key PIN:\n\t"..test_pin.."\n")
-    end
-    if command=="/usr/sbin/ocserv --version"then
-        if S.version_timeout then return 124,"" end
-        return 0,"OpenConnect VPN Server "..S.version.."\n"
-    end
-    if command:find("--test-config",1,true)then S.candidate=S.files[argv[4]];return S.bad_config and 1 or 0,""end
-    if command:find("occtl --help",1,true)or command:find("occtl help",1,true)then
-        if S.capabilities_timeout then return 124,"" end
-        return 0,"terminate user\nshow sessions all"
-    end
-    if command:find("occtl -j show",1,true) then
-        local online=argv[4]=="users"
-        local rows=online and S.online or S.sessions
-        local raw=(online and S.online_output or S.sessions_output) or (next(rows) and TEST_JSON_ENCODE(rows) or "[]")
-        local code=online and (S.online_code or 0) or (S.bad_sessions and 1 or 0)
-        if not consume then return code,raw end
-        for at=1,#raw,4096 do if consume(raw:sub(at,at+4095))==false then return 125,"" end end
-        return code,""
-    end
-    if command:find("occtl terminate user",1,true)then return S.fail_terminate and 1 or 0,""end
-    if command:find("occtl disconnect id",1,true)then return 0,"disconnected"end
-    if command=="/etc/init.d/ocserv enabled"then return 0,""end
-    if command=="/etc/init.d/ocserv initcerts"then return S.fail_certificates and 1 or 0,""end
-    if command=="/etc/init.d/ocserv restart"then
-        if S.fail_restart then S.fail_restart=nil;set_running(false);return 1,""end
-        if S.restart_delay then set_running(false);S.wait_ready=S.restart_delay;return 0,""end
-        set_running(true);return 0,""
-    end
-    if command=="/etc/init.d/ocserv stop"then set_running(false);return 0,""end
-    if command=="/etc/init.d/ocserv start"then if not S.fail_start then set_running(true)end;return 0,""end
-    return 0,""
-end
-package.loaded["nixio"]=nixio;package.loaded["nixio.fs"]=fs
--- Match OpenWrt 25.12: LuCI's rpcd cursor ignores custom directories.
-package.loaded["luci.model.uci"]={cursor=function()return cursor()end}
-package.loaded["uci"]={cursor=cursor}
-package.loaded["ocserv.process"]={run=run}
-package.loaded["luci.jsonc"]={
-    stringify=function(value) S.json=S.json or {};local key="JSON"..tostring(#S.json+1);S.json[#S.json+1]=clone(value);return key end,
-    parse=function(value)
-        local index=type(value)=="string" and tonumber(value:match("^JSON(%d+)$"))
-        if index then return S.json and clone(S.json[index]) end
-        local ok,decoded=pcall(TEST_JSON_DECODE,value)
-        return ok and decoded or nil
-    end
-}
-local backend=require "luci.model.ocserv_easy.backend"
-local function request(payload)payload.revision=payload.revision or backend.data().revision;return backend.action(payload)end
-local function edit(password,enabled)return {action="save_user",id="employee",name="employee01",group="*",password=password or "",enabled=enabled~=false}end
-local function contains_command(part)for _,cmd in ipairs(S.commands)do if cmd:find(part,1,true)then return true end end return false end
-local function no_candidates()
-    for path in pairs(S.files) do
-        check(not path:match("^/var/run/ocserv%-easy/config%-stage/") and
-            not path:match("^/var/run/ocserv%-easy/check%."),"temporary candidate retained: "..path)
-    end
-end
 test("failed candidate writes release earlier staged configuration files",function()
     reset();local before=S.files["/etc/config/ocserv"]
     S.fail_write="/var/run/ocserv-easy/config-stage/firewall"
@@ -749,7 +560,7 @@ test("online parsing retains valid fields and bounds displayed text",function()
     reset();S.online={{ID="2147483647",Username=string.rep("u",100),Groupname="staff",
         ["Remote IP"]="192.0.2.1",IPv4="10.77.0.2",["Last connected at"]="now",State="connected"}}
     local status=backend.status();local row=status.online[1]
-    check(not status.online_error and row.id=="2147483647" and #row.name==64 and row.group=="staff")
+    check(not status.online_error and row.id=="2147483647" and #row.name==64 and row.group==nil)
     check(row.ip=="192.0.2.1" and row.vpn_ip=="10.77.0.2" and row.since=="now" and row.state=="connected")
 end)
 test("IPv6-only online sessions display their assigned VPN address",function()
@@ -794,11 +605,11 @@ test("repeated refresh and invalidation leave bounded runtime files",function()
     local count=0
     for path in pairs(S.files) do
         if path:find("/var/run/ocserv-easy/",1,true) then
-            check(path=="/var/run/ocserv-easy/query-test.generation",path)
+            check(path=="/var/run/ocserv-easy/query-test.generation" or path=="/var/run/ocserv-easy/query-test.json.lock",path)
             count=count+1
         end
     end
-    check(count==1)
+    check(count==2)
 end)
 test("the official ocserv version banner enables the page",function()
     reset();check(backend.data().supported and backend.data().version=="1.6.0")
@@ -831,7 +642,7 @@ test("a malformed hash can be reset without treating the old record as valid",fu
     check(backend.data().users[1].enabled and not backend.data().users[1].needs_password)
 end)
 test("backend default plain auth and no hash disclosure",function()
-    reset();local data=backend.data();check(data.api_version==2 and data.settings_supported and data.supported and data.running and data.users[1].password==nil)
+    reset();local data=backend.data();check(data.api_version==3 and data.settings_supported and data.supported and data.running and data.users[1].password==nil)
 end)
 test("configuration snapshots reject files changed after UCI loading or final field reads",function()
     local uci=package.loaded["luci.model.uci"]
@@ -1308,12 +1119,11 @@ test("installed package version and advanced fields have one runtime contract",f
     S.files["/lib/apk/db/installed"]="P:unrelated\nV:1.0\n\nP:luci-app-ocserv-easy\nV:9.2.1-r3\n"
     check(backend.data().ui_version=="9.2.1-r3")
     local settings=fixture_settings()
-    settings.split_dns="1";settings.default_domain="vpn.example.com";settings.ping_leases="1"
+    settings.default_domain="vpn.example.com";settings.ping_leases="1"
     request({action="settings",settings=settings,allow_restart=true})
-    check(backend.data().settings.split_dns=="1" and S.candidate:find("ping-leases = true",1,true))
-    expect("unsupported_client_dns",function()backend.export("pin","vpn.example.com","android")end)
-    settings.default_domain=""
-    expect("split_dns_requires_domain",function()request({action="settings",settings=settings,allow_restart=true})end)
+    check(backend.data().settings.split_dns==nil and S.candidate:find("ping-leases = true",1,true))
+    check(S.candidate:find("tunnel-all-dns = true",1,true))
+    check(backend.export("pin","vpn.example.com","android"))
 end)
 test("a reachable DNS family is required before restarting",function()
     reset(); local original=backend.data(); local s=original.settings
@@ -1331,19 +1141,87 @@ test("settings, saved profiles and one-off downloads agree on endpoint conflicts
     expect("dns_is_endpoint",function()request({action="settings",settings=original.settings})end)
     check(backend.data().revision==original.revision)
 end)
-test("split DNS compatibility is enforced in both edit orders and published to clients",function()
+test("removed DNS settings are rejected and all clients receive tunnel DNS",function()
     reset(); local s=backend.data().settings; s.split_dns="1"; s.default_domain="example.test"
     local function select_target(target) return request({action="client_profile",platform=target,server="vpn.example.test",cert_mode="address"}) end
     select_target("android")
-    expect("unsupported_client_dns",function()request({action="settings",settings=s,allow_restart=true})end)
-    select_target("windows"); request({action="settings",settings=s,allow_restart=true})
+    expect("invalid_settings",function()request({action="settings",settings=s,allow_restart=true})end)
+    select_target("windows")
+    expect("invalid_settings",function()request({action="settings",settings=s,allow_restart=true})end)
+    s.split_dns=nil;request({action="settings",settings=s,allow_restart=true})
     local snapshot=backend.data()
     for _,target in ipairs(snapshot.client_targets) do
-        check(target.unavailable==(target.id=="android" and "unsupported_client_dns" or nil))
+        check(target.unavailable==nil)
     end
-    expect("unsupported_client_dns",function()select_target("android")end)
-    expect("unsupported_client_dns",function()backend.export("address","vpn.example.test","android")end)
-    check(backend.data().revision==snapshot.revision)
+    check(backend.export("address","vpn.example.test","android"))
+    expect("unsupported_dns_policy",function()logic.render(TEST_TEMPLATE,"split-dns = example.test",s,{}, {})end)
+end)
+test("CA distribution must validate the active server certificate",function()
+    reset()
+    local settings=backend.data().settings
+    settings.server_cert="/etc/ocserv/external-cert.pem"
+    S.files[settings.server_cert]="-----BEGIN CERTIFICATE-----\nEXTERNAL CHAIN\n-----END CERTIFICATE-----\n"
+    S.ca_verify_code=1
+    request({action="settings",settings=settings,allow_restart=true})
+    local data=backend.data()
+    check(not data.ca_available and data.ca_error=="ca_certificate_mismatch")
+    expect("ca_certificate_mismatch",function()backend.export("profile","vpn.example.test","windows")end)
+    expect("ca_certificate_mismatch",function()request({action="client_profile",server="vpn.example.test",platform="windows",cert_mode="profile"})end)
+    check(backend.data().revision==data.revision)
+    S.ca_verify_code=0;S.files["/etc/ocserv/ca.pem"]="-----BEGIN CERTIFICATE-----\nMATCHING CA\n-----END CERTIFICATE-----\n"
+    check(backend.data().ca_available)
+    check(backend.export("profile","vpn.example.test","windows"))
+    check(contains_command("--verify --load-ca-certificate /etc/ocserv/ca.pem --infile /etc/ocserv/external-cert.pem"))
+end)
+test("summary cache hits never decode the full online snapshot",function()
+    reset()
+    for id=1,4096 do S.online[id]={ID=id,Username="user-"..id} end
+    backend.status()
+    local storage=require "ocserv.storage";local read=storage.read
+    local full_reads=0
+    storage.read=function(path,limit)
+        if path=="/var/run/ocserv-easy/query-online.json" then full_reads=full_reads+1 end
+        return read(path,limit)
+    end
+    local commands,writes=#S.commands,#S.disk_events
+    local ok,err=pcall(function()
+        for _=1,50 do
+            local summary=backend.summary()
+            check(summary.online==nil and summary.online_count==4096 and not summary.online_error)
+        end
+        check(full_reads==0 and #S.commands==commands and #S.disk_events==writes)
+        TEST_SUMMARY_REUSE={sessions=4096,requests=50,large_snapshot_reads=full_reads,
+            query_calls=#S.commands-commands,writes=#S.disk_events-writes}
+    end)
+    storage.read=read
+    if not ok then error(err) end
+    local summary=backend.summary()
+    summary.guard={phase="disabled",enabled=false}
+    TEST_SUMMARY_REUSE.full_response_bytes=#TEST_JSON_ENCODE({ok=true,data=backend.status()})
+    TEST_SUMMARY_REUSE.summary_response_bytes=#TEST_JSON_ENCODE({ok=true,data=summary})
+end)
+test("a cache waiter reuses the query completed by another owner",function()
+    reset()
+    local cache=require "luci.model.ocserv_easy.query_cache"
+    local json=require "luci.jsonc"
+    local path="/var/run/ocserv-easy/query-test.json"
+    local marker="/var/run/ocserv-easy/query-test.generation"
+    cache.get("test","identity",300,function()return {value="shared"}end)
+    local published=json.parse(S.files[path])
+    cache.invalidate("test")
+    published.generation=S.files[marker]
+    local open,poll=nixio.open,nixio.poll
+    local waiting,waits,closed=true,0,false
+    nixio.open=function(name,...)
+        if name~=path..".lock" then return open(name,...) end
+        return {lock=function(_,mode)return mode=="ulock" or not waiting end,close=function()closed=true end}
+    end
+    nixio.poll=function()
+        waits=waits+1;waiting=false;S.files[path]=json.stringify(published)
+    end
+    local ok,result=pcall(function()return cache.get("test","identity",300,function()error("duplicate query")end)end)
+    nixio.open,nixio.poll=open,poll
+    check(ok and result.value=="shared" and waits==1 and closed)
 end)
 TEST_PREVIEW={reset=reset,backend=backend,request=request,state=function()return S end}
 if not TEST_KEEP_SANDBOX then io.open=original_io_open end

@@ -2,6 +2,20 @@
 
 本页记录岚序（Lansyra）全新安装版本的验证证据与实机边界。以前的打包和系统升级记录见[历史版本](https://github.com/sck03/ocserv-openwrt/blob/ba903fe/docs/VALIDATION.md)。
 
+## 2026-11-19 接口 v3、连接控制与按需查询重构
+
+管理页 0.9.0-r1 / ocserv 1.6.0-r6 使用接口 v3、设置契约 3 和隔离记录 schema 4，移除客户端 DNS 分流设置，按新套装全新安装。Windows 0.9.0、Android 0.4.0 修正服务器变化时的新输入处理，Windows HOTP 改为发码前持久预留。Windows / Linux 的连接控制从界面分离，Linux 版本为 0.3.0。现有私有文件结构未变化，不引入旧数据迁移层。
+
+本地 Lua 服务端及公共导出回归通过 138 项，隔离事务 107 项、控制器权限/版本 14 项、代理运行检查 22 项。真实 OpenSSL 证书与 certtool 验证通过 6 项，覆盖匹配链和域名、错误 CA、错误域名、证书轮换、私钥混入及验证中材料变化。这里的证书检查执行真实密码学验证，UCI/procd/nixio 仍使用隔离接口。
+
+Chrome 三种代理各通过 25 项页面检查，4096 会话表格通过 20 项、请求生命周期 32 项、新的摘要/列表按需读取 6 项，总计 133 项且无脚本异常。新夹具独立于测试用例，浏览器入口无需预先运行整套回归。旧列表不能覆盖新摘要，非账号页不拉取列表，取消后的旧请求不能释放新请求。
+
+合成的 4096 会话样例中，完整在线响应 JSON 为 354,318 字节，含禁用隔离状态的摘要为 218 字节。连续 50 次摘要缓存命中没有完整在线文件读取、occtl 调用或文件写入。该结果只覆盖模拟数据的 JSON 体和调用计数，未测量真实 HTTP/TLS 开销、路由器 CPU、峰值 RSS 或 VPN 吞吐。
+
+本地 Windows 配置/DPAPI 回归通过 112 项，新增显式凭据保留、HOTP 计数复用拒绝、持久写入失败及 URI 边界检查。修改的 Windows 控制器、会话、认证和界面源码通过编译器语法检查。完整原生包及其他平台以对应工作流验证为准：[自动回归](https://github.com/sck03/ocserv-openwrt/actions/workflows/regression.yml)、[Windows](https://github.com/sck03/ocserv-openwrt/actions/workflows/build-client.yml)、[Android](https://github.com/sck03/ocserv-openwrt/actions/workflows/build-android.yml)、[Linux/macOS](https://github.com/sck03/ocserv-openwrt/actions/workflows/build-desktop.yml)、[服务端](https://github.com/sck03/ocserv-openwrt/actions/workflows/build-server.yml)。
+
+清理工具的 Windows 回归通过 13 项，包括预览、受保护路径、已跟踪源码、目录占用，以及删除失败后归集到同一目录。当前版本不包含本轮真实路由器部署、手机切网/耗电或 Apple 签名扩展连接的验收。
+
 ## 2026-11-19 接续复核、跨请求缓存与分支整理
 
 原会话的修复已完整包含在 [`fb70ebd`](https://github.com/sck03/ocserv-openwrt/commit/fb70ebd)：DNS 与平台能力统一校验、LuCI 服务重启入口、Windows 网关信任更新、Linux CA 模式切换，以及 Android 准备取消与会话释放通知。该提交的[自动回归](https://github.com/sck03/ocserv-openwrt/actions/runs/44300684226) 三个任务全部通过。继续采用当前管理接口 v2、设置契约 2 和各平台独立存储 schema，不增加旧数据或旧接口迁移。

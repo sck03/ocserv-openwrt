@@ -24,6 +24,7 @@ jobs:
         with:
           node-version: '26'
       - run: python -m pip install lupa playwright pyyaml
+      - run: sudo apt-get update && sudo apt-get install -y --no-install-recommends gnutls-bin openssl
       - run: python -m playwright install --with-deps chrome
       - name: Source, policy and backend regressions
         run: |
@@ -36,6 +37,8 @@ jobs:
           python tests/occtl_runtime_tests.py
           python tests/proxy_runtime_tests.py
           python tests/server_config_tests.py
+          python tests/server_controller_tests.py
+          python tests/certificate_material_tests.py
           python tests/server_maintenance_tests.py
           python tests/server_install_tests.py
           python tests/server_uninstall_tests.py

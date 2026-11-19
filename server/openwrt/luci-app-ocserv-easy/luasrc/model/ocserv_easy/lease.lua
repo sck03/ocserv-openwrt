@@ -1,5 +1,5 @@
 -- SPDX-License-Identifier: GPL-3.0-or-later
--- POSIX record locks match nixio.lockf used by older management packages.
+-- POSIX record locks are shared by the service, management and maintenance tools.
 -- Keep the descriptor open and never unlink the lock file while in use.
 local nixio = require "nixio"
 local fs = require "nixio.fs"

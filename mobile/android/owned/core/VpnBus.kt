@@ -29,7 +29,18 @@ object VpnBus {
     val status: StateFlow<TunnelStatus> = _status.asStateFlow()
 
     private val _stats = MutableStateFlow(TrafficStats())
+    private val statisticsLock = Any()
     val stats: StateFlow<TrafficStats> = _stats.asStateFlow()
+    private val viewers = mutableSetOf<Any>()
+    private val _statisticsVisible = MutableStateFlow(false)
+    val statisticsVisible = _statisticsVisible.asStateFlow()
+    @Synchronized fun setStatisticsVisible(owner: Any, visible: Boolean) {
+        if (visible) viewers.add(owner) else viewers.remove(owner)
+        _statisticsVisible.value = viewers.isNotEmpty()
+    }
+    private val _widgetStatisticsPresent = MutableStateFlow(false)
+    val widgetStatisticsPresent = _widgetStatisticsPresent.asStateFlow()
+    fun setWidgetStatisticsPresent(present: Boolean) { _widgetStatisticsPresent.value = present }
 
     private val logDeque = ArrayDeque<LogLine>(MAX_LOG_LINES)
     private val _logs = MutableStateFlow<List<LogLine>>(emptyList())
@@ -77,7 +88,7 @@ object VpnBus {
     fun reset() {
         diagnostic.clear()
         _status.value = TunnelStatus()
-        _stats.value = TrafficStats()
+        synchronized(statisticsLock) { lastSampleAt = 0L; _stats.value = TrafficStats() }
     }
 
     private fun defaultDetail(stage: ConnectionStage): String? = when (stage) {
@@ -93,12 +104,13 @@ object VpnBus {
     private var lastSampleAt = 0L
 
     fun updateStats(rxBytes: Long, txBytes: Long, rxPackets: Long, txPackets: Long, nowElapsed: Long) {
-        _stats.update { prev ->
+        synchronized(statisticsLock) {
+            val prev = _stats.value
             val dtMs = if (lastSampleAt == 0L) 0L else (nowElapsed - lastSampleAt)
-            val rxRate = if (dtMs > 250) (rxBytes - prev.rxBytes) * 1000 / dtMs else prev.rxRate
-            val txRate = if (dtMs > 250) (txBytes - prev.txBytes) * 1000 / dtMs else prev.txRate
+            val rxRate = if (dtMs <= 0) 0 else if (dtMs > 250) (rxBytes - prev.rxBytes) * 1000 / dtMs else prev.rxRate
+            val txRate = if (dtMs <= 0) 0 else if (dtMs > 250) (txBytes - prev.txBytes) * 1000 / dtMs else prev.txRate
             lastSampleAt = nowElapsed
-            TrafficStats(
+            _stats.value = TrafficStats(
                 rxBytes = rxBytes,
                 txBytes = txBytes,
                 rxPackets = rxPackets,
@@ -111,7 +123,7 @@ object VpnBus {
     }
 
     fun resetStatsWindow() {
-        lastSampleAt = 0L
+        synchronized(statisticsLock) { lastSampleAt = 0L }
     }
 
 

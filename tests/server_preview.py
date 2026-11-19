@@ -19,8 +19,7 @@ install_modules(lua)
 lua.globals().TEST_TEMPLATE=(ROOT/'server/openwrt/ocserv/files/ocserv.conf.template').read_text(encoding='utf-8')
 lua.globals().TEST_BASE64=lambda value:base64.b64encode(value.encode()).decode()
 lua.globals().TEST_KEEP_SANDBOX=True
-lua.execute((ROOT/'tests/server_logic_tests.lua').read_text(encoding='utf-8'))
-fixture=lua.globals().TEST_PREVIEW
+fixture=lua.eval('require("test.server_fixture")')
 fixture.reset()
 backend=fixture.backend
 safe_call=lua.eval('function(fn,...) local ok,result=pcall(fn,...);return ok,result end')
@@ -29,8 +28,7 @@ install(guard_lua)
 install_modules(guard_lua)
 guard_lua.globals().TEST_TEMPLATE=lua.globals().TEST_TEMPLATE
 guard_lua.globals().TEST_GUARD=(ROOT/'server/openwrt/luci-app-ocserv-easy/root/usr/share/ocserv-easy/guard.nft.in').read_text(encoding='utf-8')
-guard_lua.execute((ROOT/'tests/guard_transaction_tests.lua').read_text(encoding='utf-8'))
-guard_fixture=guard_lua.globals().TEST_GUARD_PREVIEW
+guard_fixture=guard_lua.eval('require("test.guard_fixture")')
 guard_fixture.reset()
 guard_fixture.state().preview=True
 guard=guard_fixture.guard
@@ -54,7 +52,7 @@ def to_python(value):
 
 resources=ROOT/'server/openwrt/luci-app-ocserv-easy/htdocs/luci-static/resources/ocserv-easy'
 def data(status=False):
-    value=to_python(backend.status() if status else backend.data())
+    value=to_python(backend.summary() if status else backend.data())
     if not status:value['ui_version']=preview_version
     value['guard']=to_python(guard.status('192.168.19.2',not status))
     if not status:value['revision']+='-guard-'+str(guard_revision)
@@ -70,6 +68,8 @@ class Handler(BaseHTTPRequestHandler):
             self.send((resources/parts.path[1:]).read_bytes(),'text/javascript; charset=utf-8' if parts.path.endswith('.js') else 'text/css; charset=utf-8');return
         if parts.path in ('/easy/data','/easy/status'):
             self.send(json.dumps({'ok':True,'data':data(status=parts.path.endswith('/status'))}));return
+        if parts.path=='/easy/online':
+            self.send(json.dumps({'ok':True,'data':to_python(backend.status())}));return
         if parts.path=='/easy/guard-log':
             logs=guard_lua.eval('require("luci.model.ocserv_easy.guard_log").read')()
             self.send(json.dumps({'ok':True,'data':to_python(logs)}));return

@@ -3,7 +3,9 @@ param(
     [switch]$Apply,
     [switch]$IncludeDependencies,
     [switch]$IncludeTestResults,
-    [switch]$DeepClean
+    [switch]$DeepClean,
+    [switch]$QuarantineOnly,
+    [string]$QuarantineDirectory = 'artifacts\manual-delete'
 )
 
 $ErrorActionPreference = 'Stop'
@@ -150,6 +152,18 @@ $plan | Sort-Object Bytes -Descending |
     Select-Object Relative, @{Name='MiB'; Expression={[math]::Round($_.Bytes / 1MB, 2)}} |
     Format-Table -AutoSize
 $totalBytes = ($plan | Measure-Object -Property Bytes -Sum).Sum
+$quarantineRoot = Assert-WorkspacePath (Join-Path $cleanupRoot $QuarantineDirectory)
+if ($quarantineRoot.Equals((Join-Path $cleanupRoot '.git'), [StringComparison]::OrdinalIgnoreCase) -or
+    $quarantineRoot.StartsWith((Join-Path $cleanupRoot '.git') + '\', [StringComparison]::OrdinalIgnoreCase)) {
+    throw 'Quarantine must not use the Git directory.'
+}
+foreach ($target in $plan) {
+    if ($quarantineRoot.Equals($target.Path, [StringComparison]::OrdinalIgnoreCase) -or
+        $quarantineRoot.StartsWith($target.Path + '\', [StringComparison]::OrdinalIgnoreCase) -or
+        $target.Path.StartsWith($quarantineRoot + '\', [StringComparison]::OrdinalIgnoreCase)) {
+        throw 'Quarantine must be separate from every cleanup target.'
+    }
+}
 Write-Output ('Selected {0} targets, {1:N3} GiB.' -f $plan.Count, ($totalBytes / 1GB))
 if (!$Apply) {
     foreach ($relative in $pendingDirectories) { Write-Output "Windows directory deletion pending: $relative" }
@@ -157,9 +171,34 @@ if (!$Apply) {
     return
 }
 
+$quarantined = [System.Collections.Generic.List[object]]::new()
+$failed = [System.Collections.Generic.List[string]]::new()
+function Move-ToQuarantine($Target) {
+    $source = (Resolve-Path -LiteralPath (Assert-WorkspacePath $Target.Path)).Path
+    $destination = Assert-WorkspacePath (Join-Path $quarantineRoot $Target.Relative)
+    if (Test-Path -LiteralPath $destination) { $destination += '-' + [Guid]::NewGuid().ToString('N') }
+    $destination = Assert-WorkspacePath $destination
+    $parent = Split-Path -Parent $destination
+    [IO.Directory]::CreateDirectory($parent) | Out-Null
+    $null = Assert-WorkspacePath $parent
+    if (!$destination.StartsWith($quarantineRoot + '\', [StringComparison]::OrdinalIgnoreCase)) {
+        throw 'Quarantine destination escaped its directory.'
+    }
+    $item = Get-Item -LiteralPath $source -Force
+    $remaining = if ($item.PSIsContainer) {
+        (Get-ChildItem -LiteralPath $source -File -Recurse -Force | Measure-Object Length -Sum).Sum
+    } else { $item.Length }
+    Move-Item -LiteralPath $source -Destination $destination -ErrorAction Stop
+    $quarantined.Add([pscustomobject]@{ Source = $Target.Relative; Destination = $destination; Bytes = [long]$remaining })
+    Write-Output "Moved for manual deletion: $destination"
+}
 foreach ($target in $plan) {
     $resolved = (Resolve-Path -LiteralPath (Assert-WorkspacePath $target.Path)).Path
     if ($resolved -ne $target.Path) { throw "A reviewed path changed: $($target.Path)" }
+    if ($QuarantineOnly) {
+        try { Move-ToQuarantine $target } catch { $failed.Add("Cleanup did not finish: $resolved; $_") }
+        continue
+    }
     # Directory watchers can retain an empty directory after Windows accepts deletion.
     # Only the exact native pending-deletion status is deferred; access errors still fail.
     for ($attempt = 0; $attempt -lt 3 -and (Test-Path -LiteralPath $resolved); $attempt++) {
@@ -168,12 +207,20 @@ foreach ($target in $plan) {
     }
     if (Test-Path -LiteralPath $resolved) {
         if (Test-PendingDirectoryDeletion $resolved) { $pendingDirectories.Add($target.Relative) }
-        else { throw "Cleanup did not finish: $resolved; $($cleanupErrors[0])" }
+        else {
+            try { Move-ToQuarantine $target } catch { $failed.Add("Cleanup did not finish: $resolved; $_") }
+        }
     }
 }
-Write-Output ('Deleted {0:N3} GiB of generated files.' -f ($totalBytes / 1GB))
+if ($quarantined.Count) {
+    $receipt = Assert-WorkspacePath (Join-Path $quarantineRoot ('cleanup-' + [Guid]::NewGuid().ToString('N') + '.json'))
+    $quarantined | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath $receipt -Encoding UTF8
+}
+$movedBytes = ($quarantined | Measure-Object -Property Bytes -Sum).Sum
+Write-Output ('Processed {0:N3} GiB of generated files; {1:N3} GiB moved for manual deletion.' -f ($totalBytes / 1GB), ($movedBytes / 1GB))
 foreach ($relative in $pendingDirectories) {
     Write-Output "Windows directory deletion pending: $relative; it disappears when the existing watcher closes its handle."
 }
 Write-Output 'Release packages, backups, private configurations and source files were retained.'
 if ($DeepClean) { Write-Output 'Run the documented dependency setup before the next local build or test.' }
+if ($failed.Count) { throw ($failed -join "`n") }

@@ -158,6 +158,37 @@ class CleanupTests(unittest.TestCase):
             self.assertFalse((self.root / '.venv').exists())
         self.assertFalse(reference.exists())
 
+    def test_quarantine_only_collects_targets_without_losing_contents(self):
+        result = self.clean('-Apply', '-QuarantineOnly', '-IncludeTestResults')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        destination = self.root / 'artifacts/manual-delete'
+        self.assertEqual((destination / 'build/cache.bin').read_text(), 'fixture')
+        self.assertEqual((destination / 'test-results/report.json').read_text(), 'fixture')
+        self.assertFalse((self.root / 'build').exists())
+        self.assertTrue(list(destination.glob('cleanup-*.json')))
+        self.assertTrue((self.root / 'private-configs/momo/config.json').is_file())
+
+    def test_quarantine_cannot_be_inside_a_cleanup_target_or_git(self):
+        for directory in ('build/trash', '.git/trash', '../outside'):
+            result = self.clean('-Apply', '-QuarantineDirectory', directory)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertTrue((self.root / 'build/cache.bin').is_file())
+
+    def test_delete_failure_uses_quarantine(self):
+        script = str(self.root / 'scripts/clean-workspace.ps1').replace("'", "''")
+        command = r'''
+            function Remove-Item {
+                [CmdletBinding()]
+                param([string]$LiteralPath, [switch]$Recurse, [switch]$Force)
+                if ((Split-Path -Leaf $LiteralPath) -eq 'build') { Write-Error 'Synthetic deletion denial'; return }
+                Microsoft.PowerShell.Management\Remove-Item @PSBoundParameters
+            }
+        ''' + "& '" + script + "' -Apply"
+        result = subprocess.run([POWERSHELL, '-NoProfile', '-Command', command], capture_output=True,
+                                text=True, errors='replace', timeout=30)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual((self.root / 'artifacts/manual-delete/build/cache.bin').read_text(), 'fixture')
+
 
 if __name__ == "__main__":
     unittest.main()

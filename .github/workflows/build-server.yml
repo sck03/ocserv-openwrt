@@ -110,6 +110,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends nftables iproute2 gnutls-bin openssl
           python3 tests/server_certificate_tests.py
+          python3 tests/certificate_material_tests.py
           sudo python3 tests/vpn_guard_tests.py 2>&1 | tee test-results/vpn-guard-tests.log
       - name: Validate management page and stalled requests
         run: |

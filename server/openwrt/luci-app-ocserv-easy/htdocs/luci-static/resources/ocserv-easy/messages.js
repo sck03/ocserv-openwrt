@@ -5,9 +5,9 @@
     var errors = {
       interface_mismatch: t("页面与服务接口版本不一致，请刷新页面或重新安装完整套装。", "Page and service versions differ. Reload or reinstall the complete bundle."),
       unsupported_client_profile: t("目标客户端不支持所选证书方式，请重新选择客户端和导出方式。", "The target client does not support this certificate method."),
-      split_dns_requires_domain: t("启用 DNS 分流前请填写默认域名。", "Enter a default domain before enabling split DNS."),
       invalid_certificate_path: t("请填写有效的证书和私钥绝对路径。", "Enter valid absolute certificate and private key paths."),
-      unsupported_client_dns: t("Android 不支持 DNS 分流。请关闭 DNS 分流，或先保存其他目标客户端。", "Disable split DNS or save a target client other than Android first."),
+      ca_certificate_mismatch: t("公共 CA 无法验证当前服务端证书或连接地址。请选择固定指纹，或配置与服务端证书和地址匹配的公共 CA。", "The public CA does not verify the active certificate or server address. Use a pinned profile or a CA matching the certificate and address."),
+      unsupported_dns_policy: t("当前套装统一使用隧道 DNS。请移除自定义配置中的客户端 DNS 分流指令。", "This bundle uses tunnel DNS. Remove client split-DNS directives from the custom configuration."),
       ipv4_dns_required: t("仅配置 IPv4 地址池时，至少需要一个 IPv4 DNS 服务器。", "An IPv4-only tunnel needs at least one IPv4 DNS server."),
       pin_unavailable: t("无法读取唯一的服务端证书公钥指纹，请检查证书或虚拟主机配置。", "Cannot determine a single server public-key pin. Check the certificate and virtual hosts."),
       file_too_large: t(

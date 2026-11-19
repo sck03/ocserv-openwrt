@@ -53,7 +53,7 @@ class RouterAPI:
         return self.api('data')
 
     def action(self, **payload):
-        return self.api('action', dict(api_version=2, revision=self.data()['revision'], **payload))
+        return self.api('action', dict(api_version=3, revision=self.data()['revision'], **payload))
 
     def settings(self, values):
         values = copy.deepcopy(values)
@@ -106,14 +106,14 @@ def main():
         return next(user for user in (api.data()['users'] or []) if user['name'] in owned)
 
     try:
-        assert baseline['api_version'] == 2 and baseline['supported']
+        assert baseline['api_version'] == 3 and baseline['supported']
         assert baseline['certificates_ready'] and not baseline['installation_pending']
         passed('installed versions, certificate readiness and API contract')
         reject('interface_mismatch', lambda: api.api('action', {'api_version': 1, 'action': 'service'}))
         reject('stale_revision', lambda: api.api('action', {
-            'api_version': 2, 'action': 'service', 'command': 'start', 'revision': 'stale'}))
+            'api_version': 3, 'action': 'service', 'command': 'start', 'revision': 'stale'}))
         status, _ = api.request(api.options['base'] + '/action', {
-            'token': 'invalid', 'payload': json.dumps({'api_version': 2, 'action': 'service'})})
+            'token': 'invalid', 'payload': json.dumps({'api_version': 3, 'action': 'service'})})
         assert status == 403, status
         passed('API version, stale revision and CSRF rejection')
 
@@ -145,7 +145,7 @@ def main():
         invalid = dict(settings, port='0')
         reject('invalid_port', lambda: api.settings(invalid))
         reject('bad_request', lambda: api.api('action', {
-            'api_version': 2, 'action': 'settings', 'revision': api.data()['revision'],
+            'api_version': 3, 'action': 'settings', 'revision': api.data()['revision'],
             'settings': dict(settings, dns=['1.1.1.1', None])}))
         passed('unchanged settings avoid writes; invalid port and JSON null are rejected')
         changed = dict(settings, port='4444' if settings['port'] != '4444' else '4445',
@@ -186,11 +186,11 @@ def main():
 
         api.action(action='client_profile', server=server, cert_mode='pin', platform='windows')
         assert api.data()['client_profile'] == {'cert_mode': 'pin', 'platform': 'windows'}
-        api.settings(dict(settings, split_dns='1', default_domain='qa.invalid'))
-        assert api.download('pin', server, 'android')[0] == 400
+        reject('invalid_settings', lambda: api.settings(dict(settings, split_dns='1', default_domain='qa.invalid')))
+        assert api.download('pin', server, 'android')[0] == 200
         assert api.download('pin', server, 'windows')[0] == 200
         api.settings(settings)
-        passed('saved export settings and Android split-DNS restriction')
+        passed('saved export settings and removed split-DNS field rejection')
 
         if not baseline['guard']['available'] and baseline['guard'].get('reason') == 'guard_requires_proxy':
             reject('guard_requires_proxy', lambda: api.action(action='guard', command='enable'))

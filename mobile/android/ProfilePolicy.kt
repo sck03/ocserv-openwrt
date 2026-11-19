@@ -5,6 +5,10 @@ import dev.opentunnel.vpn.core.ConnectionPolicy
 import java.net.URI
 import java.util.UUID
 
+/** Editor intent is never persisted with the profile or credentials. */
+enum class ProfileField { USERNAME, PASSWORD, GROUP, TOKEN, PIN, CA, CERTIFICATE, KEY }
+data class ProfileEdit(val profile: VpnProfile, val fields: Set<ProfileField> = emptySet())
+
 /** Shared by import, persistence and delayed certificate updates. */
 internal object ProfilePolicy {
     const val MAX_BYTES = 1024 * 1024
@@ -50,10 +54,19 @@ internal object ProfilePolicy {
     fun portable(profile: VpnProfile): VpnProfile = profile.copy(username = "", password = "", tokenString = "",
         caCertPath = "", userCertPath = "", privateKeyPath = "")
 
-    fun updated(previous: VpnProfile?, candidate: VpnProfile): VpnProfile {
+    fun updated(previous: VpnProfile?, candidate: VpnProfile, fields: Set<ProfileField> = emptySet()): VpnProfile {
         val normalized = if (candidate.overrideDpdTimeout) candidate else candidate.copy(dpdSeconds = 0)
         return if (previous != null && origin(previous.server) != origin(candidate.server))
-            portable(normalized).copy(authGroup = "", trustedCertificate = "")
+            normalized.copy(
+                username = if (ProfileField.USERNAME in fields) normalized.username else "",
+                password = if (ProfileField.PASSWORD in fields) normalized.password else "",
+                authGroup = if (ProfileField.GROUP in fields) normalized.authGroup else "",
+                tokenString = if (ProfileField.TOKEN in fields) normalized.tokenString else "",
+                trustedCertificate = if (ProfileField.PIN in fields) normalized.trustedCertificate else "",
+                caCertPath = if (ProfileField.CA in fields) normalized.caCertPath else "",
+                userCertPath = if (ProfileField.CERTIFICATE in fields) normalized.userCertPath else "",
+                privateKeyPath = if (ProfileField.KEY in fields) normalized.privateKeyPath else "",
+            )
         else normalized
     }
 }

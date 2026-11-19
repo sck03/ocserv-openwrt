@@ -3,7 +3,7 @@ local nixio = require "nixio"
 local fs = require "nixio.fs"
 local uci = require "luci.model.uci"
 local logic = require "ocserv.logic"
-logic.require(logic.settings_contract==2,"interface_mismatch")
+logic.require(logic.settings_contract==3,"interface_mismatch")
 local guard = require "luci.model.ocserv_easy.guard"
 local firewall = require "luci.model.ocserv_easy.firewall"
 local run = require("ocserv.process").run
@@ -14,6 +14,7 @@ local proxy = require "luci.model.ocserv_easy.proxy"
 local sessions = require "luci.model.ocserv_easy.occtl"
 local runtime = require "ocserv.runtime"
 local client_profile = require "luci.model.ocserv_easy.client_profile"
+local certificate_material = require "luci.model.ocserv_easy.certificate_material"
 local read, atomic, directory, random_bytes = storage.read, storage.atomic, storage.directory, storage.random
 local M = {}
 local config_path="/etc/config/ocserv"
@@ -74,19 +75,47 @@ local function snapshot()
         firewall_loaded=firewall_loaded,firewall_raw=firewall_raw,template=template,extra=extra,
         revision=logic.revision(raw,"\0",firewall_raw or "","\0",template,"\0",extra)}
 end
-function M.status(fresh)
-    local result={running=running(),online={},recovery_pending=configuration.pending()}
+local function rendered(s)
+    return logic.render(s.template,s.extra,s.config,s.dns,s.routes,
+        {domain=s.cursor:get_first("dhcp","dnsmasq","domain","")})
+end
+local function summarize(online)
+    return {online_count=#online.online,online_error=online.online_error==true}
+end
+local function valid_online(value)
+    return logic.array(value.online,4096) and (value.online_error==nil or type(value.online_error)=="boolean")
+end
+local function valid_summary(value)
+    return type(value.online_count)=="number" and value.online_count%1==0 and value.online_count>=0 and
+        value.online_count<=4096 and type(value.online_error)=="boolean"
+end
+local function status(fresh,summary)
+    local result={running=running(),online={},online_count=0,online_error=false,online_generation="stopped",recovery_pending=configuration.pending()}
     if not result.running then return result end
     local identity=read("/var/run/ocserv.pid",64) or ""
-    local online=query_cache.get("online",identity,5,sessions.online,fresh,sessions.cache_limit)
-    result.online=online.online
-    result.online_error=online.online_error
+    local online,generation
+    if summary then
+        online,generation=query_cache.projected("online",identity,5,sessions.online,summarize,sessions.cache_limit,valid_online,valid_summary)
+        result.online_count=online.online_count
+    else
+        online,generation=query_cache.get("online",identity,5,sessions.online,fresh,sessions.cache_limit,summarize,valid_online)
+        result.online=online.online
+        result.online_count=#online.online
+    end
+    result.online_generation=generation or "uncached"
+    result.online_error=online.online_error==true
+    return result
+end
+function M.status(fresh) return status(fresh,false) end
+function M.summary()
+    local result=status(false,true)
+    result.online=nil
     return result
 end
 function M.data(admin,permissions)
     local s=snapshot(); local state=M.status(true)
     state.version=version()
-    state.api_version=2
+    state.api_version=3
     state.ui_version=require("luci.model.ocserv_easy.package_version").read()
     state.permissions=permissions or {write=true,settings=true,guard=true}
     state.supported=logic.supported_version(state.version)
@@ -97,14 +126,19 @@ function M.data(admin,permissions)
     state.settings=logic.settings(s.config,s.dns,s.routes)
     state.settings_supported=(s.config.auth or "plain")=="plain" and s.config.proxy_arp~="1"
     state.autostart=run({"/etc/init.d/ocserv","enabled"},3)==0
-    local ca=read("/etc/ocserv/ca.pem",65536) or ""
     local certificate=read(s.config.server_cert or "/etc/ocserv/server-cert.pem",65536) or ""
     local key=fs.stat(s.config.server_key or "/etc/ocserv/server-key.pem")
-    state.ca_available=ca:find("-----BEGIN CERTIFICATE-----",1,true)~=nil and not ca:find("PRIVATE KEY",1,true)
+    local ca_state=query_cache.get("client-ca",s.revision..":"..query_cache.identity("/etc/ocserv/ca.pem")..":"..
+        query_cache.identity(s.config.server_cert or "/etc/ocserv/server-cert.pem"),300,function()
+        local ok,err=pcall(function() certificate_material.ca(rendered(s)) end)
+        return {available=ok,error=not ok and (type(err)=="table" and err.code or "ca_unavailable") or nil}
+    end)
+    state.ca_available=ca_state.available
+    state.ca_error=ca_state.error
     state.certificates_ready=certificate:find("-----BEGIN CERTIFICATE-----",1,true)~=nil and key~=nil and (key.size or 0)>0
     state.installation_pending=fs.access("/etc/ocserv/easy-install-pending")==true
     state.client_profile={cert_mode=s.config.easy_cert_mode or "pin",platform=s.config.easy_client_platform or "windows"}
-    state.client_targets=client_profile.targets(state.settings)
+    state.client_targets=client_profile.targets()
     state.guard=guard.status(admin)
     return state
 end
@@ -241,10 +275,9 @@ local function change_user(s,request)
 end
 local managed={}
 for _,key in ipairs({"tcp-port","udp-port","max-clients","max-same-clients","dpd","ipv4-network","ipv4-netmask","ipv6-network","dns","route","auth","compression","predictable-ips","cisco-client-compat","default-domain"}) do managed[key]=true end
-for _,key in ipairs({"server-cert","server-key","split-dns","ping-leases"}) do managed[key]=true end
+for _,key in ipairs({"server-cert","server-key","split-dns","tunnel-all-dns","ping-leases"}) do managed[key]=true end
 local function apply_settings(s,request)
     local values,dns,routes=logic.validate_settings(request.settings)
-    client_profile.require_target(s.config.easy_client_platform or "windows",values)
     for line in (s.extra.."\n"):gmatch("([^\n]*)\n") do
         logic.require(not managed[line:match("^%s*([%w-]+)%s*=")],"custom_override")
     end
@@ -379,35 +412,14 @@ function M.proxy_status()
     result.proxy=name
     return result
 end
-local function server_pin(s)
-    local rendered=logic.render(s.template,s.extra,s.config,s.dns,s.routes,
-        {domain=s.cursor:get_first("dhcp","dnsmasq","domain","")})
-    local certificate
-    for line in (rendered.."\n"):gmatch("([^\n]*)\n") do
-        -- Multiple keys or virtual hosts need an explicitly selected pin.
-        logic.require(not line:match("^%s*%[vhost:"),"pin_unavailable")
-        local path=line:match("^%s*server%-cert%s*=%s*(.-)%s*$")
-        if path then
-            logic.require(not certificate,"pin_unavailable")
-            certificate=path:match('^"(.*)"$') or path
-        end
-    end
-    logic.require(certificate and certificate:sub(1,1)=="/","pin_unavailable")
-    local code,output=run({"/usr/bin/certtool","--pubkey-info","--load-certificate",certificate},8)
-    local pin=code==0 and ("\n"..output.."\n"):match("\n%s*(pin%-sha256:[A-Za-z0-9+/]+=)%s*\n")
-    logic.require(pin and #pin==55,"pin_unavailable")
-    return pin
-end
-local function public_ca()
-    local ca=read("/etc/ocserv/ca.pem",65536)
-    logic.require(ca and ca:find("-----BEGIN CERTIFICATE-----",1,true) and ca:find("-----END CERTIFICATE-----",1,true) and not ca:find("PRIVATE KEY",1,true),"ca_unavailable")
-    return ca
-end
 local function distribution(s,url,mode,platform)
     local server,cert_mode,target=client_profile.validate(url,mode,platform,logic.settings(s.config,s.dns,{}))
     local value
-    if cert_mode=="pin" then value=server_pin(s)
-    elseif cert_mode=="profile" then value=nixio.bin.b64encode(public_ca()) end
+    if cert_mode=="pin" then value=certificate_material.pin(rendered(s))
+    elseif cert_mode=="profile" then
+        local _,hostname=logic.url(server)
+        value=nixio.bin.b64encode(certificate_material.ca(rendered(s),hostname))
+    end
     return server,cert_mode,target,value
 end
 function M.action(request,admin)
@@ -481,7 +493,7 @@ function M.recover(boot)
 end
 function M.export(kind,url,platform)
     logic.require(kind=="ca" or kind=="profile" or kind=="address" or kind=="pin","bad_request")
-    if kind=="ca" then return public_ca(),"ca.pem" end
+    if kind=="ca" then return certificate_material.ca(rendered(snapshot())),"ca.pem" end
     local server,mode,_,value=distribution(snapshot(),url,kind,platform)
     return client_profile.encode(server,mode,value),"Lansyra.vpn"
 end

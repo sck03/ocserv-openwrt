@@ -19,7 +19,13 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
-import kotlinx.coroutines.flow.flowOn
+import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.SupervisorJob
 import java.util.UUID
 import java.io.File
 
@@ -37,24 +43,21 @@ class ProfileStore private constructor(context: Context) {
             "Certificate provider is unavailable"
         }
     }
-    private val _storageError = kotlinx.coroutines.flow.MutableStateFlow<String?>(null)
-    val storageError: kotlinx.coroutines.flow.StateFlow<String?> = _storageError
-
-    val profiles: Flow<List<VpnProfile>> = store.data.map { prefs ->
-        codec.decode(prefs[key].orEmpty()).map { it.profile }.also { _storageError.value = null }
+    private val observations = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    // One upstream subscription and one decode per changed JSON document.
+    // Selection changes reuse metadata and never unlock any credential.
+    private val metadata = flow {
+        val projection = ProfileProjection { raw -> codec.decode(raw).map { it.profile } }
+        store.data.collect { prefs ->
+            emit(projection.snapshot(prefs[key].orEmpty(), prefs[selectedKey].orEmpty()))
+        }
     }.catch { error ->
         if (error is CancellationException) throw error
-        _storageError.value = "Profile storage is unavailable or invalid; connection is blocked."
-        emit(emptyList())
-    }.flowOn(Dispatchers.IO)
-
-    val activeProfile: Flow<VpnProfile> = store.data.map { prefs ->
-        ProfilePolicy.selected(codec.decode(prefs[key].orEmpty()).map { it.profile }, prefs[selectedKey].orEmpty()) ?: VpnProfile()
-    }.catch { error ->
-        if (error is CancellationException) throw error
-        _storageError.value = "Selected profile is unavailable; connection is blocked."
-        emit(VpnProfile())
-    }.flowOn(Dispatchers.IO)
+        emit(ProfileMetadata(error = "Profile storage is unavailable; connection is blocked."))
+    }.stateIn(observations, SharingStarted.WhileSubscribed(5000), ProfileMetadata())
+    val storageError = metadata.map { it.error }.distinctUntilChanged()
+    val profiles: Flow<List<VpnProfile>> = metadata.map { it.profiles }.distinctUntilChanged()
+    val activeProfile: Flow<VpnProfile> = metadata.map { it.selected }.distinctUntilChanged()
 
     suspend fun select(id: String) = operation {
         store.edit { prefs ->
@@ -93,7 +96,8 @@ class ProfileStore private constructor(context: Context) {
         }
     }
 
-    suspend fun save(profile: VpnProfile): VpnProfile = operation {
+    suspend fun save(edit: ProfileEdit): VpnProfile = operation {
+        val profile = edit.profile
         val candidate = if (profile.id.isBlank()) profile.copy(id = UUID.randomUUID().toString()) else profile
         var saved = candidate
         var staged: CertificateFiles.Lease? = null
@@ -101,7 +105,7 @@ class ProfileStore private constructor(context: Context) {
             mutateLocked { current ->
                 val prepared = certificates.stage(candidate).also { staged = it }.profile
                 val index = current.indexOfFirst { it.profile.id == prepared.id }
-                val updated = codec.update(prepared, current.getOrNull(index))
+                val updated = codec.update(prepared, current.getOrNull(index), edit.fields)
                 saved = updated.profile
                 current.toMutableList().apply { if (index < 0) add(updated) else set(index, updated) }
             }
@@ -186,7 +190,6 @@ class ProfileStore private constructor(context: Context) {
                 prefs[selectedKey] = committed.firstOrNull()?.id.orEmpty()
         }
         certificates.reconcile(committed)
-        _storageError.value = null
     }
 
     companion object {

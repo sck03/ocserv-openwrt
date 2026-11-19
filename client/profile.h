@@ -86,6 +86,13 @@ struct Preferences {
     std::string selected, auto_connect;
 };
 bool validate_profile(Profile &profile, std::wstring &error);
+// Input intent is transient; encrypted values are never rebound to another origin.
+struct ProfileEdits {
+    bool username = false, group = false, password = false, token = false;
+    bool pin = false, ca = false, certificate = false, key = false;
+};
+bool validate_profile_edit(Profile &candidate, const Profile *previous, ProfileEdits edits,
+                           std::wstring &error);
 class ProfileStore {
 public:
     static constexpr size_t MaxFileBytes = 8 * 1024 * 1024;
@@ -96,12 +103,13 @@ public:
     bool load(std::vector<Profile> &profiles, Preferences &preferences, std::wstring &error) const;
     bool load_metadata(std::vector<Profile> &profiles, Preferences &preferences, std::wstring &error) const;
     static void unlock(Profile &profile);
-    enum class PinInput { Inherited, Explicit };
-    bool save(Profile &profile, std::wstring &error, PinInput pin_input = PinInput::Inherited);
+    bool save(Profile &profile, std::wstring &error, ProfileEdits edits = {});
     bool remove(const std::string &id, std::wstring &error);
     bool save_preferences(const Preferences &preferences, std::wstring &error);
     bool update_secrets(const std::string &id, const std::wstring &gateway,
                         const std::function<void(Profile &)> &change, std::wstring &error);
+    bool reserve_hotp(const std::string &id, const std::wstring &gateway, const std::string &expected,
+                      const std::string &next, std::wstring &error);
     bool import_connection(const std::filesystem::path &path, Profile &profile, std::wstring &error);
     bool export_connection(const std::filesystem::path &path, const Profile &profile,
                            std::wstring &error) const;
